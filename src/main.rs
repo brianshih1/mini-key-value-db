@@ -1,9 +1,10 @@
-use rocksdb::{Options, DB};
+mod storage;
 
+use rocksdb::{Options, DB};
 fn main() {
-    let path = "test_path";
+    let path = "test_temp_db";
     let db = DB::open_default(path).unwrap();
-    db.put(b"my key", b"my value").unwrap();
+    db.put(b"my key 2", b"my value 2").unwrap();
     match db.get(b"my key") {
         Ok(Some(value)) => println!("retrieved value {}", String::from_utf8(value).unwrap()),
         Ok(None) => println!("value not found"),
