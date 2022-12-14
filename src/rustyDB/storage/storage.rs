@@ -10,9 +10,10 @@ pub type RustyResult<T> = Result<T, RustyError>;
 
 impl Storage {
     pub fn new(path: &str) -> Storage {
-        return Storage {
-            db: DB::open_default(path).unwrap(),
-        };
+        let options = Options::default();
+        let cfs = rocksdb::DB::list_cf(&options, path).unwrap_or(vec![]);
+        let db = DB::open_cf(&options, path, cfs).map_err(|e| println!("Failed to open: {}", e));
+        return Storage { db: db.unwrap() };
     }
 
     pub fn create_column_family(&mut self, cf_name: &str) -> Result<(), Error> {
@@ -56,5 +57,35 @@ impl Storage {
             Some(cf) => Ok(self.db.prefix_iterator_cf(cf, prefix_name)),
             None => Err(RustyError::new("no cfHandle found for prefix".to_owned())),
         }
+    }
+
+    pub fn find_doc_kvs(
+        &mut self,
+        cf_name: &str,
+        prefix_name: &str,
+    ) -> RustyResult<Vec<(String, Box<[u8]>)>> {
+        let mut resultVec = Vec::new();
+        let mut iterator = self.get_preseek_iterator(cf_name, prefix_name);
+
+        match iterator {
+            Ok(mut it) => loop {
+                let next = it.next();
+                match next {
+                    Some(res) => {
+                        if let Ok((k, v)) = res {
+                            let key = String::from_utf8(k.to_vec()).unwrap();
+                            let does_prefix_match = &key == prefix_name;
+                            resultVec.push((key, v));
+                            if does_prefix_match {
+                                return Ok(resultVec);
+                            }
+                        }
+                    }
+                    None => break,
+                }
+            },
+            _ => {}
+        };
+        return Ok(resultVec);
     }
 }

@@ -2,6 +2,7 @@ mod rustyDB;
 
 use rocksdb::{Options, DB};
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RustyError {
     pub(crate) message: String,
 }
