@@ -15,14 +15,14 @@ impl Storage {
         };
     }
 
-    fn create_column_family(&mut self, cf_name: &str) -> Result<(), Error> {
+    pub fn create_column_family(&mut self, cf_name: &str) -> Result<(), Error> {
         let options = rocksdb::Options::default();
         self.db.create_cf(cf_name, &options)
     }
 
-    fn get_column_family(&mut self, cf_name: &str) -> RustyResult<&ColumnFamily> {
+    fn get_column_family(&self, cf_name: &str) -> RustyResult<&ColumnFamily> {
         self.db
-            .cf_handle(cf_name)
+            .cf_handle(&cf_name)
             .ok_or(RustyError::new("".to_owned()))
     }
 
@@ -35,6 +35,15 @@ impl Storage {
                 .put_cf(cf, key, value)
                 .map_err(|e| RustyError::new("".to_owned()))
         })
+    }
+
+    pub fn getValue(&self, cf_name: &str, key: &str) -> RustyResult<Option<Vec<u8>>> {
+        let value = self.get_column_family(cf_name).and_then(|cf| {
+            self.db
+                .get_cf(cf, key)
+                .map_err(|e| RustyError::new("".to_owned()))
+        });
+        value
     }
 
     pub fn get_preseek_iterator(

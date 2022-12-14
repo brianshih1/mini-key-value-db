@@ -2,7 +2,7 @@ mod rustyDB;
 
 use rocksdb::{Options, DB};
 
-struct RustyError {
+pub struct RustyError {
     pub(crate) message: String,
 }
 
