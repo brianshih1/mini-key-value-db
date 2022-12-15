@@ -96,7 +96,7 @@ impl Storage {
             },
             _ => {}
         };
-        return Ok(resultVec);
+        Ok(resultVec)
     }
     /**
      * If we store
@@ -114,22 +114,45 @@ impl Storage {
      * DocKey, SubKey2, T10 -> Value1
      * DocKey, SubKey2, T10 -> Value2
      */
-
+    pub fn test() {}
     // TODO: Also do a put_serialized
-    pub fn put_value(&mut self, key: Vec<&str>, value: Value) -> RustyResult<()> {}
+    // pub fn put_value(&mut self, key: Vec<&str>, value: Value) -> RustyResult<()> {}
 
     /**
      * e.g. flatten_value("document1", ["foo", "bar", "baz"], {...})
      */
     fn flatten_value(
         &mut self,
-        docKey: &str,
-        path: Vec<&str>,
-        value: Value,
-    ) -> RustyResult<Vec<(&str, Value)>> {
-        if path.len() == 0 {
-            return [(docKey, value)];
+        key_so_far: &str,
+        value: &Value,
+    ) -> RustyResult<Vec<(String, String)>> {
+        let mut res: Vec<(String, String)> = Vec::new();
+        if value.is_object() {
+            let empty_obj: Value = json!({});
+            res.push((key_so_far.to_owned(), empty_obj.to_string()));
+            for (name, child_value) in value.as_object().unwrap().iter() {
+                let child_list = self
+                    .flatten_value(
+                        &(key_so_far.to_owned() + "." + &name.to_owned()),
+                        child_value,
+                    )
+                    .unwrap();
+                res.extend(child_list);
+            }
+        } else {
+            res.push((key_so_far.to_owned(), value.to_string()));
         }
+        Ok(res)
+    }
+
+    fn flatten_path_value(
+        &mut self,
+        key_so_far: &str,
+        path: &[&str],
+        value: &Value,
+    ) -> RustyResult<Vec<(String, String)>> {
+        let joined_path = path.join(".");
+        self.flatten_value(&(key_so_far.to_owned() + "." + &joined_path), value)
     }
 }
 
@@ -137,7 +160,7 @@ mod tests {
     use std::path::Path;
 
     use rocksdb::DB;
-    use serde_json::Value;
+    use serde_json::{json, Value};
 
     use crate::rustyDB::storage::storage::Storage;
 
@@ -191,26 +214,27 @@ mod tests {
     }
 
     #[test]
-    fn test_random() {
-        let data = r#"
-        {
-            "name": "John Doe",
-            "age": 43,
-            "phones": [
-                "+44 1234567",
-                "+44 2345678"
-            ]
-        }"#;
+    fn test_flatten_value() {
+        let path = "test_temp_db";
 
-        // Parse the string of data into serde_json::Value.
-        let v: Value = serde_json::from_str(data).unwrap();
-        let person = Person {
-            name: "foo".to_owned(),
-            age: 1,
-        };
+        let mut storage = Storage::new(path);
+        let test_value = json!({
+            "name": "",
+            "age": 12,
+            "phones": {"nested": true}
+        });
+        let flattened = storage
+            .flatten_path_value("document_id", &["hello", "world"].to_vec(), &test_value)
+            .unwrap();
+        println!("Flattened: {:?}", flattened);
+    }
 
-        if v.is_object() {
-            for (name, value) in v.as_object().unwrap().iter() {}
-        }
+    #[test]
+    fn test_random_2() {
+        let haha = ["hello", "world"].join(".");
+        println!("Haha: {:?}", haha);
+        let huh = ["foo", "bar"];
+        let kobe = &huh[1..];
+        println!("Kobe: {:?}", kobe);
     }
 }
