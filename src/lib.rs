@@ -13,6 +13,14 @@ impl RustyError {
     }
 }
 
+impl From<rocksdb::Error> for RustyError {
+    fn from(e: rocksdb::Error) -> Self {
+        Self {
+            message: e.into_string(),
+        }
+    }
+}
+
 fn main() {
     let path = "test_temp_db";
     let db = DB::open_default(path).unwrap();
