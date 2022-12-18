@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::RustyError;
-use rocksdb::{ColumnFamily, DBIterator, Error, Options, DB};
+use rocksdb::{ColumnFamily, DBIterator, Error, Options, SliceTransform, DB};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 
@@ -13,8 +13,9 @@ pub type RustyResult<T> = Result<T, RustyError>;
 
 impl Storage {
     pub fn new(path: &str) -> Storage {
-        let mut options = Options::default();
+        let mut options = rocksdb::Options::default();
         options.create_if_missing(true);
+        options.create_missing_column_families(true);
         let cfs = rocksdb::DB::list_cf(&options, path).unwrap_or(vec![]);
         let db = DB::open_cf(&options, path, cfs).map_err(|e| println!("Failed to open: {}", e));
         return Storage { db: db.unwrap() };
@@ -48,6 +49,10 @@ impl Storage {
         })
     }
 
+    pub fn flush(&mut self) {
+        self.db.flush();
+    }
+
     pub fn get_value(&self, cf_name: &str, key: &str) -> RustyResult<Option<Vec<u8>>> {
         let value = self
             .get_column_family(cf_name)
@@ -61,12 +66,44 @@ impl Storage {
         prefix_name: &str,
     ) -> Result<DBIterator, RustyError> {
         let cf_handle = self.db.cf_handle(cf_name);
+
         match cf_handle {
             Some(cf) => Ok(self.db.prefix_iterator_cf(cf, prefix_name)),
             None => Err(RustyError::new(
                 format!("no cfHandle found for prefix {}", prefix_name).to_owned(),
             )),
         }
+    }
+
+    pub fn get_normal_iterator(&mut self, cf_name: &str) -> Result<DBIterator, RustyError> {
+        let cf_handle = self.db.cf_handle(cf_name);
+        match cf_handle {
+            Some(cf) => Ok(self.db.iterator_cf(cf, rocksdb::IteratorMode::Start)),
+            None => Err(RustyError::new(
+                format!("no cfHandle found for prefix ").to_owned(),
+            )),
+        }
+    }
+
+    pub fn find_all(&mut self, cf_name: &str) -> RustyResult<Vec<(String, Box<[u8]>)>> {
+        let iterator = self.get_normal_iterator(cf_name);
+        let mut result_vec = Vec::new();
+        match iterator {
+            Ok(mut it) => loop {
+                let next = it.next();
+                match next {
+                    Some(res) => {
+                        if let Ok((k, v)) = res {
+                            let key = String::from_utf8(k.to_vec()).unwrap();
+                            result_vec.push((key, v));
+                        }
+                    }
+                    None => break,
+                }
+            },
+            _ => {}
+        };
+        Ok(result_vec)
     }
 
     pub fn find_doc_kvs(
@@ -76,6 +113,7 @@ impl Storage {
     ) -> RustyResult<Vec<(String, Box<[u8]>)>> {
         let mut result_vec = Vec::new();
         let iterator = self.get_preseek_iterator(cf_name, prefix_name);
+        // let iterator = self.get_normal_iterator(cf_name);
 
         match iterator {
             Ok(mut it) => loop {
@@ -84,11 +122,14 @@ impl Storage {
                     Some(res) => {
                         if let Ok((k, v)) = res {
                             let key = String::from_utf8(k.to_vec()).unwrap();
+                            println!("iterating over key {}", key);
                             let does_prefix_match = &key == prefix_name;
-                            result_vec.push((key, v));
-                            if does_prefix_match {
-                                return Ok(result_vec);
+                            if key.starts_with(prefix_name) {
+                                result_vec.push((key, v));
                             }
+                            // if does_prefix_match {
+                            //     return Ok(result_vec);
+                            // }
                         }
                     }
                     None => break,
@@ -182,18 +223,22 @@ mod tests {
 
     #[test]
     fn find_doc_kvs() {
-        let path = "test_temp_db";
+        let path = "test_temp_db_2";
 
         let mut storage = Storage::new(path);
         let column_fam = "col_fam";
         storage.clean_db(path);
         storage.create_column_family(column_fam);
+        storage
+            .put(column_fam, "my key 1222", b"my value 1")
+            .unwrap();
+
         storage.put(column_fam, "my key 1", b"my value 1").unwrap();
         storage.put(column_fam, "my key 2", b"my value 2").unwrap();
         storage.put(column_fam, "foo", b"bar").unwrap();
         storage.put(column_fam, "my", b"my value 2").unwrap();
         storage.put(column_fam, "my key 3", b"my value 2").unwrap();
-
+        storage.flush();
         let prefix = "my";
         let storage_kvs = storage.find_doc_kvs(column_fam, prefix);
 
@@ -202,7 +247,7 @@ mod tests {
 
             for (k, v) in iter {
                 println!("key: {}", k);
-                println!("value: {}", String::from_utf8(v.to_vec()).unwrap());
+                // println!("value: {}", String::from_utf8(v.to_vec()).unwrap());
             }
         }
     }
@@ -231,15 +276,15 @@ mod tests {
         let col_fam = "foo";
 
         let mut storage = Storage::new(path);
-        storage.create_column_family(col_fam);
-        storage.clean_db(path);
-        let test_value = json!({
-            "name": "",
-            "age": 12,
-            "phones": {"nested": true}
-        });
         let doc_key = "doc_key";
-        storage.store_value(col_fam, doc_key, &[], &test_value);
+
+        // storage.create_column_family(col_fam);
+        // let test_value = json!({
+        //     "name": "",
+        //     "age": 12,
+        //     "phonesss": {"nested": true}
+        // });
+        // storage.store_value(col_fam, doc_key, &[], &test_value);
         let storage_kvs = storage.find_doc_kvs(col_fam, doc_key);
         if let Ok(kvs) = storage_kvs {
             let iter = kvs.iter();
@@ -248,6 +293,41 @@ mod tests {
                 println!("key: {}", k);
                 println!("value: {}", String::from_utf8(v.to_vec()).unwrap());
             }
+        }
+    }
+
+    #[test]
+    fn get_values() {
+        let path = "test_temp_db";
+        let col_fam = "foo";
+
+        let mut storage = Storage::new(path);
+        let doc_key = "doc_key";
+        let storage_kvs = storage.find_doc_kvs(col_fam, doc_key);
+        if let Ok(kvs) = storage_kvs {
+            let iter = kvs.iter();
+            println!("Iterating");
+            for (k, v) in iter {
+                println!("key: {}", k);
+                println!("value: {}", String::from_utf8(v.to_vec()).unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn put_order_test() {
+        let path = "./tmp/data";
+        let mut storage = Storage::new(path);
+        let column_fam = "c";
+        // storage.clean_db(path);
+        storage.create_column_family(column_fam).unwrap();
+        // storage.put(column_fam, "ab.foo", "").unwrap();
+        // storage.put(column_fam, "b", "").unwrap();
+        // storage.put(column_fam, "ab.foo.bar", "").unwrap();
+        storage.put(column_fam, "aa", "").unwrap();
+        let res = storage.find_all(column_fam).unwrap();
+        for (i, (k, v)) in res.iter().enumerate() {
+            println!("Key: {}", k)
         }
     }
 

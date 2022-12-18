@@ -1,3 +1,4 @@
+mod raft;
 mod rustyDB;
 
 use rocksdb::{Options, DB};
