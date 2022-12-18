@@ -139,6 +139,7 @@ impl Storage {
         };
         Ok(result_vec)
     }
+
     /**
      * If we store
      * {
@@ -154,12 +155,6 @@ impl Storage {
      * DocKey, SubKey1, T10 -> {}
      * DocKey, SubKey2, T10 -> Value1
      * DocKey, SubKey2, T10 -> Value2
-     */
-    pub fn test() {}
-    // TODO: Also do a put_serialized
-    // pub fn put_value(&mut self, key: Vec<&str>, value: Value) -> RustyResult<()> {}
-
-    /**
      * e.g. flatten_value("document1", ["foo", "bar", "baz"], {...})
      */
     fn flatten_value(
@@ -205,6 +200,15 @@ impl Storage {
             prefix.push_str(&(".".to_string() + &joined_path));
         }
         self.flatten_value(&prefix, value)
+    }
+}
+
+mod JsonBuilder {
+    /**
+     *
+     */
+    pub fn rebuild_obj(rows: Vec<(String, Box<[u8]>)>, doc_key: String, path: Vec<&str>) {
+        for (_, (k, v)) in rows.iter().enumerate() {}
     }
 }
 
@@ -278,20 +282,23 @@ mod tests {
         let mut storage = Storage::new(path);
         let doc_key = "doc_key";
 
-        // storage.create_column_family(col_fam);
-        // let test_value = json!({
-        //     "name": "",
-        //     "age": 12,
-        //     "phonesss": {"nested": true}
-        // });
-        // storage.store_value(col_fam, doc_key, &[], &test_value);
+        storage.create_column_family(col_fam);
+        let test_value = json!({
+            "name": "",
+            "age": 12,
+            "phonesss": {"nested": true}
+        });
+        storage.store_value(col_fam, doc_key, &[], &test_value);
         let storage_kvs = storage.find_doc_kvs(col_fam, doc_key);
         if let Ok(kvs) = storage_kvs {
             let iter = kvs.iter();
 
             for (k, v) in iter {
-                println!("key: {}", k);
-                println!("value: {}", String::from_utf8(v.to_vec()).unwrap());
+                println!(
+                    "key: {}, value: {}",
+                    k,
+                    String::from_utf8(v.to_vec()).unwrap()
+                );
             }
         }
     }
