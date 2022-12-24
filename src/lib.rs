@@ -1,3 +1,4 @@
+mod raft;
 mod rustyDB;
 
 use rocksdb::{Options, DB};
@@ -10,6 +11,14 @@ pub struct RustyError {
 impl RustyError {
     pub(crate) fn new(message: String) -> Self {
         Self { message }
+    }
+}
+
+impl From<rocksdb::Error> for RustyError {
+    fn from(e: rocksdb::Error) -> Self {
+        Self {
+            message: e.into_string(),
+        }
     }
 }
 
