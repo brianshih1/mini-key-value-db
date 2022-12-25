@@ -1,3 +1,4 @@
+mod hlc;
 mod raft;
 mod rustyDB;
 
