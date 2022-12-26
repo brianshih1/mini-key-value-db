@@ -1,14 +1,25 @@
-use super::timestamp::*;
 use super::wall_clock::{manual::Manual, WallClock};
+use super::{timestamp::*, wall_clock};
 use std::cmp::max;
 
 // TODO: How do we make sure this is thread-safe?
 pub struct HLC<S: WallClock> {
     wall_clock: S,
-    latest_timestamp: Timestamp<S::Time>,
+    pub latest_timestamp: Timestamp<S::Time>,
 }
 
 impl<S: WallClock> HLC<S> {
+    fn new(clock: S) -> HLC<S> {
+        let time = clock.current_time();
+        HLC {
+            wall_clock: clock,
+            latest_timestamp: Timestamp {
+                wall_time: time,
+                logical_time: 0,
+            },
+        }
+    }
+
     /**
      * This method corresponds to the Receive event of message m part of the paper: https://cse.buffalo.edu/tech-reports/2014-04.pdf.
      * First, set the next latest_timestamp's time to the max of current PT, incoming PT, and latest_timestamp's PT.
@@ -48,15 +59,13 @@ impl<S: WallClock> HLC<S> {
             }
         }
     }
-}
 
-impl HLC<Manual> {
     /**
      * This method corresponds to the Send or Local Event part of the paper: https://cse.buffalo.edu/tech-reports/2014-04.pdf
      * If the current PT is bigger than the latest PT, then use the current PT with logical clock of 0.
      * Otherwise, increment the latest_timestamp's logical timestamp by 1.
      */
-    fn get_timestamp(&mut self) -> Timestamp<u32> {
+    fn get_timestamp(&mut self) -> &Timestamp<S::Time> {
         let current_pt = self.wall_clock.current_time();
         let max_pt = max(self.latest_timestamp.wall_time, current_pt);
         if self.latest_timestamp.wall_time == max_pt {
@@ -70,6 +79,41 @@ impl HLC<Manual> {
                 logical_time: 0,
             };
         }
-        self.latest_timestamp
+        &self.latest_timestamp
+    }
+}
+
+impl HLC<Manual> {
+    pub fn manual(start_time: u32) -> HLC<Manual> {
+        let manual_clock = Manual::new(start_time);
+        HLC {
+            wall_clock: manual_clock,
+            latest_timestamp: Timestamp {
+                wall_time: start_time,
+                logical_time: 0,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::hlc::{timestamp::Timestamp, wall_clock::manual::Manual};
+
+    use super::HLC;
+
+    #[test]
+    fn scratch() {
+        let mut hlc = HLC::manual(12);
+        let timestamp = hlc.get_timestamp();
+
+        let incoming_timestamp = Timestamp {
+            wall_time: 13,
+            logical_time: 2,
+        };
+        hlc.receive_timestamp(incoming_timestamp);
+
+        let latest_timestamp = hlc.latest_timestamp;
+        assert_eq!(latest_timestamp > incoming_timestamp.to_owned(), true);
     }
 }
