@@ -103,9 +103,8 @@ mod tests {
     use super::HLC;
 
     #[test]
-    fn scratch() {
+    fn receivedTimestampGreaterThanLatestTimestamp() {
         let mut hlc = HLC::manual(12);
-        let timestamp = hlc.get_timestamp();
 
         let incoming_timestamp = Timestamp {
             wall_time: 13,
@@ -114,6 +113,6 @@ mod tests {
         hlc.receive_timestamp(incoming_timestamp);
 
         let latest_timestamp = hlc.latest_timestamp;
-        assert_eq!(latest_timestamp > incoming_timestamp.to_owned(), true);
+        assert_eq!(latest_timestamp > incoming_timestamp, true);
     }
 }

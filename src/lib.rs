@@ -1,5 +1,6 @@
 mod hlc;
 mod rustyDB;
+mod storage;
 
 use rocksdb::{Options, DB};
 
