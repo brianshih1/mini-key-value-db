@@ -1,17 +1,26 @@
-use super::engine::MVCCIterator;
+use rocksdb::DBIterator;
 
-struct RocksDBIterator {}
+use super::engine::{IterOptions, MVCCIterator};
 
-impl MVCCIterator for RocksDBIterator {
-    fn seek_ge() -> () {
+pub fn new_rocksdb_iterator<'a>(iter_options: IterOptions, db: rocksdb::DB) -> RocksDBIterator<'a> {
+    RocksDBIterator { db: db, it: () }
+}
+
+struct RocksDBIterator<'a> {
+    pub db: rocksdb::DB,
+    pub it: DBIterator<'a>,
+}
+
+impl<'a> MVCCIterator for RocksDBIterator<'a> {
+    fn seek_ge(&mut self) -> () {
         todo!()
     }
 
-    fn valid() -> bool {
+    fn valid(&mut self) -> bool {
         todo!()
     }
 
-    fn next() -> () {
+    fn next(&mut self) -> () {
         todo!()
     }
 }

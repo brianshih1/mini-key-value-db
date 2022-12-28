@@ -1,8 +1,16 @@
+pub enum MVCCIterKind {
+    /**
+     *
+     */
+    Intents,
+    NoIntents,
+}
+
 pub trait MVCCIterator {
     /**
      * SeekGE advances the iterator to the first key which is >= the provided key
      */
-    fn seek_ge() -> ();
+    fn seek_ge(&mut self) -> ();
 
     /**
      * Valid must be called after Seek(), Next(), Prev(), etc.
@@ -10,20 +18,22 @@ pub trait MVCCIterator {
      * It returns false if the iterator has mvoed past the end of the valid
      * range or if there's an error.
      */
-    fn valid() -> bool;
+    fn valid(&mut self) -> bool;
 
     /**
      * Next advances the iterator to the next key in the iteration.
      */
-    fn next() -> ();
+    fn next(&mut self) -> ();
 }
 
 trait Reader {}
 
 trait Writer {
-    fn clear_intent() -> ();
+    fn clear_intent(&mut self) -> ();
 
-    fn put_mvcc() -> ();
+    fn put_mvcc(&mut self) -> ();
 
-    fn put_intent() -> ();
+    fn put_intent(&mut self) -> ();
 }
+
+pub struct IterOptions {}
