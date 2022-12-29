@@ -1,3 +1,5 @@
+use super::data::MVCCKey;
+
 pub enum MVCCIterKind {
     /**
      *
@@ -10,7 +12,7 @@ pub trait MVCCIterator {
     /**
      * SeekGE advances the iterator to the first key which is >= the provided key
      */
-    fn seek_ge(&mut self) -> ();
+    fn seek_ge(&mut self, key: MVCCKey) -> ();
 
     /**
      * Valid must be called after Seek(), Next(), Prev(), etc.

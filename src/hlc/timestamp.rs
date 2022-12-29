@@ -4,7 +4,7 @@ pub struct Timestamp {
     pub logical_time: u32,
 }
 
-impl<T: Clone> PartialEq for Timestamp {
+impl PartialEq for Timestamp {
     fn eq(&self, other: &Self) -> bool {
         self.logical_time == other.logical_time && self.wall_time == other.wall_time
     }

@@ -1,3 +1,0 @@
-struct MVCCKey {
-    key: String
-}
