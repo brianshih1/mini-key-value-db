@@ -1,4 +1,4 @@
-use super::data::MVCCKey;
+use super::mvcc_key::MVCCKey;
 
 pub enum MVCCIterKind {
     /**
@@ -30,12 +30,14 @@ pub trait MVCCIterator {
 
 trait Reader {}
 
-trait Writer {
+pub trait Writer {
     fn clear_intent(&mut self) -> ();
 
     fn put_mvcc(&mut self) -> ();
 
     fn put_intent(&mut self) -> ();
+
+    fn put_engine_key(&mut self) -> ();
 }
 
 pub struct IterOptions {}

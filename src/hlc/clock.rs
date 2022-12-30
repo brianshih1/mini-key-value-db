@@ -103,7 +103,7 @@ mod tests {
     use super::HLC;
 
     #[test]
-    fn receivedTimestampGreaterThanLatestTimestamp() {
+    fn received_timestamp_greater_than_latest_timestamp() {
         let mut hlc = HLC::manual(12);
 
         let incoming_timestamp = Timestamp {

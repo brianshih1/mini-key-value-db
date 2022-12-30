@@ -1,7 +1,7 @@
 use rocksdb::DBIterator;
 
 use super::{
-    data::MVCCKey,
+    mvcc_key::MVCCKey,
     engine::{IterOptions, MVCCIterator},
 };
 
@@ -10,6 +10,7 @@ pub fn new_rocksdb_iterator<'a>(iter_options: IterOptions, db: rocksdb::DB) -> R
     todo!()
 }
 
+// A wrapper around rocksdb iterator
 pub struct RocksDBIterator<'a> {
     pub db: rocksdb::DB,
     pub it: DBIterator<'a>,

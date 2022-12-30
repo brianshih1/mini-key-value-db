@@ -1,6 +1,6 @@
 use crate::hlc::timestamp::Timestamp;
 
-pub type Key = Vec<u8>;
+use super::Key;
 
 /**
  * Versioned Key where the key is the semantic key and
@@ -67,7 +67,7 @@ fn decode_timestamp(encoded_timestamp: Vec<u8>) -> Timestamp {
 
 #[cfg(test)]
 mod tests {
-    use crate::{hlc::timestamp::Timestamp, storage::data::decode_mvcc_key};
+    use crate::{hlc::timestamp::Timestamp, storage::mvcc_key::decode_mvcc_key};
 
     use super::{encode_mvcc_key, MVCCKey};
     #[test]
