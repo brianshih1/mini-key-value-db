@@ -1,19 +1,17 @@
 use super::WallClock;
 
 pub struct Manual {
-    manual_time: u32,
+    manual_time: u64,
 }
 
 impl Manual {
-    pub fn new(time: u32) -> Self {
+    pub fn new(time: u64) -> Self {
         Manual { manual_time: time }
     }
 }
 
 impl WallClock for Manual {
-    type Time = u32;
-
-    fn current_time(&self) -> Self::Time {
+    fn current_time(&self) -> u64 {
         self.manual_time
     }
 }

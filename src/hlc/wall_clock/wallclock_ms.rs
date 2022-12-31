@@ -5,9 +5,7 @@ use super::WallClock;
 pub struct SystemTimeClock {}
 
 impl WallClock for SystemTimeClock {
-    type Time = u64;
-
-    fn current_time(&self) -> Self::Time {
+    fn current_time(&self) -> u64 {
         let foo = SystemTime::now();
         let since_epoch = foo.duration_since(SystemTime::UNIX_EPOCH).unwrap();
         since_epoch.as_millis().try_into().unwrap()
