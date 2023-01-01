@@ -1,7 +1,10 @@
+mod build;
 mod hlc;
 mod interval_tree;
 mod rustyDB;
 mod storage;
+
+include!(concat!(env!("OUT_DIR"), "/gen/mod.rs"));
 
 use rocksdb::{Options, DB};
 

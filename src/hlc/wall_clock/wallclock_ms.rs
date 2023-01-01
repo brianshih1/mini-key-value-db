@@ -6,8 +6,8 @@ pub struct SystemTimeClock {}
 
 impl WallClock for SystemTimeClock {
     fn current_time(&self) -> u64 {
-        let foo = SystemTime::now();
-        let since_epoch = foo.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+        let current_time = SystemTime::now();
+        let since_epoch = current_time.duration_since(SystemTime::UNIX_EPOCH).unwrap();
         since_epoch.as_millis().try_into().unwrap()
     }
 }
@@ -20,7 +20,7 @@ mod tests {
 
     #[test]
     fn scratch() {
-        let mut test_clock = SystemTimeClock {};
+        let test_clock = SystemTimeClock {};
         println!("Time: {:?}", test_clock.current_time());
     }
 }
