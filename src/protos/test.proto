@@ -1,0 +1,8 @@
+syntax = "proto2";
+
+
+message Test {
+    // Namee
+    optional string name = 1;
+    optional float weight = 2;
+}

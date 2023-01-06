@@ -5,24 +5,28 @@ mod storage;
 
 use rocksdb::{Options, DB};
 
+use crate::test::Test;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RustyError {
+pub struct DBError {
     pub(crate) message: String,
 }
 
-impl RustyError {
+impl DBError {
     pub(crate) fn new(message: String) -> Self {
         Self { message }
     }
 }
 
-impl From<rocksdb::Error> for RustyError {
+impl From<rocksdb::Error> for DBError {
     fn from(e: rocksdb::Error) -> Self {
         Self {
             message: e.into_string(),
         }
     }
 }
+
+pub type DBResult<T> = Result<T, DBError>;
 
 fn main() {
     let path = "test_temp_db";

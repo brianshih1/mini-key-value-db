@@ -1,10 +1,19 @@
-mod engine;
+use crate::hlc::timestamp::Timestamp;
+
 mod keys;
 mod mvcc;
+mod mvcc_iterator;
 mod mvcc_key;
-mod rocksdb_iterator;
-mod rocksdb_mvcc_scanner;
+mod mvcc_scanner;
 mod ts_oracle;
+mod txn;
 mod writer;
 
 pub type Key = Vec<u8>;
+
+pub type Value = Vec<u8>;
+
+pub struct ValueWithTimestamp {
+    raw_value: Value,
+    timestamp: Timestamp,
+}

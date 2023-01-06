@@ -102,6 +102,10 @@ mod tests {
 
     use super::HLC;
 
+    struct Foo {
+        hello: String,
+    }
+
     #[test]
     fn received_timestamp_greater_than_latest_timestamp() {
         let mut hlc = HLC::manual(12);

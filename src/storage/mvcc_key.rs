@@ -1,4 +1,4 @@
-use crate::hlc::timestamp::Timestamp;
+use crate::hlc::timestamp::{get_intent_timestamp, Timestamp};
 
 use super::Key;
 
@@ -16,6 +16,19 @@ pub struct MVCCKey {
 impl PartialEq for MVCCKey {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key && self.timestamp == other.timestamp
+    }
+}
+
+impl MVCCKey {
+    pub fn is_intent_key(&self) -> bool {
+        self.timestamp.is_intent_timestamp()
+    }
+}
+
+pub fn create_intent_key(key: Key) -> MVCCKey {
+    MVCCKey {
+        key,
+        timestamp: get_intent_timestamp(),
     }
 }
 

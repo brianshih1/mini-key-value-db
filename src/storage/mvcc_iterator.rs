@@ -1,22 +1,31 @@
 use rocksdb::DBIterator;
 
-use super::{
-    mvcc_key::MVCCKey,
-    engine::{IterOptions, MVCCIterator},
-};
+use super::{mvcc_key::MVCCKey, Value};
 
-pub fn new_rocksdb_iterator<'a>(iter_options: IterOptions, db: rocksdb::DB) -> RocksDBIterator<'a> {
+struct IterOptions {}
+
+pub fn new_mvcc_iterator<'a>(iter_options: IterOptions, db: rocksdb::DB) -> MVCCIterator<'a> {
     // RocksDBIterator { db: db, it: () }
     todo!()
 }
 
 // A wrapper around rocksdb iterator
-pub struct RocksDBIterator<'a> {
+pub struct MVCCIterator<'a> {
     pub db: rocksdb::DB,
     pub it: DBIterator<'a>,
 }
 
-impl<'a> MVCCIterator for RocksDBIterator<'a> {
+impl<'a> MVCCIterator<'a> {
+    fn next() -> () {}
+
+    fn current_key() -> MVCCKey {
+        todo!()
+    }
+
+    fn current_value() -> Value {
+        todo!()
+    }
+
     fn seek_ge(&mut self, key: MVCCKey) -> () {
         // loop {
         //     let next = self.it.next();
@@ -33,10 +42,6 @@ impl<'a> MVCCIterator for RocksDBIterator<'a> {
     }
 
     fn valid(&mut self) -> bool {
-        todo!()
-    }
-
-    fn next(&mut self) -> () {
         todo!()
     }
 }

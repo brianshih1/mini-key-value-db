@@ -4,8 +4,8 @@ use crate::hlc::timestamp::Timestamp;
 
 use super::Key;
 
-pub struct RocksMVCCScanner<'a> {
-    mvcc_iterator: DBIterator<'a>,
+pub struct MVCCScanner<'a> {
+    iterator: DBIterator<'a>,
 
     // TODO: lockTable
 
@@ -17,10 +17,9 @@ pub struct RocksMVCCScanner<'a> {
 
     // Timestamp that MVCCScan/MVCCGet was called
     pub ts: Timestamp,
-    // TODO: Results
 }
 
-impl<'a> RocksMVCCScanner<'a> {
+impl<'a> MVCCScanner<'a> {
     // seeks to the start key and adds one KV to the result set
     pub fn get(&mut self) {
         // self.mvcc_iterator.seek_ge(MVCCKey {});
