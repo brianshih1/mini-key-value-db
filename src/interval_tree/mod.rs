@@ -45,25 +45,26 @@ impl<K: Copy + Eq + PartialOrd + Ord, V> TreeNode<K, V> {
 
 impl<K: Copy + Eq + PartialOrd + Ord, V> IntervalTree<K, V> {
     pub fn add(&mut self, start: K, end: K, value: V) -> () {
-        let mut node = &self.root_node;
-        match node {
-            TreeNode::Node {
-                mut start_key,
-                end_key,
-                mut left_node,
-                right_node,
-                ..
-            } => {
-                if start == start_key {
-                } else if start > start_key {
-                } else if start < start_key {
-                }
-                left_node = Box::new(TreeNode::new_node(start, end, value));
-            }
-            TreeNode::Empty {} => {
-                self.root_node = TreeNode::new_node(start, end, value);
-            }
-        }
+        todo!()
+        // let mut node = &self.root_node;
+        // match node {
+        //     TreeNode::Node {
+        //         mut start_key,
+        //         end_key,
+        //         mut left_node,
+        //         right_node,
+        //         ..
+        //     } => {
+        //         if start == start_key {
+        //         } else if start > start_key {
+        //         } else if start < start_key {
+        //         }
+        //         left_node = Box::new(TreeNode::new_node(start, end, value));
+        //     }
+        //     TreeNode::Empty {} => {
+        //         self.root_node = TreeNode::new_node(start, end, value);
+        //     }
+        // }
     }
 
     pub fn get(&mut self, start: K, end: K) -> Option<V> {

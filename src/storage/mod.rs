@@ -5,6 +5,7 @@ mod mvcc;
 mod mvcc_iterator;
 mod mvcc_key;
 mod mvcc_scanner;
+mod storage;
 mod ts_oracle;
 mod txn;
 mod writer;

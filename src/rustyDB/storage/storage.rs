@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::DBError;
+use crate::StorageError;
 use rocksdb::{ColumnFamily, DBIterator, Error, Options, SliceTransform, DB};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
@@ -9,7 +9,7 @@ pub struct Storage {
     db: rocksdb::DB,
 }
 
-pub type RustyResult<T> = Result<T, DBError>;
+pub type RustyResult<T> = Result<T, StorageError>;
 
 impl Storage {
     pub fn new(path: &str) -> Storage {
@@ -33,17 +33,20 @@ impl Storage {
     }
 
     fn get_column_family(&self, cf_name: &str) -> RustyResult<&ColumnFamily> {
-        self.db.cf_handle(&cf_name).ok_or(DBError::new(
+        self.db.cf_handle(&cf_name).ok_or(StorageError::new(
             format!("Column family ({}) not found", cf_name).to_owned(),
         ))
     }
 
-    pub fn put<V>(&mut self, cf_name: &str, key: &str, value: V) -> Result<(), DBError>
+    pub fn put<V>(&mut self, cf_name: &str, key: &str, value: V) -> Result<(), StorageError>
     where
         V: AsRef<[u8]>,
     {
-        self.get_column_family(cf_name)
-            .and_then(|cf| self.db.put_cf(cf, key, value).map_err(|e| DBError::from(e)))
+        self.get_column_family(cf_name).and_then(|cf| {
+            self.db
+                .put_cf(cf, key, value)
+                .map_err(|e| StorageError::from(e))
+        })
     }
 
     pub fn flush(&mut self) {
@@ -53,7 +56,7 @@ impl Storage {
     pub fn get_value(&self, cf_name: &str, key: &str) -> RustyResult<Option<Vec<u8>>> {
         let value = self
             .get_column_family(cf_name)
-            .and_then(|cf| self.db.get_cf(cf, key).map_err(|e| DBError::from(e)));
+            .and_then(|cf| self.db.get_cf(cf, key).map_err(|e| StorageError::from(e)));
         value
     }
 
@@ -61,22 +64,22 @@ impl Storage {
         &mut self,
         cf_name: &str,
         prefix_name: &str,
-    ) -> Result<DBIterator, DBError> {
+    ) -> Result<DBIterator, StorageError> {
         let cf_handle = self.db.cf_handle(cf_name);
 
         match cf_handle {
             Some(cf) => Ok(self.db.prefix_iterator_cf(cf, prefix_name)),
-            None => Err(DBError::new(
+            None => Err(StorageError::new(
                 format!("no cfHandle found for prefix {}", prefix_name).to_owned(),
             )),
         }
     }
 
-    pub fn get_normal_iterator(&mut self, cf_name: &str) -> Result<DBIterator, DBError> {
+    pub fn get_normal_iterator(&mut self, cf_name: &str) -> Result<DBIterator, StorageError> {
         let cf_handle = self.db.cf_handle(cf_name);
         match cf_handle {
             Some(cf) => Ok(self.db.iterator_cf(cf, rocksdb::IteratorMode::Start)),
-            None => Err(DBError::new(
+            None => Err(StorageError::new(
                 format!("no cfHandle found for prefix ").to_owned(),
             )),
         }
