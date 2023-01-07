@@ -1,4 +1,5 @@
 use rocksdb::*;
+use serde::de::DeserializeOwned;
 
 use super::{
     mvcc_key::{decode_mvcc_key, encode_mvcc_key, MVCCKey},
@@ -18,7 +19,6 @@ pub fn new_mvcc_iterator<'a>(iter_options: IterOptions, db: rocksdb::DB) -> MVCC
 
 // A wrapper around rocksdb iterator
 pub struct MVCCIterator<'a> {
-    // db: &'a DB,
     pub it: DBIterator<'a>,
 
     // Determines whether to use prefix seek or not
@@ -33,7 +33,6 @@ impl<'a> MVCCIterator<'a> {
     fn new(db: &'a DB, options: IterOptions) -> Self {
         let it = db.iterator(IteratorMode::Start);
         MVCCIterator {
-            // db,
             it,
             prefix: options.prefix,
             curr_kv: None,
@@ -63,14 +62,24 @@ impl<'a> MVCCIterator<'a> {
 
     // will panic if called without a valid key.
     // To avoid that, call valid first to verify
+    // not the most efficient solution now
     fn current_key(&mut self) -> MVCCKey {
         let (k, _) = self.curr_kv.as_ref().unwrap();
-        let test = &*k;
-        decode_mvcc_key(&test.to_vec())
+        let vec = Vec::from(k.as_ref());
+        decode_mvcc_key(&vec)
     }
 
-    fn current_value() -> Value {
-        todo!()
+    // not the most efficient solution now
+    fn current_value(&mut self) -> Value {
+        let (_, v) = self.curr_kv.as_ref().unwrap();
+        let vec = Vec::from(v.as_ref());
+        vec
+    }
+
+    fn current_value_serialized<T: DeserializeOwned>(&mut self) -> T {
+        let (_, v) = self.curr_kv.as_ref().unwrap();
+        let vec = Vec::from(v.as_ref());
+        serde_json::from_slice::<T>(&vec).unwrap()
     }
 
     // Valid returns whether or not the iterator is pointing at a valid entry.
@@ -100,7 +109,14 @@ impl<'a> MVCCIterator<'a> {
 mod tests {
     use rocksdb::{IteratorMode, DB};
 
-    use crate::storage::storage::Storage;
+    use crate::{
+        hlc::timestamp::Timestamp,
+        storage::{
+            mvcc,
+            mvcc_key::{encode_mvcc_key, MVCCKey},
+            storage::Storage,
+        },
+    };
 
     use super::{IterOptions, MVCCIterator};
 
@@ -126,12 +142,23 @@ mod tests {
 
     #[test]
     fn test_next() {
-        let mut storage = Storage::new("./tmp/hello");
-        storage.put_serialized("foo", 12);
+        let mut storage = Storage::new_cleaned("./tmp/hello");
+        let mvcc_key = MVCCKey::new(
+            "hello",
+            Timestamp {
+                logical_time: 12,
+                wall_time: 12,
+            },
+        );
+        storage.put_mvcc_serialized(&mvcc_key, 12);
         let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
         iterator.next();
         assert!(iterator.valid());
         let key = iterator.current_key();
-        println!("key: {:?}", key)
+        assert_eq!(key, mvcc_key);
+
+        let value = iterator.current_value_serialized::<i32>();
+        println!("value: {:?}", value);
+        assert_eq!(value, 12);
     }
 }

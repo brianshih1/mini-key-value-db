@@ -102,6 +102,6 @@ mod tests {
 
         let encoded = encode_mvcc_key(&mvcc_key);
         let decoded = decode_mvcc_key(&encoded);
-        assert_eq!(mvcc_key.clone() == decoded, true);
+        assert_eq!(mvcc_key, decoded);
     }
 }
