@@ -9,8 +9,8 @@ use super::Key;
 
 #[derive(Debug, Eq, PartialOrd, Ord, Clone)]
 pub struct MVCCKey {
-    key: Key,
-    timestamp: Timestamp,
+    pub key: Key,
+    pub timestamp: Timestamp,
 }
 
 impl PartialEq for MVCCKey {
@@ -20,6 +20,13 @@ impl PartialEq for MVCCKey {
 }
 
 impl MVCCKey {
+    pub fn new(key: &str, timestamp: Timestamp) -> Self {
+        MVCCKey {
+            key: key.as_bytes().to_vec(),
+            timestamp,
+        }
+    }
+
     pub fn is_intent_key(&self) -> bool {
         self.timestamp.is_intent_timestamp()
     }

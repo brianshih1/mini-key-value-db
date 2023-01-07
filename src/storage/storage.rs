@@ -1,7 +1,11 @@
+use std::path::Path;
+
 use rocksdb::DB;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{DBResult, StorageError};
+
+use super::mvcc_key::{encode_mvcc_key, MVCCKey};
 
 pub struct Storage {
     pub db: DB,
@@ -16,6 +20,17 @@ impl Storage {
         Storage { db }
     }
 
+    // path example: "./tmp/data";
+    pub fn new_cleaned(path: &str) -> Storage {
+        if Path::new(path).exists() {
+            std::fs::remove_dir_all(path).unwrap();
+        }
+        let mut options = rocksdb::Options::default();
+        options.create_if_missing(true);
+        let db = DB::open(&options, path).unwrap();
+        Storage { db }
+    }
+
     pub fn put_raw(&mut self, key: &str, value: Vec<u8>) -> DBResult<()> {
         self.db.put(key, value).map_err(|e| StorageError::from(e))
     }
@@ -24,6 +39,29 @@ impl Storage {
         let str_res = serde_json::to_string(&value);
         match str_res {
             Ok(serialized) => self.put_raw(&key, serialized.into_bytes()),
+            Err(err) => Err(StorageError::from(err.to_string())),
+        }
+    }
+
+    pub fn put_mvcc_serialized<T: Serialize>(&mut self, key: &MVCCKey, value: T) -> DBResult<()> {
+        let encoded = encode_mvcc_key(key);
+        let str_res = serde_json::to_string(&value);
+        match str_res {
+            Ok(serialized) => Ok(self.db.put(encoded, serialized.into_bytes()).unwrap()),
+            Err(err) => Err(StorageError::from(err.to_string())),
+        }
+    }
+
+    pub fn get_mvcc_serialized<T: DeserializeOwned>(&mut self, key: &MVCCKey) -> DBResult<T> {
+        let encoded = encode_mvcc_key(key);
+        let res = self.db.get(encoded);
+        match res {
+            Ok(optional) => match optional {
+                Some(value) => Ok(serde_json::from_slice::<T>(&value).unwrap()),
+                None => Err(StorageError {
+                    message: "not found".to_owned(),
+                }),
+            },
             Err(err) => Err(StorageError::from(err.to_string())),
         }
     }
@@ -46,19 +84,36 @@ impl Storage {
 mod Test {
     use serde::{Deserialize, Serialize};
 
+    use crate::{hlc::timestamp::Timestamp, storage::mvcc_key::MVCCKey};
+
     use super::Storage;
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
     struct Test {
         foo: bool,
     }
 
     #[test]
     fn put_and_get() {
-        let mut storage = Storage::new("./tmp/foo");
+        let mut storage = Storage::new_cleaned("./tmp/foo");
         let test = Test { foo: false };
         storage.put_serialized("foo", &test).unwrap();
         let retrieved = storage.get_serialized::<Test>("foo").unwrap();
-        println!("value: {:?}", retrieved);
+        assert_eq!(test, retrieved);
+    }
+
+    #[test]
+    fn put_mvcc() {
+        let mut storage = Storage::new_cleaned("./tmp/foo");
+        let mvcc_key = MVCCKey::new(
+            "hello",
+            Timestamp {
+                logical_time: 12,
+                wall_time: 12,
+            },
+        );
+        storage.put_mvcc_serialized(&mvcc_key, 12);
+        let retrieved = storage.get_mvcc_serialized::<i32>(&mvcc_key).unwrap();
+        assert_eq!(retrieved, 12);
     }
 }
