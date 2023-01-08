@@ -1,7 +1,7 @@
-use crate::{hlc::timestamp::Timestamp, DBResult};
+use crate::{hlc::timestamp::Timestamp, StorageResult};
 
 use super::{
-    mvcc::MVCCMetadata,
+    mvcc::TransactionMetadata,
     mvcc_key::{encode_mvcc_key, MVCCKey},
     Key, Value, ValueWithTimestamp,
 };
@@ -14,7 +14,7 @@ struct MVCCGetOptions {}
 
 // Reader
 impl MVCCReaderWriter {
-    fn get_mvcc_metadata(&mut self, key: Key) -> DBResult<Option<Value>> {
+    fn get_mvcc_metadata(&mut self, key: Key) -> StorageResult<Option<Value>> {
         todo!()
     }
 
@@ -26,7 +26,7 @@ impl MVCCReaderWriter {
         key: Key,
         timestamp: Timestamp,
         options: MVCCGetOptions,
-    ) -> DBResult<Option<ValueWithTimestamp>> {
+    ) -> StorageResult<Option<ValueWithTimestamp>> {
         todo!()
     }
 }
@@ -42,7 +42,7 @@ impl MVCCReaderWriter {
         self.db.put(encoded_key, value).unwrap();
     }
 
-    fn put_intent(&mut self, key: Key, mvcc_metadata: MVCCMetadata) -> () {
+    fn put_intent(&mut self, key: Key, mvcc_metadata: TransactionMetadata) -> () {
         todo!()
     }
 

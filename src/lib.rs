@@ -31,7 +31,7 @@ impl From<String> for StorageError {
     }
 }
 
-pub type DBResult<T> = Result<T, StorageError>;
+pub type StorageResult<T> = Result<T, StorageError>;
 
 fn main() {
     let path = "test_temp_db";

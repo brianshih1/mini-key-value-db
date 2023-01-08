@@ -9,7 +9,7 @@ use super::{
 };
 
 pub struct IterOptions {
-    prefix: bool,
+    pub prefix: bool,
 }
 
 pub type KVBytes = (Box<[u8]>, Box<[u8]>);
@@ -32,7 +32,7 @@ pub struct MVCCIterator<'a> {
 }
 
 impl<'a> MVCCIterator<'a> {
-    fn new(db: &'a DB, options: IterOptions) -> Self {
+    pub fn new(db: &'a DB, options: IterOptions) -> Self {
         let it = db.iterator(IteratorMode::Start).peekable();
         MVCCIterator {
             it,
@@ -43,7 +43,7 @@ impl<'a> MVCCIterator<'a> {
     }
 
     // Returns true if pointing at valid entry, false otherwise
-    fn next(&mut self) -> bool {
+    pub fn next(&mut self) -> bool {
         // Returns None when iteration is finished.
         let optional_res = self.it.next();
         match optional_res {
@@ -69,24 +69,24 @@ impl<'a> MVCCIterator<'a> {
     // will panic if called without a valid key.
     // To avoid that, call valid first to verify
     // not the most efficient solution now
-    fn current_key(&mut self) -> MVCCKey {
+    pub fn current_key(&mut self) -> MVCCKey {
         let (k, _) = self.curr_kv.as_ref().unwrap();
         MVCCIterator::convert_raw_key_to_mvcc_key(k)
     }
 
-    fn convert_raw_key_to_mvcc_key(raw_key: &Box<[u8]>) -> MVCCKey {
+    pub fn convert_raw_key_to_mvcc_key(raw_key: &Box<[u8]>) -> MVCCKey {
         let vec = Vec::from(raw_key.as_ref());
         decode_mvcc_key(&vec)
     }
 
     // not the most efficient solution now
-    fn current_value(&mut self) -> Value {
+    pub fn current_value(&mut self) -> Value {
         let (_, v) = self.curr_kv.as_ref().unwrap();
         let vec = Vec::from(v.as_ref());
         vec
     }
 
-    fn current_value_serialized<T: DeserializeOwned>(&mut self) -> T {
+    pub fn current_value_serialized<T: DeserializeOwned>(&mut self) -> T {
         let (_, v) = self.curr_kv.as_ref().unwrap();
         let vec = Vec::from(v.as_ref());
         serde_json::from_slice::<T>(&vec).unwrap()
@@ -94,7 +94,7 @@ impl<'a> MVCCIterator<'a> {
 
     // Valid returns whether or not the iterator is pointing at a valid entry.
     // If it is false, then current_key, current_value, next(), etc should not be called
-    fn valid(&mut self) -> bool {
+    pub fn valid(&mut self) -> bool {
         !self.is_done
     }
 
@@ -102,7 +102,7 @@ impl<'a> MVCCIterator<'a> {
     // Advances the iterator to the first MVCCKey >= key.
     // Returns true if the iterator is pointing at an entry that's
     // >= provided key, false otherwise.
-    fn seek_ge(&mut self, key: &MVCCKey) -> bool {
+    pub fn seek_ge(&mut self, key: &MVCCKey) -> bool {
         let mut found_valid = false;
         loop {
             let peeked = self.it.peek();
@@ -308,7 +308,7 @@ mod tests {
 
         #[test]
         fn empty_db() {
-            let mut storage = Storage::new_cleaned("./tmp/testt");
+            let storage = Storage::new_cleaned("./tmp/testt");
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
                 key,

@@ -3,9 +3,12 @@ use std::path::Path;
 use rocksdb::DB;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{DBResult, StorageError};
+use crate::{StorageError, StorageResult};
 
-use super::mvcc_key::{encode_mvcc_key, MVCCKey};
+use super::{
+    mvcc_iterator::{IterOptions, MVCCIterator},
+    mvcc_key::{encode_mvcc_key, MVCCKey},
+};
 
 pub struct Storage {
     pub db: DB,
@@ -20,6 +23,10 @@ impl Storage {
         Storage { db }
     }
 
+    pub fn new_iterator(&mut self, iter_options: IterOptions) -> MVCCIterator {
+        MVCCIterator::new(&self.db, iter_options)
+    }
+
     // path example: "./tmp/data";
     pub fn new_cleaned(path: &str) -> Storage {
         if Path::new(path).exists() {
@@ -31,11 +38,11 @@ impl Storage {
         Storage { db }
     }
 
-    pub fn put_raw(&mut self, key: &str, value: Vec<u8>) -> DBResult<()> {
+    pub fn put_raw(&mut self, key: &str, value: Vec<u8>) -> StorageResult<()> {
         self.db.put(key, value).map_err(|e| StorageError::from(e))
     }
 
-    pub fn put_serialized<T: Serialize>(&mut self, key: &str, value: T) -> DBResult<()> {
+    pub fn put_serialized<T: Serialize>(&mut self, key: &str, value: T) -> StorageResult<()> {
         let str_res = serde_json::to_string(&value);
         match str_res {
             Ok(serialized) => self.put_raw(&key, serialized.into_bytes()),
@@ -43,7 +50,11 @@ impl Storage {
         }
     }
 
-    pub fn put_mvcc_serialized<T: Serialize>(&mut self, key: &MVCCKey, value: T) -> DBResult<()> {
+    pub fn put_mvcc_serialized<T: Serialize>(
+        &mut self,
+        key: &MVCCKey,
+        value: T,
+    ) -> StorageResult<()> {
         let encoded = encode_mvcc_key(key);
         let str_res = serde_json::to_string(&value);
         match str_res {
@@ -52,7 +63,7 @@ impl Storage {
         }
     }
 
-    pub fn get_mvcc_serialized<T: DeserializeOwned>(&mut self, key: &MVCCKey) -> DBResult<T> {
+    pub fn get_mvcc_serialized<T: DeserializeOwned>(&mut self, key: &MVCCKey) -> StorageResult<T> {
         let encoded = encode_mvcc_key(key);
         let res = self.db.get(encoded);
         match res {
@@ -66,7 +77,7 @@ impl Storage {
         }
     }
 
-    pub fn get_serialized<T: DeserializeOwned>(&mut self, key: &str) -> DBResult<T> {
+    pub fn get_serialized<T: DeserializeOwned>(&mut self, key: &str) -> StorageResult<T> {
         let res = self.db.get(key);
         match res {
             Ok(optional) => match optional {

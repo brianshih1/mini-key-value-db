@@ -32,9 +32,9 @@ impl MVCCKey {
     }
 }
 
-pub fn create_intent_key(key: Key) -> MVCCKey {
+pub fn create_intent_key(key: &Key) -> MVCCKey {
     MVCCKey {
-        key,
+        key: key.to_owned(),
         timestamp: get_intent_timestamp(),
     }
 }
