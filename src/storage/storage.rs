@@ -23,7 +23,7 @@ impl Storage {
         Storage { db }
     }
 
-    pub fn new_iterator(&mut self, iter_options: IterOptions) -> MVCCIterator {
+    pub fn new_iterator(&self, iter_options: IterOptions) -> MVCCIterator {
         MVCCIterator::new(&self.db, iter_options)
     }
 
@@ -84,7 +84,7 @@ impl Storage {
         }
     }
 
-    pub fn get_serialized<T: DeserializeOwned>(&mut self, key: &str) -> StorageResult<T> {
+    pub fn get_serialized<T: DeserializeOwned>(&self, key: &str) -> StorageResult<T> {
         let res = self.db.get(key);
         match res {
             Ok(optional) => match optional {

@@ -16,6 +16,13 @@ struct KVStore {
 }
 
 impl KVStore {
+    // path example: "./tmp/data";
+    pub fn new(path: &str) -> Self {
+        KVStore {
+            storage: Storage::new_cleaned(path),
+        }
+    }
+
     pub fn mvcc_get(&self) {}
 
     /**
@@ -34,7 +41,7 @@ impl KVStore {
         let intent = self.mvcc_get_intent(&key.as_bytes().to_vec());
 
         match intent {
-            Some((intent, transaction_record)) => match txn {
+            Some((intent, transaction_record)) => match &txn {
                 Some(put_txn) => {
                     // this means we're overwriting our own transaction
                     // TODO: epoch - transaction retries
@@ -43,7 +50,7 @@ impl KVStore {
                         match transaction_record.status {
                             TransactionStatus::PENDING => {
                                 return Err(StorageError::new(
-                                    WRITE_INTENT_ERROR,
+                                    WRITE_INTENT_ERROR.to_owned(),
                                     "found pending transaction".to_owned(),
                                 ))
                             }
@@ -58,24 +65,21 @@ impl KVStore {
         }
 
         // TODO: Storage::new_iterator(...)
-        let mut read_timestamp = timestamp;
-        let mut write_timestamp = timestamp;
-        if txn.is_some() {
-            let txn = txn.unwrap();
-            // should we ensure read_timestamp = timestamp?
-            read_timestamp = &txn.read_timestamp;
-            write_timestamp = &txn.metadata.write_timestamp;
-        }
+
+        let (read_timestamp, write_timestamp) = match txn {
+            Some(transaction) => (
+                transaction.read_timestamp,
+                transaction.metadata.write_timestamp,
+            ),
+            None => (timestamp.to_owned(), timestamp.to_owned()),
+        };
 
         let version_key = MVCCKey::new(key, write_timestamp.to_owned());
         self.storage.put_mvcc_serialized(&version_key, value);
-        todo!()
+        Ok(version_key)
     }
 
-    pub fn mvcc_get_intent(
-        &mut self,
-        key: &Key,
-    ) -> Option<(TransactionMetadata, TransactionRecord)> {
+    pub fn mvcc_get_intent(&self, key: &Key) -> Option<(TransactionMetadata, TransactionRecord)> {
         let options = IterOptions { prefix: true };
         let mut it = self.storage.new_iterator(options);
         let intent_key = create_intent_key(key);
@@ -94,44 +98,58 @@ impl KVStore {
         None
     }
 
-    pub fn get_transaction_record(&mut self, transaction_id: &Uuid) -> TransactionRecord {
+    pub fn create_pending_transaction_record(&mut self, transaction_id: &Uuid) -> () {
+        self.put_transaction_record(
+            transaction_id,
+            TransactionRecord {
+                status: TransactionStatus::PENDING,
+            },
+        )
+    }
+
+    pub fn get_transaction_record(&self, transaction_id: &Uuid) -> TransactionRecord {
         self.storage
             .get_serialized::<TransactionRecord>(&transaction_id.to_string())
             .unwrap()
+    }
+
+    // This can be used to create or overwrite transaction record.
+    pub fn put_transaction_record(&mut self, transaction_id: &Uuid, record: TransactionRecord) {
+        self.storage
+            .put_serialized(&transaction_id.to_string(), record);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use serde::{Deserialize, Serialize};
+    use uuid::Uuid;
 
-    use super::TransactionMetadata;
+    use crate::storage::txn::{TransactionRecord, TransactionStatus};
 
-    #[derive(Debug, Serialize, Deserialize)]
-    struct Test {
-        foo: bool,
-    }
+    use super::KVStore;
 
     #[test]
-    fn test() {
-        let mvcc = Test { foo: true };
-        let str = serde_json::to_string(&mvcc).unwrap();
-        let meta = serde_json::from_str::<Test>(&str).unwrap();
-        let huh = "";
+    fn create_pending_transaction_record() -> () {
+        let mut kv_store = KVStore::new("./tmp/data");
+        let transaction_id = Uuid::new_v4();
 
-        let test_bool = true;
-        let bool_str = serde_json::to_string(&test_bool).unwrap();
-        let meta = serde_json::from_str::<bool>(&bool_str).unwrap();
-        // println!("value: {:?}", meta);
+        kv_store.create_pending_transaction_record(&transaction_id);
+        let transaction_record = kv_store.get_transaction_record(&transaction_id);
+        assert_eq!(
+            transaction_record,
+            TransactionRecord {
+                status: TransactionStatus::PENDING
+            }
+        )
+    }
 
-        let vec = serde_json::to_vec(&test_bool).unwrap();
-        let back = serde_json::from_slice::<bool>(&vec).unwrap();
-        // println!("value: {:?}", back);
+    mod mvcc_put {
+        use uuid::Uuid;
 
-        let str = "foo";
-        let vec = serde_json::to_vec(&str).unwrap();
-        let back = serde_json::from_slice::<&str>(&vec).unwrap();
-        println!("value: {:?}", back);
-        // serde_json::from_slice(value)
+        #[test]
+        fn write_intent_error() {
+            let txn1_id = Uuid::new_v4();
+            // let txn =
+        }
     }
 }

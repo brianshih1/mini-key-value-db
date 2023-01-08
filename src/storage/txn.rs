@@ -19,13 +19,13 @@ pub struct Transaction {
     // TODO: locks, etc
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
 // What's stored in the database
 pub struct TransactionRecord {
     pub status: TransactionStatus,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum TransactionStatus {
     PENDING,
     COMMITTED,

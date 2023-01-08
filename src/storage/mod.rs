@@ -8,7 +8,6 @@ mod mvcc_scanner;
 mod storage;
 mod ts_oracle;
 mod txn;
-mod writer;
 
 pub type Key = Vec<u8>;
 
