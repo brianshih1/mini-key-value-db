@@ -34,6 +34,7 @@ impl Storage {
 
     fn get_column_family(&self, cf_name: &str) -> RustyResult<&ColumnFamily> {
         self.db.cf_handle(&cf_name).ok_or(StorageError::new(
+            "test".to_owned(),
             format!("Column family ({}) not found", cf_name).to_owned(),
         ))
     }
@@ -70,6 +71,7 @@ impl Storage {
         match cf_handle {
             Some(cf) => Ok(self.db.prefix_iterator_cf(cf, prefix_name)),
             None => Err(StorageError::new(
+                "foo".to_owned(),
                 format!("no cfHandle found for prefix {}", prefix_name).to_owned(),
             )),
         }
@@ -80,6 +82,7 @@ impl Storage {
         match cf_handle {
             Some(cf) => Ok(self.db.iterator_cf(cf, rocksdb::IteratorMode::Start)),
             None => Err(StorageError::new(
+                "foo".to_owned(),
                 format!("no cfHandle found for prefix ").to_owned(),
             )),
         }

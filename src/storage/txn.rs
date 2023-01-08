@@ -10,6 +10,7 @@ pub struct TransactionMetadata {
 }
 
 pub struct Transaction {
+    pub transaction_id: Uuid,
     pub metadata: TransactionMetadata,
     // All reads are performed on this read_timestamp
     // Writes are performed on metadata.write_timestamp.

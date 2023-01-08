@@ -46,7 +46,7 @@ impl Storage {
         let str_res = serde_json::to_string(&value);
         match str_res {
             Ok(serialized) => self.put_raw(&key, serialized.into_bytes()),
-            Err(err) => Err(StorageError::from(err.to_string())),
+            Err(err) => Err(StorageError::new("put_error".to_owned(), err.to_string())),
         }
     }
 
@@ -59,7 +59,10 @@ impl Storage {
         let str_res = serde_json::to_string(&value);
         match str_res {
             Ok(serialized) => Ok(self.db.put(encoded, serialized.into_bytes()).unwrap()),
-            Err(err) => Err(StorageError::from(err.to_string())),
+            Err(err) => Err(StorageError::new(
+                "put_mvcc_error".to_owned(),
+                err.to_string(),
+            )),
         }
     }
 
@@ -69,11 +72,15 @@ impl Storage {
         match res {
             Ok(optional) => match optional {
                 Some(value) => Ok(serde_json::from_slice::<T>(&value).unwrap()),
-                None => Err(StorageError {
-                    message: "not found".to_owned(),
-                }),
+                None => Err(StorageError::new(
+                    "not found".to_owned(),
+                    "not found".to_owned(),
+                )),
             },
-            Err(err) => Err(StorageError::from(err.to_string())),
+            Err(err) => Err(StorageError::new(
+                "get_mvcc_error".to_owned(),
+                err.to_string(),
+            )),
         }
     }
 
@@ -82,11 +89,15 @@ impl Storage {
         match res {
             Ok(optional) => match optional {
                 Some(value) => Ok(serde_json::from_slice::<T>(&value).unwrap()),
-                None => Err(StorageError {
-                    message: "not found".to_owned(),
-                }),
+                None => Err(StorageError::new(
+                    "not_found".to_owned(),
+                    "not_found".to_owned(),
+                )),
             },
-            Err(err) => Err(StorageError::from(err.to_string())),
+            Err(err) => Err(StorageError::new(
+                "serialized_error".to_owned(),
+                err.to_string(),
+            )),
         }
     }
 }

@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{hlc::timestamp::Timestamp, StorageError, StorageResult};
+use crate::{hlc::timestamp::Timestamp, StorageError, StorageResult, WRITE_INTENT_ERROR};
 
 use super::{
     mvcc_iterator::IterOptions,
     mvcc_key::{create_intent_key, MVCCKey},
     storage::Storage,
-    txn::{Transaction, TransactionMetadata, TransactionRecord, TransactionStatus, TxnMetadata},
+    txn::{Transaction, TransactionMetadata, TransactionRecord, TransactionStatus},
     Key, Value,
 };
 
@@ -20,15 +20,42 @@ impl KVStore {
 
     /**
      * Returns an error if failed. Otherwise, return the MVCCKey of the value stored
+     *
+     * When transaction is provided, it will dictate the timestamp, not the timestamp parameter.
+     * The intent will be written by txn.metadata.writeTimestamp. Reads are performed at txn.readTimestamp.
      */
     pub fn mvcc_put(
         &mut self,
-        key: &Key,
+        key: &str,
         timestamp: &Timestamp,
         txn: Option<Transaction>,
         value: Value,
     ) -> StorageResult<MVCCKey> {
-        let intent = self.mvcc_get_intent(key);
+        let intent = self.mvcc_get_intent(&key.as_bytes().to_vec());
+
+        match intent {
+            Some((intent, transaction_record)) => match txn {
+                Some(put_txn) => {
+                    // this means we're overwriting our own transaction
+                    // TODO: epoch - transaction retries
+                    if intent.transaction_id == put_txn.transaction_id {
+                    } else {
+                        match transaction_record.status {
+                            TransactionStatus::PENDING => {
+                                return Err(StorageError::new(
+                                    WRITE_INTENT_ERROR,
+                                    "found pending transaction".to_owned(),
+                                ))
+                            }
+                            TransactionStatus::COMMITTED => todo!(),
+                            TransactionStatus::ABORTED => todo!(), // clean up
+                        }
+                    }
+                }
+                None => {}
+            },
+            None => {}
+        }
 
         // TODO: Storage::new_iterator(...)
         let mut read_timestamp = timestamp;
@@ -39,6 +66,9 @@ impl KVStore {
             read_timestamp = &txn.read_timestamp;
             write_timestamp = &txn.metadata.write_timestamp;
         }
+
+        let version_key = MVCCKey::new(key, write_timestamp.to_owned());
+        self.storage.put_mvcc_serialized(&version_key, value);
         todo!()
     }
 
