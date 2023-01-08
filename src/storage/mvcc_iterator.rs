@@ -1,3 +1,5 @@
+use std::iter::Peekable;
+
 use rocksdb::*;
 use serde::de::DeserializeOwned;
 
@@ -19,7 +21,7 @@ pub fn new_mvcc_iterator<'a>(iter_options: IterOptions, db: rocksdb::DB) -> MVCC
 
 // A wrapper around rocksdb iterator
 pub struct MVCCIterator<'a> {
-    pub it: DBIterator<'a>,
+    pub it: Peekable<DBIterator<'a>>,
 
     // Determines whether to use prefix seek or not
     prefix: bool,
@@ -31,7 +33,7 @@ pub struct MVCCIterator<'a> {
 
 impl<'a> MVCCIterator<'a> {
     fn new(db: &'a DB, options: IterOptions) -> Self {
-        let it = db.iterator(IteratorMode::Start);
+        let it = db.iterator(IteratorMode::Start).peekable();
         MVCCIterator {
             it,
             prefix: options.prefix,
@@ -56,7 +58,11 @@ impl<'a> MVCCIterator<'a> {
                     false
                 }
             },
-            _ => false,
+            None => {
+                self.is_done = true;
+                self.curr_kv = None;
+                false
+            }
         }
     }
 
@@ -65,7 +71,11 @@ impl<'a> MVCCIterator<'a> {
     // not the most efficient solution now
     fn current_key(&mut self) -> MVCCKey {
         let (k, _) = self.curr_kv.as_ref().unwrap();
-        let vec = Vec::from(k.as_ref());
+        MVCCIterator::convert_raw_key_to_mvcc_key(k)
+    }
+
+    fn convert_raw_key_to_mvcc_key(raw_key: &Box<[u8]>) -> MVCCKey {
+        let vec = Vec::from(raw_key.as_ref());
         decode_mvcc_key(&vec)
     }
 
@@ -88,21 +98,34 @@ impl<'a> MVCCIterator<'a> {
         !self.is_done
     }
 
-    fn seek_ge(&mut self, key: MVCCKey) -> () {
-        let encoded = encode_mvcc_key(&key);
+    // Prefix: true would be best if seek_ge is called
+    // Advances the iterator to the first MVCCKey >= key.
+    // Returns true if the iterator is pointing at an entry that's
+    // >= provided key, false otherwise.
+    fn seek_ge(&mut self, key: &MVCCKey) -> bool {
+        let mut found_valid = false;
+        loop {
+            let peeked = self.it.peek();
 
-        // loop {
-        //     let next = self.it.next();
-        //     match next {
-        //         Some(res) => {
-        //             if let Ok((k, v)) = res {
-        //                 let key = String::from_utf8(k.to_vec()).unwrap();
-        //             }
-        //         }
-        //         None => break,
-        //     }
-        // }
-        todo!()
+            match peeked {
+                Some(res) => match res {
+                    Ok((k, _)) => {
+                        let peeked_key = MVCCIterator::convert_raw_key_to_mvcc_key(k);
+                        if &peeked_key >= key {
+                            found_valid = true;
+                            self.next();
+                            break;
+                        } else {
+                            self.next();
+                            continue;
+                        }
+                    }
+                    _ => break,
+                },
+                None => break,
+            }
+        }
+        found_valid
     }
 }
 
@@ -110,7 +133,7 @@ mod tests {
     use rocksdb::{IteratorMode, DB};
 
     use crate::{
-        hlc::timestamp::Timestamp,
+        hlc::timestamp::{get_intent_timestamp, Timestamp},
         storage::{
             mvcc,
             mvcc_key::{encode_mvcc_key, MVCCKey},
@@ -141,8 +164,8 @@ mod tests {
     }
 
     #[test]
-    fn test_next() {
-        let mut storage = Storage::new_cleaned("./tmp/hello");
+    fn test_current_key_and_current_value() {
+        let mut storage = Storage::new_cleaned("./tmp/testt");
         let mvcc_key = MVCCKey::new(
             "hello",
             Timestamp {
@@ -160,5 +183,143 @@ mod tests {
         let value = iterator.current_value_serialized::<i32>();
         println!("value: {:?}", value);
         assert_eq!(value, 12);
+
+        iterator.next();
+        assert_eq!(iterator.valid(), false);
+    }
+
+    #[test]
+    fn test_order_of_iteration_with_intent_timestamp() {
+        let mut storage = Storage::new_cleaned("./tmp/testt");
+        let key = "hello";
+
+        let mvcc_key_2 = MVCCKey::new(
+            &key,
+            Timestamp {
+                logical_time: 2,
+                wall_time: 2,
+            },
+        );
+
+        let key_2_value = 12;
+
+        let mvcc_key_12 = MVCCKey::new(
+            &key,
+            Timestamp {
+                logical_time: 12,
+                wall_time: 12,
+            },
+        );
+        let key_12_value = 15;
+
+        let intent_key = MVCCKey::new(&key, get_intent_timestamp());
+        let intent_value = 10;
+        storage
+            .put_mvcc_serialized(&mvcc_key_12, key_12_value)
+            .unwrap();
+        storage
+            .put_mvcc_serialized(&mvcc_key_2, key_2_value)
+            .unwrap();
+        storage
+            .put_mvcc_serialized(&intent_key, intent_value)
+            .unwrap();
+
+        let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
+
+        iterator.next();
+        assert!(iterator.valid());
+        let current_key = iterator.current_key();
+        assert_eq!(current_key, intent_key);
+        let value = iterator.current_value_serialized::<i32>();
+        assert_eq!(value, intent_value);
+
+        iterator.next();
+        assert!(iterator.valid());
+        let current_key = iterator.current_key();
+        assert_eq!(current_key, mvcc_key_2);
+        let value = iterator.current_value_serialized::<i32>();
+        assert_eq!(value, key_2_value);
+
+        iterator.next();
+        assert!(iterator.valid());
+        let current_key = iterator.current_key();
+        assert_eq!(current_key, mvcc_key_12);
+        let value = iterator.current_value_serialized::<i32>();
+        assert_eq!(value, key_12_value);
+
+        iterator.next();
+        assert_eq!(iterator.valid(), false);
+    }
+
+    mod test_seek_ge {
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{
+                mvcc_iterator::{IterOptions, MVCCIterator},
+                mvcc_key::MVCCKey,
+                storage::Storage,
+            },
+        };
+
+        #[test]
+        fn test_multiple_timestamps_with_same_prefix() {
+            let mut storage = Storage::new_cleaned("./tmp/testt");
+            let key = "foo";
+            let mvcc_key_1 = MVCCKey::new(
+                key,
+                Timestamp {
+                    logical_time: 1,
+                    wall_time: 1,
+                },
+            );
+            storage.put_mvcc_serialized(&mvcc_key_1, 12).unwrap();
+
+            let mvcc_key_6 = MVCCKey::new(
+                key,
+                Timestamp {
+                    wall_time: 6,
+                    logical_time: 6,
+                },
+            );
+            storage.put_mvcc_serialized(&mvcc_key_6, 12).unwrap();
+
+            let mvcc_key_4 = MVCCKey::new(
+                key,
+                Timestamp {
+                    wall_time: 4,
+                    logical_time: 4,
+                },
+            );
+            storage.put_mvcc_serialized(&mvcc_key_4, 12).unwrap();
+
+            let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
+
+            let key5 = MVCCKey::new(
+                key,
+                Timestamp {
+                    wall_time: 5,
+                    logical_time: 5,
+                },
+            );
+            let seek_res = iterator.seek_ge(&key5);
+            assert_eq!(seek_res, true);
+            assert_eq!(iterator.current_key(), mvcc_key_6);
+        }
+
+        #[test]
+        fn empty_db() {
+            let mut storage = Storage::new_cleaned("./tmp/testt");
+            let key = "foo";
+            let mvcc_key_1 = MVCCKey::new(
+                key,
+                Timestamp {
+                    logical_time: 1,
+                    wall_time: 1,
+                },
+            );
+            let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
+            let seek_res = iterator.seek_ge(&mvcc_key_1);
+            assert_eq!(seek_res, false);
+        }
     }
 }
