@@ -4,16 +4,28 @@ use uuid::Uuid;
 use crate::{hlc::timestamp::Timestamp, StorageError, StorageResult, WRITE_INTENT_ERROR};
 
 use super::{
-    mvcc_iterator::IterOptions,
+    mvcc_iterator::{IterOptions, MVCCIterator},
     mvcc_key::{create_intent_key, encode_mvcc_key, MVCCKey},
     mvcc_scanner::MVCCScanner,
     storage::Storage,
-    txn::{Transaction, TransactionMetadata, TransactionRecord, TransactionStatus},
+    txn::{
+        Transaction, TransactionMetadata, TransactionRecord, TransactionStatus, UncommittedValue,
+    },
     Key, Value,
 };
 
 pub struct KVStore {
     pub storage: Storage,
+}
+
+pub struct ScanParams {
+    max_result_count: usize,
+}
+
+pub struct MVCCGetParams {}
+
+pub struct WriteIntentError {
+    pub intents: Vec<(Key, TransactionMetadata)>,
 }
 
 impl KVStore {
@@ -24,7 +36,33 @@ impl KVStore {
         }
     }
 
-    pub fn mvcc_get(&self) {}
+    pub fn mvcc_get(&self, key: Key, timestamp: Timestamp, params: MVCCGetParams) {}
+
+    pub fn mvcc_scan(
+        &self,
+        start_key: Key,
+        end_key: Key,
+        timestamp: Timestamp,
+        scan_params: ScanParams,
+    ) -> Result<Vec<(MVCCKey, Value)>, WriteIntentError> {
+        let iterator = MVCCIterator::new(&self.storage.db, IterOptions { prefix: true });
+        let mut scanner = MVCCScanner::new(
+            iterator,
+            start_key,
+            Some(end_key),
+            timestamp,
+            scan_params.max_result_count,
+            None, // TODO: transaction
+        );
+        scanner.scan();
+        if scanner.found_intents.len() > 0 {
+            return Err(WriteIntentError {
+                intents: scanner.found_intents,
+            });
+        } else {
+            return Ok(scanner.results);
+        }
+    }
 
     pub fn mvcc_put_serialized<T: Serialize>(
         &mut self,
@@ -59,7 +97,7 @@ impl KVStore {
         txn: Option<&Transaction>,
         value: Value,
     ) -> StorageResult<MVCCKey> {
-        let intent = self.mvcc_get_intent(&key.as_bytes().to_vec());
+        let intent = self.mvcc_get_uncommited_value(&key.as_bytes().to_vec());
 
         match intent {
             Some((intent, transaction_record)) => match &txn {
@@ -101,20 +139,28 @@ impl KVStore {
             self.storage
                 .put_mvcc_serialized(
                     create_intent_key(&key.as_bytes().to_vec()),
-                    TransactionMetadata {
-                        transaction_id: transaction.transaction_id,
-                        write_timestamp: write_timestamp.to_owned(),
+                    UncommittedValue {
+                        value: value.to_owned(),
+                        txn_metadata: TransactionMetadata {
+                            transaction_id: transaction.transaction_id,
+                            write_timestamp: write_timestamp.to_owned(),
+                        },
                     },
                 )
                 .unwrap();
+        } else {
+            self.storage
+                .put_raw(&version_key.to_string(), value)
+                .unwrap();
         }
-        self.storage
-            .put_raw(&version_key.to_string(), value)
-            .unwrap();
+
         Ok(version_key)
     }
 
-    pub fn mvcc_get_intent(&self, key: &Key) -> Option<(TransactionMetadata, TransactionRecord)> {
+    pub fn mvcc_get_uncommited_value(
+        &self,
+        key: &Key,
+    ) -> Option<(TransactionMetadata, TransactionRecord)> {
         let options = IterOptions { prefix: true };
         let mut it = self.storage.new_iterator(options);
         let intent_key = create_intent_key(key);
@@ -124,7 +170,9 @@ impl KVStore {
         if seek_res {
             let curr_key = it.current_key();
             if curr_key.is_intent_key() && &curr_key.key == key {
-                let metadata = it.current_value_serialized::<TransactionMetadata>();
+                let metadata = it
+                    .current_value_serialized::<UncommittedValue>()
+                    .txn_metadata;
                 let transaction_id = metadata.transaction_id;
                 let transaction_record = self.get_transaction_record(&transaction_id);
                 return Some((metadata, transaction_record));

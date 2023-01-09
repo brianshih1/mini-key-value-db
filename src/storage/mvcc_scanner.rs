@@ -5,12 +5,14 @@ use crate::hlc::timestamp::Timestamp;
 use super::{
     mvcc_iterator::MVCCIterator,
     mvcc_key::{create_intent_key, MVCCKey},
-    txn::TransactionMetadata,
+    txn::{Transaction, TransactionMetadata, UncommittedValue},
     Key, Value,
 };
 
 pub struct MVCCScanner<'a> {
     it: MVCCIterator<'a>,
+
+    pub transaction: Option<Transaction>,
 
     // TODO: lockTable
 
@@ -45,6 +47,7 @@ impl<'a> MVCCScanner<'a> {
         end_key: Option<Key>,
         timestamp: Timestamp,
         max_records_count: usize,
+        transaction: Option<Transaction>,
     ) -> Self {
         MVCCScanner {
             it,
@@ -54,6 +57,7 @@ impl<'a> MVCCScanner<'a> {
             found_intents: Vec::new(),
             results: Vec::new(),
             max_records_count,
+            transaction,
         }
     }
 
@@ -97,7 +101,10 @@ impl<'a> MVCCScanner<'a> {
     pub fn get_current_key(&mut self) -> bool {
         let current_key = self.it.current_key();
         if current_key.is_intent_key() {
-            let transaction_metadata = self.it.current_value_serialized::<TransactionMetadata>();
+            let transaction_metadata = self
+                .it
+                .current_value_serialized::<UncommittedValue>()
+                .txn_metadata;
             self.found_intents
                 .push((current_key.key, transaction_metadata));
             return false;
@@ -218,6 +225,7 @@ mod tests {
                 None,
                 scanner_timestamp,
                 5,
+                None,
             );
             scanner.get_current_key();
             assert_eq!(scanner.results.len(), 1);
@@ -246,6 +254,7 @@ mod tests {
                 None,
                 scanner_timestamp,
                 5,
+                None,
             );
             scanner.scan();
             assert_eq!(scanner.results.len(), 0);
@@ -299,6 +308,7 @@ mod tests {
                 None,
                 scanner_timestamp,
                 5,
+                None,
             );
             scanner.advance_to_next_key();
             assert_eq!(
@@ -324,6 +334,7 @@ mod tests {
                 None,
                 scanner_timestamp,
                 5,
+                None,
             );
             scanner.advance_to_next_key();
         }
@@ -384,6 +395,7 @@ mod tests {
                 Some(key2.as_bytes().to_vec()),
                 scan_timestamp,
                 5,
+                None,
             );
             scanner.scan();
             assert_eq!(scanner.results.len(), 2);
@@ -452,6 +464,7 @@ mod tests {
                 Some(str_to_key(key2)),
                 scanner_timestamp,
                 5,
+                None,
             );
             scanner.scan();
             assert_eq!(scanner.found_intents.len(), 2);

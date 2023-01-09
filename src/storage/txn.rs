@@ -3,10 +3,18 @@ use uuid::Uuid;
 
 use crate::hlc::timestamp::Timestamp;
 
+use super::Value;
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TransactionMetadata {
     pub transaction_id: Uuid,
     pub write_timestamp: Timestamp,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UncommittedValue {
+    pub value: Value,
+    pub txn_metadata: TransactionMetadata,
 }
 
 #[derive(Debug, Clone, Copy)]
