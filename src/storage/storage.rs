@@ -134,7 +134,9 @@ mod Test {
                 wall_time: 12,
             },
         );
-        storage.put_mvcc_serialized(mvcc_key.to_owned(), 12);
+        storage
+            .put_mvcc_serialized(mvcc_key.to_owned(), 12)
+            .unwrap();
         let retrieved = storage.get_mvcc_serialized::<i32>(&mvcc_key).unwrap();
         assert_eq!(retrieved, 12);
     }

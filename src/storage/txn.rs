@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::hlc::timestamp::Timestamp;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TransactionMetadata {
     pub transaction_id: Uuid,
     pub write_timestamp: Timestamp,
@@ -18,6 +18,23 @@ pub struct Transaction {
     // If the write runs into timestamp oracle, then the write timestamp will be bumped.
     pub read_timestamp: Timestamp,
     // TODO: locks, etc
+}
+
+impl Transaction {
+    pub fn new(
+        transaction_id: Uuid,
+        read_timestamp: Timestamp,
+        write_timestamp: Timestamp,
+    ) -> Self {
+        Transaction {
+            transaction_id: transaction_id,
+            metadata: TransactionMetadata {
+                transaction_id: transaction_id.to_owned(),
+                write_timestamp: write_timestamp,
+            },
+            read_timestamp: read_timestamp,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]

@@ -5,14 +5,15 @@ use crate::{hlc::timestamp::Timestamp, StorageError, StorageResult, WRITE_INTENT
 
 use super::{
     mvcc_iterator::IterOptions,
-    mvcc_key::{create_intent_key, MVCCKey},
+    mvcc_key::{create_intent_key, encode_mvcc_key, MVCCKey},
+    mvcc_scanner::MVCCScanner,
     storage::Storage,
     txn::{Transaction, TransactionMetadata, TransactionRecord, TransactionStatus},
     Key, Value,
 };
 
-struct KVStore {
-    storage: Storage,
+pub struct KVStore {
+    pub storage: Storage,
 }
 
 impl KVStore {
@@ -29,7 +30,7 @@ impl KVStore {
         &mut self,
         key: &str,
         timestamp: Option<Timestamp>,
-        txn: Option<Transaction>,
+        txn: Option<&Transaction>,
         value: T,
     ) -> StorageResult<MVCCKey> {
         self.mvcc_put(
@@ -55,7 +56,7 @@ impl KVStore {
         &mut self,
         key: &str,
         timestamp: Option<Timestamp>,
-        txn: Option<Transaction>,
+        txn: Option<&Transaction>,
         value: Value,
     ) -> StorageResult<MVCCKey> {
         let intent = self.mvcc_get_intent(&key.as_bytes().to_vec());
@@ -107,9 +108,8 @@ impl KVStore {
                 )
                 .unwrap();
         }
-
         self.storage
-            .put_mvcc_serialized(version_key.to_owned(), value)
+            .put_raw(&version_key.to_string(), value)
             .unwrap();
         Ok(version_key)
     }
@@ -196,23 +196,15 @@ mod tests {
             let key = "foo";
             let txn1_id = Uuid::new_v4();
             kv_store.create_pending_transaction_record(&txn1_id);
-            let transaction = Transaction {
-                read_timestamp: Timestamp {
-                    wall_time: 10,
-                    logical_time: 12,
-                },
-                transaction_id: txn1_id.to_owned(),
-                metadata: TransactionMetadata {
-                    transaction_id: txn1_id.to_owned(),
-                    write_timestamp: Timestamp {
-                        wall_time: 10,
-                        logical_time: 12,
-                    },
-                },
+
+            let timestamp = Timestamp {
+                wall_time: 10,
+                logical_time: 12,
             };
+            let transaction = Transaction::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
 
             kv_store
-                .mvcc_put_serialized(key, None, Some(transaction.to_owned()), 12)
+                .mvcc_put_serialized(key, None, Some(&transaction), 12)
                 .unwrap();
 
             let txn2_id = Uuid::new_v4();
@@ -232,8 +224,7 @@ mod tests {
                 },
             };
 
-            let res =
-                kv_store.mvcc_put_serialized(key, None, Some(second_transaction.to_owned()), 12);
+            let res = kv_store.mvcc_put_serialized(key, None, Some(&second_transaction), 12);
 
             let err = res.map_err(|e| e.message_id);
             assert_eq!(err, Err(WRITE_INTENT_ERROR.to_owned()));

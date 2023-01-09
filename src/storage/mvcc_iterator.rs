@@ -28,18 +28,22 @@ pub struct MVCCIterator<'a> {
 
     curr_kv: Option<KVBytes>,
 
+    // if is_done is true, then curr_kv is guaranteed to be None
     is_done: bool,
 }
 
 impl<'a> MVCCIterator<'a> {
+    // next() will immediately be called to try obtain a valid tuple
     pub fn new(db: &'a DB, options: IterOptions) -> Self {
         let it = db.iterator(IteratorMode::Start).peekable();
-        MVCCIterator {
+        let mut mvcc_it = MVCCIterator {
             it,
             prefix: options.prefix,
             curr_kv: None,
             is_done: false,
-        }
+        };
+        mvcc_it.next();
+        mvcc_it
     }
 
     // Returns true if pointing at valid entry, false otherwise
@@ -104,6 +108,12 @@ impl<'a> MVCCIterator<'a> {
     // >= provided key, false otherwise.
     pub fn seek_ge(&mut self, key: &MVCCKey) -> bool {
         let mut found_valid = false;
+        if !self.valid() {
+            return false;
+        }
+        if &self.current_key() >= key {
+            return true;
+        }
         loop {
             let peeked = self.it.peek();
 
@@ -175,7 +185,6 @@ mod tests {
         );
         storage.put_mvcc_serialized(mvcc_key.to_owned(), 12);
         let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
-        iterator.next();
         assert!(iterator.valid());
         let key = iterator.current_key();
         assert_eq!(key, mvcc_key);
@@ -226,7 +235,6 @@ mod tests {
 
         let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
 
-        iterator.next();
         assert!(iterator.valid());
         let current_key = iterator.current_key();
         assert_eq!(current_key, intent_key);

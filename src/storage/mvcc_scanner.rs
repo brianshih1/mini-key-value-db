@@ -5,6 +5,7 @@ use crate::hlc::timestamp::Timestamp;
 use super::{
     mvcc_iterator::MVCCIterator,
     mvcc_key::{create_intent_key, MVCCKey},
+    txn::TransactionMetadata,
     Key, Value,
 };
 
@@ -22,7 +23,7 @@ pub struct MVCCScanner<'a> {
     // Timestamp that MVCCScan/MVCCGet was called
     pub timestamp: Timestamp,
 
-    pub found_intent: bool,
+    pub found_intents: Vec<(Key, TransactionMetadata)>,
 
     // max number of tuples to add to the results
     pub max_records_count: usize,
@@ -50,7 +51,7 @@ impl<'a> MVCCScanner<'a> {
             start_key: start_key,
             end_key: end_key,
             timestamp,
-            found_intent: false,
+            found_intents: Vec::new(),
             results: Vec::new(),
             max_records_count,
         }
@@ -96,7 +97,9 @@ impl<'a> MVCCScanner<'a> {
     pub fn get_current_key(&mut self) -> bool {
         let current_key = self.it.current_key();
         if current_key.is_intent_key() {
-            self.found_intent = true;
+            let transaction_metadata = self.it.current_value_serialized::<TransactionMetadata>();
+            self.found_intents
+                .push((current_key.key, transaction_metadata));
             return false;
         } else {
             let key_timestamp = current_key.timestamp;
@@ -166,44 +169,296 @@ impl<'a> MVCCScanner<'a> {
 mod tests {
     #[cfg(test)]
     mod get_current_key {
+        use uuid::Uuid;
+
         use crate::{
             hlc::timestamp::Timestamp,
             storage::{
+                mvcc::KVStore,
                 mvcc_iterator::{IterOptions, MVCCIterator},
                 mvcc_key::MVCCKey,
+                mvcc_scanner::MVCCScanner,
                 storage::Storage,
+                txn::Transaction,
             },
         };
 
-        // #[test]
-        // fn no_intent() {
-        //     let mut storage = Storage::new_cleaned("./tmp/test");
-        //     let key = "foo";
-        //     let mvcc_key_1 = MVCCKey::new(
-        //         key,
-        //         Timestamp {
-        //             logical_time: 1,
-        //             wall_time: 1,
-        //         },
-        //     );
-        //     storage.put_mvcc_serialized(mvcc_key_1, 10).unwrap();
+        use super::scan;
 
-        //     let mvcc_key_2 = MVCCKey::new(
-        //         key,
-        //         Timestamp {
-        //             logical_time: 2,
-        //             wall_time: 2,
-        //         },
-        //     );
-        //     storage.put_mvcc_serialized(mvcc_key_2, 1).unwrap();
+        #[test]
+        fn no_intent_and_none_end_key() {
+            let mut storage = Storage::new_cleaned("./tmp/test");
+            let key = "foo";
+            let mvcc_key_1 = MVCCKey::new(
+                key,
+                Timestamp {
+                    logical_time: 1,
+                    wall_time: 1,
+                },
+            );
+            storage.put_mvcc_serialized(mvcc_key_1, 10).unwrap();
 
-        //     let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
-        // }
+            let mvcc_key_2 = MVCCKey::new(
+                key,
+                Timestamp {
+                    logical_time: 2,
+                    wall_time: 2,
+                },
+            );
+            storage.put_mvcc_serialized(mvcc_key_2, 1).unwrap();
+
+            let iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
+            let scanner_timestamp = Timestamp {
+                logical_time: 3,
+                wall_time: 3,
+            };
+            let mut scanner = MVCCScanner::new(
+                iterator,
+                key.as_bytes().to_vec(),
+                None,
+                scanner_timestamp,
+                5,
+            );
+            scanner.get_current_key();
+            assert_eq!(scanner.results.len(), 1);
+            assert_eq!(scanner.found_intents.len(), 0);
+        }
+
+        #[test]
+        fn intent_found() {
+            let mut kv_store = KVStore::new("./tmp/data");
+            let timestamp = Timestamp::new(12, 0);
+            let txn_id = Uuid::new_v4();
+            let transaction = Transaction::new(txn_id, timestamp.to_owned(), timestamp.to_owned());
+            let key = "foo";
+            kv_store
+                .mvcc_put_serialized(key, Some(timestamp), Some(&transaction), 12)
+                .unwrap();
+
+            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let scanner_timestamp = Timestamp {
+                logical_time: 3,
+                wall_time: 3,
+            };
+            let mut scanner = MVCCScanner::new(
+                iterator,
+                key.as_bytes().to_vec(),
+                None,
+                scanner_timestamp,
+                5,
+            );
+            scanner.scan();
+            assert_eq!(scanner.results.len(), 0);
+            assert_eq!(scanner.found_intents.len(), 1);
+            assert_eq!(
+                scanner.found_intents[0],
+                (key.as_bytes().to_vec(), transaction.metadata.to_owned())
+            );
+        }
     }
 
     #[cfg(test)]
-    mod advance_to_next_key {}
+    mod advance_to_next_key {
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{
+                mvcc::KVStore,
+                mvcc_iterator::{IterOptions, MVCCIterator},
+                mvcc_key::MVCCKey,
+                mvcc_scanner::MVCCScanner,
+            },
+        };
+
+        #[test]
+        fn advances_to_next_key() {
+            let mut kv_store = KVStore::new("./tmp/data");
+            let first_key = "apple";
+            let first_key_timestamp1 = Timestamp::new(2, 3);
+            let first_key_timestamp2 = Timestamp::new(3, 0);
+            kv_store
+                .mvcc_put_serialized(first_key, Some(first_key_timestamp1), None, 12)
+                .unwrap();
+            kv_store
+                .mvcc_put_serialized(first_key, Some(first_key_timestamp2), None, 13)
+                .unwrap();
+
+            let second_key = "banana";
+            let second_key_timestamp = Timestamp::new(2, 3);
+            kv_store
+                .mvcc_put_serialized(second_key, Some(second_key_timestamp), None, 13)
+                .unwrap();
+
+            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let scanner_timestamp = Timestamp {
+                logical_time: 3,
+                wall_time: 3,
+            };
+            let mut scanner = MVCCScanner::new(
+                iterator,
+                first_key.as_bytes().to_vec(),
+                None,
+                scanner_timestamp,
+                5,
+            );
+            scanner.advance_to_next_key();
+            assert_eq!(
+                scanner.it.current_key(),
+                MVCCKey {
+                    key: second_key.as_bytes().to_vec(),
+                    timestamp: second_key_timestamp
+                }
+            )
+        }
+
+        #[test]
+        fn there_is_no_next_key() {
+            let mut kv_store = KVStore::new("./tmp/data");
+            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let scanner_timestamp = Timestamp {
+                logical_time: 3,
+                wall_time: 3,
+            };
+            let mut scanner = MVCCScanner::new(
+                iterator,
+                "foo".as_bytes().to_vec(),
+                None,
+                scanner_timestamp,
+                5,
+            );
+            scanner.advance_to_next_key();
+        }
+    }
 
     #[cfg(test)]
-    mod scan {}
+    mod scan {
+        use uuid::Uuid;
+
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{
+                mvcc::KVStore,
+                mvcc_iterator::{IterOptions, MVCCIterator},
+                mvcc_key::MVCCKey,
+                mvcc_scanner::MVCCScanner,
+                serialized_to_value, str_to_key,
+                txn::Transaction,
+            },
+        };
+
+        #[test]
+        fn multiple_timestamps_for_same_keys() {
+            let mut kv_store = KVStore::new("./tmp/data");
+
+            let scan_timestamp = Timestamp::new(12, 3);
+
+            let key1 = "apple";
+            let first_key_timestamp1 = scan_timestamp.decrement_by(2);
+            let first_key_timestamp2 = scan_timestamp.advance_by(3);
+            kv_store
+                .mvcc_put_serialized(key1, Some(first_key_timestamp1), None, 12)
+                .unwrap();
+            kv_store
+                .mvcc_put_serialized(key1, Some(first_key_timestamp2), None, 13)
+                .unwrap();
+
+            let key2 = "banana";
+            let second_key_timestamp1 = scan_timestamp.decrement_by(1);
+            let second_key_timestamp2 = scan_timestamp.advance_by(10);
+            kv_store
+                .mvcc_put_serialized(key2, Some(second_key_timestamp1), None, 12)
+                .unwrap();
+            kv_store
+                .mvcc_put_serialized(key2, Some(second_key_timestamp2), None, 13)
+                .unwrap();
+
+            let key3 = "cherry";
+            let third_key_timestamp = scan_timestamp.decrement_by(10);
+            kv_store
+                .mvcc_put_serialized(key3, Some(third_key_timestamp), None, 12)
+                .unwrap();
+
+            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let mut scanner = MVCCScanner::new(
+                iterator,
+                key1.as_bytes().to_vec(),
+                Some(key2.as_bytes().to_vec()),
+                scan_timestamp,
+                5,
+            );
+            scanner.scan();
+            assert_eq!(scanner.results.len(), 2);
+            let mut vec = Vec::new();
+            vec.push((
+                MVCCKey {
+                    key: str_to_key(key1),
+                    timestamp: first_key_timestamp1,
+                },
+                serialized_to_value(12),
+            ));
+            vec.push((
+                MVCCKey {
+                    key: str_to_key(key2),
+                    timestamp: second_key_timestamp1,
+                },
+                serialized_to_value(12),
+            ));
+            assert_eq!(scanner.results, vec);
+            assert_eq!(scanner.found_intents.len(), 0);
+        }
+
+        #[test]
+        fn multiple_intents() {
+            let mut kv_store = KVStore::new("./tmp/data");
+            let txn_id = Uuid::new_v4();
+            let transaction_timestamp = Timestamp::new(12, 0);
+            let transaction = Transaction::new(
+                txn_id,
+                transaction_timestamp.to_owned(),
+                transaction_timestamp.to_owned(),
+            );
+            let key1 = "apple";
+            kv_store
+                .mvcc_put_serialized(key1, Some(transaction_timestamp), Some(&transaction), 12)
+                .unwrap();
+
+            let key2 = "banana";
+            kv_store
+                .mvcc_put_serialized(
+                    key2,
+                    Some(transaction_timestamp),
+                    Some(&transaction),
+                    "world",
+                )
+                .unwrap();
+
+            let key3 = "cherry";
+            kv_store
+                .mvcc_put_serialized(
+                    key3,
+                    Some(transaction_timestamp),
+                    Some(&transaction),
+                    "hello",
+                )
+                .unwrap();
+
+            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let scanner_timestamp = Timestamp {
+                logical_time: 3,
+                wall_time: 3,
+            };
+            let mut scanner = MVCCScanner::new(
+                iterator,
+                str_to_key(key1),
+                Some(str_to_key(key2)),
+                scanner_timestamp,
+                5,
+            );
+            scanner.scan();
+            assert_eq!(scanner.found_intents.len(), 2);
+            let mut vec = Vec::new();
+            vec.push((str_to_key(key1), transaction.metadata));
+            vec.push((str_to_key(key2), transaction.metadata));
+            assert_eq!(scanner.found_intents, vec);
+        }
+    }
 }

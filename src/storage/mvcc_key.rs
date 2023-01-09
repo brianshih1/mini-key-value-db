@@ -1,3 +1,5 @@
+use core::str;
+
 use crate::hlc::timestamp::{get_intent_timestamp, Timestamp};
 
 use super::Key;
@@ -29,6 +31,15 @@ impl MVCCKey {
 
     pub fn is_intent_key(&self) -> bool {
         self.timestamp.is_intent_timestamp()
+    }
+
+    pub fn to_string(&self) -> String {
+        let encoded = encode_mvcc_key(self);
+        String::from_utf8(encoded).unwrap()
+    }
+
+    pub fn to_encoded(&self) -> Vec<u8> {
+        encode_mvcc_key(self)
     }
 }
 

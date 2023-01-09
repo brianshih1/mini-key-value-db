@@ -13,6 +13,27 @@ impl PartialEq for Timestamp {
 }
 
 impl Timestamp {
+    pub fn advance_by(&self, amount: u64) -> Timestamp {
+        Timestamp {
+            wall_time: self.wall_time + amount,
+            logical_time: 0,
+        }
+    }
+
+    pub fn decrement_by(&self, amount: u64) -> Timestamp {
+        Timestamp {
+            wall_time: self.wall_time - amount,
+            logical_time: 0,
+        }
+    }
+
+    pub fn new(wall_time: u64, logical_time: u32) -> Self {
+        Timestamp {
+            wall_time,
+            logical_time,
+        }
+    }
+
     pub fn is_intent_timestamp(&self) -> bool {
         self.wall_time == 0 && self.logical_time == 0
     }
