@@ -79,7 +79,7 @@ impl<'a> MVCCScanner<'a> {
                     }
                 }
             }
-            self.get_one();
+            self.get_current_key();
             self.advance_to_next_key();
             // advance to next one
         }
@@ -93,7 +93,7 @@ impl<'a> MVCCScanner<'a> {
      * Returns whether a record was added to the result set for the current key
      *
      */
-    pub fn get_one(&mut self) -> bool {
+    pub fn get_current_key(&mut self) -> bool {
         let current_key = self.it.current_key();
         if current_key.is_intent_key() {
             self.found_intent = true;
@@ -160,4 +160,50 @@ impl<'a> MVCCScanner<'a> {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(test)]
+    mod get_current_key {
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{
+                mvcc_iterator::{IterOptions, MVCCIterator},
+                mvcc_key::MVCCKey,
+                storage::Storage,
+            },
+        };
+
+        // #[test]
+        // fn no_intent() {
+        //     let mut storage = Storage::new_cleaned("./tmp/test");
+        //     let key = "foo";
+        //     let mvcc_key_1 = MVCCKey::new(
+        //         key,
+        //         Timestamp {
+        //             logical_time: 1,
+        //             wall_time: 1,
+        //         },
+        //     );
+        //     storage.put_mvcc_serialized(mvcc_key_1, 10).unwrap();
+
+        //     let mvcc_key_2 = MVCCKey::new(
+        //         key,
+        //         Timestamp {
+        //             logical_time: 2,
+        //             wall_time: 2,
+        //         },
+        //     );
+        //     storage.put_mvcc_serialized(mvcc_key_2, 1).unwrap();
+
+        //     let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
+        // }
+    }
+
+    #[cfg(test)]
+    mod advance_to_next_key {}
+
+    #[cfg(test)]
+    mod scan {}
 }

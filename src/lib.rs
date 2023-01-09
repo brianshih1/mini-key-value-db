@@ -1,6 +1,5 @@
 mod hlc;
 mod interval_tree;
-mod rustyDB;
 mod storage;
 
 use rocksdb::{Options, DB};
