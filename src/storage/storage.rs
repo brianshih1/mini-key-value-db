@@ -52,10 +52,10 @@ impl Storage {
 
     pub fn put_mvcc_serialized<T: Serialize>(
         &mut self,
-        key: &MVCCKey,
+        key: MVCCKey,
         value: T,
     ) -> StorageResult<()> {
-        let encoded = encode_mvcc_key(key);
+        let encoded = encode_mvcc_key(&key);
         let str_res = serde_json::to_string(&value);
         match str_res {
             Ok(serialized) => Ok(self.db.put(encoded, serialized.into_bytes()).unwrap()),
@@ -134,7 +134,7 @@ mod Test {
                 wall_time: 12,
             },
         );
-        storage.put_mvcc_serialized(&mvcc_key, 12);
+        storage.put_mvcc_serialized(mvcc_key.to_owned(), 12);
         let retrieved = storage.get_mvcc_serialized::<i32>(&mvcc_key).unwrap();
         assert_eq!(retrieved, 12);
     }

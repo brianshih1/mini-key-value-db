@@ -173,7 +173,7 @@ mod tests {
                 wall_time: 12,
             },
         );
-        storage.put_mvcc_serialized(&mvcc_key, 12);
+        storage.put_mvcc_serialized(mvcc_key.to_owned(), 12);
         let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
         iterator.next();
         assert!(iterator.valid());
@@ -215,13 +215,13 @@ mod tests {
         let intent_key = MVCCKey::new(&key, get_intent_timestamp());
         let intent_value = 10;
         storage
-            .put_mvcc_serialized(&mvcc_key_12, key_12_value)
+            .put_mvcc_serialized(mvcc_key_12.to_owned(), key_12_value)
             .unwrap();
         storage
-            .put_mvcc_serialized(&mvcc_key_2, key_2_value)
+            .put_mvcc_serialized(mvcc_key_2.to_owned(), key_2_value)
             .unwrap();
         storage
-            .put_mvcc_serialized(&intent_key, intent_value)
+            .put_mvcc_serialized(intent_key.to_owned(), intent_value)
             .unwrap();
 
         let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
@@ -272,7 +272,7 @@ mod tests {
                     wall_time: 1,
                 },
             );
-            storage.put_mvcc_serialized(&mvcc_key_1, 12).unwrap();
+            storage.put_mvcc_serialized(mvcc_key_1, 12).unwrap();
 
             let mvcc_key_6 = MVCCKey::new(
                 key,
@@ -281,7 +281,9 @@ mod tests {
                     logical_time: 6,
                 },
             );
-            storage.put_mvcc_serialized(&mvcc_key_6, 12).unwrap();
+            storage
+                .put_mvcc_serialized(mvcc_key_6.to_owned(), 12)
+                .unwrap();
 
             let mvcc_key_4 = MVCCKey::new(
                 key,
@@ -290,7 +292,7 @@ mod tests {
                     logical_time: 4,
                 },
             );
-            storage.put_mvcc_serialized(&mvcc_key_4, 12).unwrap();
+            storage.put_mvcc_serialized(mvcc_key_4, 12).unwrap();
 
             let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
 

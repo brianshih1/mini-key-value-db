@@ -3,12 +3,13 @@ use uuid::Uuid;
 
 use crate::hlc::timestamp::Timestamp;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct TransactionMetadata {
     pub transaction_id: Uuid,
     pub write_timestamp: Timestamp,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Transaction {
     pub transaction_id: Uuid,
     pub metadata: TransactionMetadata,

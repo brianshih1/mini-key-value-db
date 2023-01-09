@@ -25,8 +25,28 @@ impl KVStore {
 
     pub fn mvcc_get(&self) {}
 
+    pub fn mvcc_put_serialized<T: Serialize>(
+        &mut self,
+        key: &str,
+        timestamp: Option<Timestamp>,
+        txn: Option<Transaction>,
+        value: T,
+    ) -> StorageResult<MVCCKey> {
+        self.mvcc_put(
+            key,
+            timestamp,
+            txn,
+            serde_json::to_string(&value).unwrap().into_bytes(),
+        )
+    }
     /**
-     * Returns an error if failed. Otherwise, return the MVCCKey of the value stored
+     * MVCCPut puts a new timestamped value for the key/value, as well as an
+     * intent if a transaction is provided.
+     *
+     * Before writing, MVCCPut must verify that there are no uncommitted intent
+     * for the same key.
+     *
+     * This function returns an error if failed. Otherwise, return the MVCCKey of the value stored
      *
      * When transaction is provided, it will dictate the timestamp, not the timestamp parameter.
      * The intent will be written by txn.metadata.writeTimestamp. Reads are performed at txn.readTimestamp.
@@ -34,7 +54,7 @@ impl KVStore {
     pub fn mvcc_put(
         &mut self,
         key: &str,
-        timestamp: &Timestamp,
+        timestamp: Option<Timestamp>,
         txn: Option<Transaction>,
         value: Value,
     ) -> StorageResult<MVCCKey> {
@@ -71,11 +91,26 @@ impl KVStore {
                 transaction.read_timestamp,
                 transaction.metadata.write_timestamp,
             ),
-            None => (timestamp.to_owned(), timestamp.to_owned()),
+            None => (timestamp.unwrap().to_owned(), timestamp.unwrap().to_owned()),
         };
 
         let version_key = MVCCKey::new(key, write_timestamp.to_owned());
-        self.storage.put_mvcc_serialized(&version_key, value);
+
+        if let Some(transaction) = txn {
+            self.storage
+                .put_mvcc_serialized(
+                    create_intent_key(&key.as_bytes().to_vec()),
+                    TransactionMetadata {
+                        transaction_id: transaction.transaction_id,
+                        write_timestamp: write_timestamp.to_owned(),
+                    },
+                )
+                .unwrap();
+        }
+
+        self.storage
+            .put_mvcc_serialized(version_key.to_owned(), value)
+            .unwrap();
         Ok(version_key)
     }
 
@@ -146,10 +181,62 @@ mod tests {
     mod mvcc_put {
         use uuid::Uuid;
 
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{
+                mvcc::KVStore,
+                txn::{Transaction, TransactionMetadata},
+            },
+            WRITE_INTENT_ERROR,
+        };
+
         #[test]
         fn write_intent_error() {
+            let mut kv_store = KVStore::new("./tmp/data");
+            let key = "foo";
             let txn1_id = Uuid::new_v4();
-            // let txn =
+            kv_store.create_pending_transaction_record(&txn1_id);
+            let transaction = Transaction {
+                read_timestamp: Timestamp {
+                    wall_time: 10,
+                    logical_time: 12,
+                },
+                transaction_id: txn1_id.to_owned(),
+                metadata: TransactionMetadata {
+                    transaction_id: txn1_id.to_owned(),
+                    write_timestamp: Timestamp {
+                        wall_time: 10,
+                        logical_time: 12,
+                    },
+                },
+            };
+
+            kv_store
+                .mvcc_put_serialized(key, None, Some(transaction.to_owned()), 12)
+                .unwrap();
+
+            let txn2_id = Uuid::new_v4();
+
+            let second_transaction = Transaction {
+                read_timestamp: Timestamp {
+                    wall_time: 12,
+                    logical_time: 14,
+                },
+                transaction_id: txn2_id.to_owned(),
+                metadata: TransactionMetadata {
+                    transaction_id: txn2_id.to_owned(),
+                    write_timestamp: Timestamp {
+                        wall_time: 12,
+                        logical_time: 14,
+                    },
+                },
+            };
+
+            let res =
+                kv_store.mvcc_put_serialized(key, None, Some(second_transaction.to_owned()), 12);
+
+            let err = res.map_err(|e| e.message_id);
+            assert_eq!(err, Err(WRITE_INTENT_ERROR.to_owned()));
         }
     }
 }
