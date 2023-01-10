@@ -1,13 +1,14 @@
-use std::path::Path;
+use std::{cmp::Ordering, path::Path};
 
 use rocksdb::DB;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{StorageError, StorageResult};
 
 use super::{
     mvcc_iterator::{IterOptions, MVCCIterator},
-    mvcc_key::{encode_mvcc_key, MVCCKey},
+    mvcc_key::{decode_mvcc_key, encode_mvcc_key, MVCCKey},
 };
 
 pub struct Storage {
@@ -15,10 +16,42 @@ pub struct Storage {
 }
 
 impl Storage {
+    // A very non-performant way to sort keys...
+    // MVCCKeys are sorted in descending orders since we want the most recent
+    // timestamp to be sorted first
+    fn compare(first: &[u8], second: &[u8]) -> Ordering {
+        let first_mvcc = decode_mvcc_key(&first.to_vec());
+        let second_mvcc = decode_mvcc_key(&second.to_vec());
+        match (first_mvcc, second_mvcc) {
+            (None, None) => first.cmp(second),
+            (None, Some(_)) => first.cmp(second),
+            (Some(_), None) => first.cmp(second),
+            (Some(first_mvcc), Some(second_mvcc)) => {
+                let key_ordering = first_mvcc.key.cmp(&second_mvcc.key);
+                match key_ordering {
+                    Ordering::Less => key_ordering,
+                    Ordering::Equal => {
+                        if first_mvcc.is_intent_key() {
+                            // intent keys (keys with empty timestamps) are always sorted
+                            // on top of timestamped keys
+                            Ordering::Less
+                        } else if second_mvcc.is_intent_key() {
+                            Ordering::Greater
+                        } else {
+                            second_mvcc.timestamp.cmp(&first_mvcc.timestamp)
+                        }
+                    }
+                    Ordering::Greater => key_ordering,
+                }
+            }
+        }
+    }
+
     // path example: "./tmp/data";
     pub fn new(path: &str) -> Storage {
         let mut options = rocksdb::Options::default();
         options.create_if_missing(true);
+        options.set_comparator("mvcc_ordering", Storage::compare);
         let db = DB::open(&options, path).unwrap();
         Storage { db }
     }
@@ -32,10 +65,7 @@ impl Storage {
         if Path::new(path).exists() {
             std::fs::remove_dir_all(path).unwrap();
         }
-        let mut options = rocksdb::Options::default();
-        options.create_if_missing(true);
-        let db = DB::open(&options, path).unwrap();
-        Storage { db }
+        Storage::new(path)
     }
 
     pub fn put_raw(&mut self, key: &str, value: Vec<u8>) -> StorageResult<()> {
@@ -50,7 +80,7 @@ impl Storage {
         }
     }
 
-    pub fn put_mvcc_serialized<T: Serialize>(
+    pub fn put_serialized_with_mvcc_key<T: Serialize>(
         &mut self,
         key: MVCCKey,
         value: T,
@@ -66,7 +96,10 @@ impl Storage {
         }
     }
 
-    pub fn get_mvcc_serialized<T: DeserializeOwned>(&mut self, key: &MVCCKey) -> StorageResult<T> {
+    pub fn get_serialized_with_mvcc_key<T: DeserializeOwned>(
+        &mut self,
+        key: &MVCCKey,
+    ) -> StorageResult<T> {
         let encoded = encode_mvcc_key(key);
         let res = self.db.get(encoded);
         match res {
@@ -135,9 +168,122 @@ mod Test {
             },
         );
         storage
-            .put_mvcc_serialized(mvcc_key.to_owned(), 12)
+            .put_serialized_with_mvcc_key(mvcc_key.to_owned(), 12)
             .unwrap();
-        let retrieved = storage.get_mvcc_serialized::<i32>(&mvcc_key).unwrap();
+        let retrieved = storage
+            .get_serialized_with_mvcc_key::<i32>(&mvcc_key)
+            .unwrap();
         assert_eq!(retrieved, 12);
+    }
+
+    mod storage_order {
+        use rocksdb::IteratorMode;
+
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{mvcc_iterator::MVCCIterator, mvcc_key::MVCCKey, storage::Storage},
+        };
+
+        #[test]
+        fn check_order_no_intent() {
+            let mut storage = Storage::new_cleaned("./tmp/foo");
+            let first_mvcc_key = MVCCKey::new("a", Timestamp::new(1, 0));
+            let second_mvcc_key = MVCCKey::new("a", Timestamp::new(2, 0));
+
+            storage
+                .put_serialized_with_mvcc_key(second_mvcc_key.to_owned(), 13)
+                .unwrap();
+            storage
+                .put_serialized_with_mvcc_key(first_mvcc_key.to_owned(), 12)
+                .unwrap();
+            let mut it = storage.db.iterator(IteratorMode::Start);
+            let (k, v) = it.next().unwrap().unwrap();
+            let key = MVCCIterator::convert_raw_key_to_mvcc_key(&k);
+            assert_eq!(key, second_mvcc_key);
+            let (second_k, v) = it.next().unwrap().unwrap();
+            let second_key = MVCCIterator::convert_raw_key_to_mvcc_key(&second_k);
+            assert_eq!(second_key, first_mvcc_key);
+        }
+
+        #[test]
+        fn check_order_intent() {
+            let mut storage = Storage::new_cleaned("./tmp/foobars");
+            let key = "a";
+            let intent_key = MVCCKey::create_intent_key_with_str(key);
+            let non_intent_key = MVCCKey::new(key, Timestamp::new(2, 0));
+            let put_res1 = storage.put_serialized_with_mvcc_key(intent_key.to_owned(), 12);
+            let put_res2 = storage.put_serialized_with_mvcc_key(non_intent_key.to_owned(), 13);
+
+            let mut it = storage.db.iterator(IteratorMode::Start);
+
+            let (k, _) = it.next().unwrap().unwrap();
+            let key = MVCCIterator::convert_raw_key_to_mvcc_key(&k);
+            assert_eq!(key, intent_key);
+            let next = it.next();
+            let (second_k, _) = next.unwrap().unwrap();
+            let second_key = MVCCIterator::convert_raw_key_to_mvcc_key(&second_k);
+            assert_eq!(second_key, non_intent_key);
+        }
+    }
+
+    mod compare {
+        use std::cmp::Ordering;
+
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{
+                mvcc_key::{create_intent_key, encode_mvcc_key, MVCCKey},
+                storage::Storage,
+                str_to_key,
+            },
+        };
+
+        #[test]
+        fn different_key() {
+            let first_mvcc_key = MVCCKey::new("a", Timestamp::new(12, 12));
+            let second_mvcc_key = MVCCKey::new("b", Timestamp::new(12, 12));
+            let ordering = Storage::compare(
+                &encode_mvcc_key(&first_mvcc_key),
+                &encode_mvcc_key(&second_mvcc_key),
+            );
+            assert_eq!(ordering, Ordering::Less)
+        }
+
+        #[test]
+        fn same_key() {
+            let first_mvcc_key = MVCCKey::new("a", Timestamp::new(10, 12));
+            let second_mvcc_key = MVCCKey::new("a", Timestamp::new(12, 12));
+            let ordering = Storage::compare(
+                &encode_mvcc_key(&first_mvcc_key),
+                &encode_mvcc_key(&second_mvcc_key),
+            );
+            assert_eq!(ordering, Ordering::Greater)
+        }
+
+        #[test]
+        fn intent_key() {
+            let intent_key = MVCCKey::create_intent_key_with_str("a");
+            let second_mvcc_key = MVCCKey::new("a", Timestamp::new(12, 12));
+            let ordering = Storage::compare(
+                &encode_mvcc_key(&intent_key),
+                &encode_mvcc_key(&second_mvcc_key),
+            );
+            assert_eq!(ordering, Ordering::Less);
+
+            let ordering = Storage::compare(
+                &encode_mvcc_key(&second_mvcc_key),
+                &encode_mvcc_key(&intent_key),
+            );
+            assert_eq!(ordering, Ordering::Greater)
+        }
+
+        #[test]
+        fn none_mvcc() {
+            let first_key = "a";
+            let second_key = "b";
+
+            let ordering = Storage::compare(&str_to_key(first_key), &str_to_key(second_key));
+            assert_eq!(ordering, Ordering::Less)
+        }
     }
 }

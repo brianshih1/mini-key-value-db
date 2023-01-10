@@ -2,7 +2,7 @@ use core::str;
 
 use crate::hlc::timestamp::{get_intent_timestamp, Timestamp};
 
-use super::Key;
+use super::{str_to_key, Key};
 
 /**
  * Versioned Key where the key is the semantic key and
@@ -41,6 +41,14 @@ impl MVCCKey {
     pub fn to_encoded(&self) -> Vec<u8> {
         encode_mvcc_key(self)
     }
+
+    pub fn create_intent_key_with_str(key: &str) -> MVCCKey {
+        create_intent_key(&str_to_key(key))
+    }
+
+    pub fn create_intent_key(key: &Key) -> MVCCKey {
+        create_intent_key(key)
+    }
 }
 
 pub fn create_intent_key(key: &Key) -> MVCCKey {
@@ -73,17 +81,21 @@ pub fn encode_timestamp(timestamp: Timestamp) -> Vec<u8> {
     wall_time_bytes
 }
 
-pub fn decode_mvcc_key(encoded_mvcc_key: &Vec<u8>) -> MVCCKey {
+pub fn decode_mvcc_key(encoded_mvcc_key: &Vec<u8>) -> Option<MVCCKey> {
+    // just a hack
+    if encoded_mvcc_key.len() < 12 {
+        return None;
+    }
     let timestamp_len = 12; // 4 + 8 bytes
     let encoded_mvcc_key_len = encoded_mvcc_key.len();
     let key_end = encoded_mvcc_key_len - timestamp_len;
     let encoded_key = encoded_mvcc_key[..key_end].to_owned();
     let encoded_timestamp = encoded_mvcc_key[key_end..].to_owned();
     let timestamp = decode_timestamp(encoded_timestamp);
-    MVCCKey {
+    Some(MVCCKey {
         key: encoded_key,
         timestamp: timestamp,
-    }
+    })
 }
 
 fn decode_timestamp(encoded_timestamp: Vec<u8>) -> Timestamp {
@@ -113,6 +125,6 @@ mod tests {
 
         let encoded = encode_mvcc_key(&mvcc_key);
         let decoded = decode_mvcc_key(&encoded);
-        assert_eq!(mvcc_key, decoded);
+        assert_eq!(mvcc_key, decoded.unwrap());
     }
 }

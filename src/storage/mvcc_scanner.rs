@@ -91,6 +91,10 @@ impl<'a> MVCCScanner<'a> {
     }
 
     /**
+     * Gets the most recent key that is less than the read_timestamp and adds it to the result set.
+     *
+     * If there is a transaction and it notices an intent, it adds the intent.
+     *
      * Attempts to add the current key to the result set. If it notices an intent,
      * it adds the intent. This function is not responsible for checking the start and end key or advances.
      * It just tries to add the current key to the result set.
@@ -101,24 +105,32 @@ impl<'a> MVCCScanner<'a> {
     pub fn get_current_key(&mut self) -> bool {
         let current_key = self.it.current_key();
         if current_key.is_intent_key() {
-            let transaction_metadata = self
-                .it
-                .current_value_serialized::<UncommittedValue>()
-                .txn_metadata;
-            self.found_intents
-                .push((current_key.key, transaction_metadata));
+            let current_value = self.it.current_value_serialized::<UncommittedValue>();
+
+            if let Some(scanner_transaction) = self.transaction {
+                if current_value.txn_metadata.transaction_id == scanner_transaction.transaction_id {
+                    // TODO: Resolve based on epoch
+                } else {
+                    self.found_intents
+                        .push((current_key.key, current_value.txn_metadata));
+                }
+            } else {
+                self.found_intents
+                    .push((current_key.key, current_value.txn_metadata));
+            }
+
             return false;
         } else {
             let key_timestamp = current_key.timestamp;
 
             if self.timestamp > key_timestamp {
+                // seek to older version
+                return self.seek_older_version(current_key.key.to_owned(), self.timestamp);
+            } else if self.timestamp < key_timestamp {
                 // the scanner's timestamp is greater, so just add
                 self.results
                     .push((self.it.current_key(), self.it.current_value()));
                 return true;
-            } else if self.timestamp < key_timestamp {
-                // seek to older version
-                return self.seek_older_version(current_key.key.to_owned(), self.timestamp);
             } else {
                 // the scanner's timestamp is sufficient (equal), so just add
                 self.results
@@ -203,7 +215,9 @@ mod tests {
                     wall_time: 1,
                 },
             );
-            storage.put_mvcc_serialized(mvcc_key_1, 10).unwrap();
+            storage
+                .put_serialized_with_mvcc_key(mvcc_key_1, 10)
+                .unwrap();
 
             let mvcc_key_2 = MVCCKey::new(
                 key,
@@ -212,7 +226,7 @@ mod tests {
                     wall_time: 2,
                 },
             );
-            storage.put_mvcc_serialized(mvcc_key_2, 1).unwrap();
+            storage.put_serialized_with_mvcc_key(mvcc_key_2, 1).unwrap();
 
             let iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
             let scanner_timestamp = Timestamp {

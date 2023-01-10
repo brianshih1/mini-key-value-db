@@ -80,7 +80,7 @@ impl<'a> MVCCIterator<'a> {
 
     pub fn convert_raw_key_to_mvcc_key(raw_key: &Box<[u8]>) -> MVCCKey {
         let vec = Vec::from(raw_key.as_ref());
-        decode_mvcc_key(&vec)
+        decode_mvcc_key(&vec).unwrap()
     }
 
     // not the most efficient solution now
@@ -105,7 +105,11 @@ impl<'a> MVCCIterator<'a> {
     // Prefix: true would be best if seek_ge is called
     // Advances the iterator to the first MVCCKey >= key.
     // Returns true if the iterator is pointing at an entry that's
-    // >= provided key, false otherwise.
+    // <= provided key, false otherwise.
+    // This is a bit counter intuitive because greater than actually means
+    // a smaller timestamp. But because our custom comparator stores
+    // the most recent timestamp first, the ordering is opposite to the
+    // semantic comparison of timestamps
     pub fn seek_ge(&mut self, key: &MVCCKey) -> bool {
         let mut found_valid = false;
         if !self.valid() {
@@ -183,7 +187,7 @@ mod tests {
                 wall_time: 12,
             },
         );
-        storage.put_mvcc_serialized(mvcc_key.to_owned(), 12);
+        storage.put_serialized_with_mvcc_key(mvcc_key.to_owned(), 12);
         let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
         assert!(iterator.valid());
         let key = iterator.current_key();
@@ -224,13 +228,13 @@ mod tests {
         let intent_key = MVCCKey::new(&key, get_intent_timestamp());
         let intent_value = 10;
         storage
-            .put_mvcc_serialized(mvcc_key_12.to_owned(), key_12_value)
+            .put_serialized_with_mvcc_key(mvcc_key_12.to_owned(), key_12_value)
             .unwrap();
         storage
-            .put_mvcc_serialized(mvcc_key_2.to_owned(), key_2_value)
+            .put_serialized_with_mvcc_key(mvcc_key_2.to_owned(), key_2_value)
             .unwrap();
         storage
-            .put_mvcc_serialized(intent_key.to_owned(), intent_value)
+            .put_serialized_with_mvcc_key(intent_key.to_owned(), intent_value)
             .unwrap();
 
         let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
@@ -280,7 +284,9 @@ mod tests {
                     wall_time: 1,
                 },
             );
-            storage.put_mvcc_serialized(mvcc_key_1, 12).unwrap();
+            storage
+                .put_serialized_with_mvcc_key(mvcc_key_1, 12)
+                .unwrap();
 
             let mvcc_key_6 = MVCCKey::new(
                 key,
@@ -290,7 +296,7 @@ mod tests {
                 },
             );
             storage
-                .put_mvcc_serialized(mvcc_key_6.to_owned(), 12)
+                .put_serialized_with_mvcc_key(mvcc_key_6.to_owned(), 12)
                 .unwrap();
 
             let mvcc_key_4 = MVCCKey::new(
@@ -300,7 +306,9 @@ mod tests {
                     logical_time: 4,
                 },
             );
-            storage.put_mvcc_serialized(mvcc_key_4, 12).unwrap();
+            storage
+                .put_serialized_with_mvcc_key(mvcc_key_4, 12)
+                .unwrap();
 
             let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
 

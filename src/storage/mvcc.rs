@@ -18,12 +18,16 @@ pub struct KVStore {
     pub storage: Storage,
 }
 
-pub struct ScanParams {
+pub struct MVCCScanParams {
     max_result_count: usize,
+    transaction: Option<Transaction>,
 }
 
-pub struct MVCCGetParams {}
+pub struct MVCCGetParams {
+    pub transaction: Option<Transaction>,
+}
 
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 pub struct WriteIntentError {
     pub intents: Vec<(Key, TransactionMetadata)>,
 }
@@ -36,14 +40,42 @@ impl KVStore {
         }
     }
 
-    pub fn mvcc_get(&self, key: Key, timestamp: Timestamp, params: MVCCGetParams) {}
+    /**
+     * mvcc_get returns the most recent value less than the timestamp provided for the key.
+     * If it runs into an uncommited value, it returns a WriteIntentError
+     */
+    pub fn mvcc_get(
+        &self,
+        key: Key,
+        timestamp: Timestamp,
+        params: MVCCGetParams,
+    ) -> Result<Option<(MVCCKey, Value)>, WriteIntentError> {
+        // implement mvcc_get as a scan with 1 element max and start_key = end_key
+        let scan_params = MVCCScanParams {
+            max_result_count: 1,
+            transaction: params.transaction,
+        };
+        let res = self.mvcc_scan(key.to_owned(), key.to_owned(), timestamp, scan_params);
+        match res {
+            Ok(vec) => {
+                if vec.len() == 0 {
+                    return Ok(None);
+                }
+                let kv = vec.get(0).unwrap().to_owned();
+                return Ok(Some(kv));
+            }
+            Err(intent_error) => {
+                return Err(intent_error);
+            }
+        }
+    }
 
     pub fn mvcc_scan(
         &self,
         start_key: Key,
         end_key: Key,
         timestamp: Timestamp,
-        scan_params: ScanParams,
+        scan_params: MVCCScanParams,
     ) -> Result<Vec<(MVCCKey, Value)>, WriteIntentError> {
         let iterator = MVCCIterator::new(&self.storage.db, IterOptions { prefix: true });
         let mut scanner = MVCCScanner::new(
@@ -52,7 +84,7 @@ impl KVStore {
             Some(end_key),
             timestamp,
             scan_params.max_result_count,
-            None, // TODO: transaction
+            scan_params.transaction,
         );
         scanner.scan();
         if scanner.found_intents.len() > 0 {
@@ -137,7 +169,7 @@ impl KVStore {
 
         if let Some(transaction) = txn {
             self.storage
-                .put_mvcc_serialized(
+                .put_serialized_with_mvcc_key(
                     create_intent_key(&key.as_bytes().to_vec()),
                     UncommittedValue {
                         value: value.to_owned(),
@@ -276,6 +308,65 @@ mod tests {
 
             let err = res.map_err(|e| e.message_id);
             assert_eq!(err, Err(WRITE_INTENT_ERROR.to_owned()));
+        }
+    }
+
+    mod mvcc_get {
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{
+                mvcc::{KVStore, MVCCGetParams},
+                mvcc_key::MVCCKey,
+                serialized_to_value, str_to_key, Value,
+            },
+        };
+
+        #[test]
+        fn get_key_with_multiple_timestamps() {
+            let mut kv_store = KVStore::new("./tmp/data");
+            let read_timestamp = Timestamp::new(10, 10);
+
+            let key1 = "apple";
+            let key1_timestamp1 = read_timestamp.decrement_by(3);
+            let key1_timestamp2 = read_timestamp.decrement_by(1);
+            let key1_timestamp3 = read_timestamp.advance_by(2);
+
+            kv_store
+                .storage
+                .put_serialized_with_mvcc_key(MVCCKey::new(&key1, key1_timestamp1), 10)
+                .unwrap();
+
+            let most_recent_key = MVCCKey::new(&key1, key1_timestamp2);
+            let most_recent_value = 11;
+            kv_store
+                .storage
+                .put_serialized_with_mvcc_key(most_recent_key.to_owned(), most_recent_value)
+                .unwrap();
+
+            kv_store
+                .storage
+                .put_serialized_with_mvcc_key(MVCCKey::new(&key1, key1_timestamp3), 12)
+                .unwrap();
+
+            let key2 = "banana";
+            let key2_timestamp = read_timestamp.decrement_by(1);
+            kv_store
+                .storage
+                .put_serialized_with_mvcc_key(MVCCKey::new(&key2, key2_timestamp), 10)
+                .unwrap();
+
+            let res = kv_store.mvcc_get(
+                str_to_key(key1),
+                read_timestamp,
+                MVCCGetParams { transaction: None },
+            );
+            assert_eq!(
+                res,
+                Ok(Some((
+                    most_recent_key.to_owned(),
+                    serialized_to_value(most_recent_value)
+                )))
+            );
         }
     }
 }
