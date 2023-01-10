@@ -1,6 +1,8 @@
+use std::cmp::Ordering;
+
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Timestamp {
     pub wall_time: u64,
     pub logical_time: u32,
@@ -9,6 +11,30 @@ pub struct Timestamp {
 impl PartialEq for Timestamp {
     fn eq(&self, other: &Self) -> bool {
         self.logical_time == other.logical_time && self.wall_time == other.wall_time
+    }
+}
+
+impl Ord for Timestamp {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self.is_intent_timestamp() {
+            Ordering::Greater
+        } else if other.is_intent_timestamp() {
+            Ordering::Greater
+        } else {
+            if self.wall_time > other.wall_time {
+                Ordering::Greater
+            } else if self.wall_time < other.wall_time {
+                Ordering::Less
+            } else {
+                self.logical_time.cmp(&other.logical_time)
+            }
+        }
+    }
+}
+
+impl PartialOrd for Timestamp {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -37,6 +63,10 @@ impl Timestamp {
     pub fn is_intent_timestamp(&self) -> bool {
         self.wall_time == 0 && self.logical_time == 0
     }
+
+    pub fn intent_timestamp() -> Self {
+        get_intent_timestamp()
+    }
 }
 
 /**
@@ -46,5 +76,34 @@ pub fn get_intent_timestamp() -> Timestamp {
     Timestamp {
         wall_time: 0,
         logical_time: 0,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    mod compare_timestamp {
+        use crate::hlc::timestamp::Timestamp;
+
+        #[test]
+        fn compare_intent_timestamp() {
+            let first = Timestamp::intent_timestamp();
+            let second = Timestamp::new(12, 12);
+            let is_first_bigger = first > second;
+            assert!(first > second)
+        }
+
+        #[test]
+        fn compare_same_wall_time() {
+            let first = Timestamp::new(12, 10);
+            let second = Timestamp::new(12, 12);
+            assert!(first < second)
+        }
+
+        #[test]
+        fn compare_different_walltime() {
+            let first = Timestamp::new(13, 10);
+            let second = Timestamp::new(12, 12);
+            assert!(first > second)
+        }
     }
 }

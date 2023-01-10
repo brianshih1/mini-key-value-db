@@ -124,13 +124,13 @@ impl<'a> MVCCScanner<'a> {
             let key_timestamp = current_key.timestamp;
 
             if self.timestamp > key_timestamp {
-                // seek to older version
-                return self.seek_older_version(current_key.key.to_owned(), self.timestamp);
-            } else if self.timestamp < key_timestamp {
                 // the scanner's timestamp is greater, so just add
                 self.results
                     .push((self.it.current_key(), self.it.current_value()));
                 return true;
+            } else if self.timestamp < key_timestamp {
+                // seek to older version
+                return self.seek_older_version(current_key.key.to_owned(), self.timestamp);
             } else {
                 // the scanner's timestamp is sufficient (equal), so just add
                 self.results
@@ -205,7 +205,7 @@ mod tests {
         use super::scan;
 
         #[test]
-        fn no_intent_and_none_end_key() {
+        fn no_intent_and_no_end_key() {
             let mut storage = Storage::new_cleaned("./tmp/test");
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(

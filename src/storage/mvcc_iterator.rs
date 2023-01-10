@@ -115,7 +115,8 @@ impl<'a> MVCCIterator<'a> {
         if !self.valid() {
             return false;
         }
-        if &self.current_key() >= key {
+        let curr_key = self.current_key();
+        if &curr_key <= key {
             return true;
         }
         loop {
@@ -125,7 +126,7 @@ impl<'a> MVCCIterator<'a> {
                 Some(res) => match res {
                     Ok((k, _)) => {
                         let peeked_key = MVCCIterator::convert_raw_key_to_mvcc_key(k);
-                        if &peeked_key >= key {
+                        if &peeked_key <= key {
                             found_valid = true;
                             self.next();
                             break;
@@ -152,30 +153,11 @@ mod tests {
             mvcc,
             mvcc_key::{encode_mvcc_key, MVCCKey},
             storage::Storage,
+            str_to_key,
         },
     };
 
     use super::{IterOptions, MVCCIterator};
-
-    #[test]
-    fn test_coercion() {
-        let storage = Storage::new("./tmp/hello");
-        let db = storage.db;
-        db.put("foo", "bar").unwrap();
-        let mut it = db.iterator(IteratorMode::Start);
-        let next = it.next();
-        match next {
-            Some(res) => {
-                let (k, v) = res.unwrap();
-                let key = String::from_utf8(k.to_vec()).unwrap();
-                // let value = String::from_utf8(v.to_vec()).unwrap();
-                let value = serde_json::from_slice::<&str>(v.as_ref());
-                println!("key: {}", key);
-                println!("value: {:?}", value);
-            }
-            _ => {}
-        }
-    }
 
     #[test]
     fn test_current_key_and_current_value() {
@@ -248,16 +230,16 @@ mod tests {
         iterator.next();
         assert!(iterator.valid());
         let current_key = iterator.current_key();
-        assert_eq!(current_key, mvcc_key_2);
+        assert_eq!(current_key, mvcc_key_12);
         let value = iterator.current_value_serialized::<i32>();
-        assert_eq!(value, key_2_value);
+        assert_eq!(value, key_12_value);
 
         iterator.next();
         assert!(iterator.valid());
         let current_key = iterator.current_key();
-        assert_eq!(current_key, mvcc_key_12);
+        assert_eq!(current_key, mvcc_key_2);
         let value = iterator.current_value_serialized::<i32>();
-        assert_eq!(value, key_12_value);
+        assert_eq!(value, key_2_value);
 
         iterator.next();
         assert_eq!(iterator.valid(), false);

@@ -327,9 +327,9 @@ mod tests {
             let read_timestamp = Timestamp::new(10, 10);
 
             let key1 = "apple";
-            let key1_timestamp1 = read_timestamp.decrement_by(3);
-            let key1_timestamp2 = read_timestamp.decrement_by(1);
-            let key1_timestamp3 = read_timestamp.advance_by(2);
+            let key1_timestamp1 = read_timestamp.decrement_by(3); // 7
+            let key1_timestamp2 = read_timestamp.decrement_by(1); // 9
+            let key1_timestamp3 = read_timestamp.advance_by(2); // 12
 
             kv_store
                 .storage
