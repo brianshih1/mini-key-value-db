@@ -16,10 +16,12 @@ impl PartialEq for Timestamp {
 
 impl Ord for Timestamp {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        if self.is_intent_timestamp() {
+        if self.is_intent_timestamp() && other.is_intent_timestamp() {
+            Ordering::Equal
+        } else if self.is_intent_timestamp() {
             Ordering::Greater
         } else if other.is_intent_timestamp() {
-            Ordering::Greater
+            Ordering::Less
         } else {
             if self.wall_time > other.wall_time {
                 Ordering::Greater

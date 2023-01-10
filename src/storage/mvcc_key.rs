@@ -1,5 +1,7 @@
 use core::str;
 
+use uuid::Uuid;
+
 use crate::hlc::timestamp::{get_intent_timestamp, Timestamp};
 
 use super::{str_to_key, Key};
@@ -9,7 +11,7 @@ use super::{str_to_key, Key};
  * the timestamp is the version of the key.
  */
 
-#[derive(Debug, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, Eq, Clone)]
 pub struct MVCCKey {
     pub key: Key,
     pub timestamp: Timestamp,
@@ -18,6 +20,21 @@ pub struct MVCCKey {
 impl PartialEq for MVCCKey {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key && self.timestamp == other.timestamp
+    }
+}
+
+impl Ord for MVCCKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.key == other.key {
+            true => self.timestamp.cmp(&other.timestamp),
+            false => self.key.cmp(&other.key),
+        }
+    }
+}
+
+impl PartialOrd for MVCCKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -62,15 +79,18 @@ pub fn create_intent_key(key: &Key) -> MVCCKey {
 // inspired by CockroachDB's encodeMVCCKey: https://github.com/cockroachdb/cockroach/blob/master/pkg/storage/mvcc_key.go#L161
 /**
  * encoded key takes the form:
- * [key] [wall_time] [logical_time]
+ * [key] [wall_time] [logical_time] [hardcoded mvcc_key]
  * key: (variable length)
  * wall_time: uint64
  * logical_time: uint32
+ * hardcoded_mvcc (4 bytes): "mvcc" - just a hack for now to tell whether a key is mvcc
  */
 pub fn encode_mvcc_key(mvcc_key: &MVCCKey) -> Vec<u8> {
     let mut key_vec = mvcc_key.key.to_vec();
     let timestamp_vec = encode_timestamp(mvcc_key.timestamp);
     key_vec.extend(timestamp_vec);
+    let hardcoded = "mvcc".as_bytes();
+    let huh = key_vec.extend(hardcoded);
     key_vec
 }
 
@@ -83,14 +103,21 @@ pub fn encode_timestamp(timestamp: Timestamp) -> Vec<u8> {
 
 pub fn decode_mvcc_key(encoded_mvcc_key: &Vec<u8>) -> Option<MVCCKey> {
     // just a hack
-    if encoded_mvcc_key.len() < 12 {
+    if encoded_mvcc_key.len() < 16 {
         return None;
     }
-    let timestamp_len = 12; // 4 + 8 bytes
+    let hardcoded_len = 4;
     let encoded_mvcc_key_len = encoded_mvcc_key.len();
-    let key_end = encoded_mvcc_key_len - timestamp_len;
+    let hardcoded_start = encoded_mvcc_key_len - 4;
+    let encoded_timestamp = encoded_mvcc_key[hardcoded_start..].to_owned();
+    if encoded_timestamp != "mvcc".as_bytes() {
+        return None;
+    }
+
+    let timestamp_len = 12; // 4 + 8 bytes
+    let key_end = encoded_mvcc_key_len - timestamp_len - hardcoded_len;
     let encoded_key = encoded_mvcc_key[..key_end].to_owned();
-    let encoded_timestamp = encoded_mvcc_key[key_end..].to_owned();
+    let encoded_timestamp = encoded_mvcc_key[key_end..hardcoded_start].to_owned();
     let timestamp = decode_timestamp(encoded_timestamp);
     Some(MVCCKey {
         key: encoded_key,
@@ -126,5 +153,28 @@ mod tests {
         let encoded = encode_mvcc_key(&mvcc_key);
         let decoded = decode_mvcc_key(&encoded);
         assert_eq!(mvcc_key, decoded.unwrap());
+    }
+
+    mod order {
+        use crate::{hlc::timestamp::Timestamp, storage::mvcc_key::MVCCKey};
+
+        #[test]
+        fn compare_intent_key() {
+            let key = "foo";
+            let first = MVCCKey::new(key, Timestamp::intent_timestamp());
+            let second = MVCCKey::new(key, Timestamp::new(3, 3));
+            assert!(first > second);
+            assert!(first >= second);
+            assert!(second <= first);
+        }
+
+        #[test]
+        fn same_key() {
+            let key = "foo";
+            let first = MVCCKey::new(key, Timestamp::intent_timestamp());
+            let second = MVCCKey::new(key, Timestamp::intent_timestamp());
+            assert!(first >= second);
+            assert!(second <= first);
+        }
     }
 }

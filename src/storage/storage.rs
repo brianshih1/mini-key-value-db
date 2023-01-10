@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, path::Path};
 
-use rocksdb::DB;
+use rocksdb::{IteratorMode, DB};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -9,6 +9,7 @@ use crate::{StorageError, StorageResult};
 use super::{
     mvcc_iterator::{IterOptions, MVCCIterator},
     mvcc_key::{decode_mvcc_key, encode_mvcc_key, MVCCKey},
+    Value,
 };
 
 pub struct Storage {

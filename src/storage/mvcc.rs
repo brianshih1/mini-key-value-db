@@ -5,7 +5,7 @@ use crate::{hlc::timestamp::Timestamp, StorageError, StorageResult, WRITE_INTENT
 
 use super::{
     mvcc_iterator::{IterOptions, MVCCIterator},
-    mvcc_key::{create_intent_key, encode_mvcc_key, MVCCKey},
+    mvcc_key::{create_intent_key, decode_mvcc_key, encode_mvcc_key, MVCCKey},
     mvcc_scanner::MVCCScanner,
     storage::Storage,
     txn::{
@@ -231,7 +231,28 @@ impl KVStore {
     // This can be used to create or overwrite transaction record.
     pub fn put_transaction_record(&mut self, transaction_id: &Uuid, record: TransactionRecord) {
         self.storage
-            .put_serialized(&transaction_id.to_string(), record);
+            .put_serialized(&transaction_id.to_string(), record)
+            .unwrap();
+    }
+
+    // Debugger method to help collect all MVCCKey-Value pairs
+    pub fn collect_all_mvcc_kvs(&mut self) -> Vec<MVCCKey> {
+        let mut vec = Vec::new();
+        let mut it = MVCCIterator::new(&self.storage.db, IterOptions { prefix: false });
+        loop {
+            if it.valid() {
+                let raw_key = it.current_raw_key();
+                let curr_key = decode_mvcc_key(&Vec::from(raw_key.as_ref()));
+                match curr_key {
+                    Some(key) => vec.push(key),
+                    None => {}
+                }
+            } else {
+                break;
+            }
+            it.next();
+        }
+        vec
     }
 }
 
@@ -265,17 +286,38 @@ mod tests {
             hlc::timestamp::Timestamp,
             storage::{
                 mvcc::KVStore,
+                mvcc_iterator::IterOptions,
+                mvcc_key::MVCCKey,
                 txn::{Transaction, TransactionMetadata},
             },
             WRITE_INTENT_ERROR,
         };
 
         #[test]
+        fn put_with_transaction() {
+            let mut kv_store = KVStore::new("./tmp/data");
+            let key = "foo";
+            let txn1_id = Uuid::new_v4();
+
+            let timestamp = Timestamp {
+                wall_time: 10,
+                logical_time: 12,
+            };
+            let transaction = Transaction::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
+            kv_store
+                .mvcc_put_serialized(key, None, Some(&transaction), 12)
+                .unwrap();
+            let mut it = kv_store.storage.new_iterator(IterOptions { prefix: true });
+            assert_eq!(it.current_key(), MVCCKey::create_intent_key_with_str(key));
+            let is_valid = it.next();
+            assert_eq!(is_valid, false);
+        }
+
+        #[test]
         fn write_intent_error() {
             let mut kv_store = KVStore::new("./tmp/data");
             let key = "foo";
             let txn1_id = Uuid::new_v4();
-            kv_store.create_pending_transaction_record(&txn1_id);
 
             let timestamp = Timestamp {
                 wall_time: 10,
@@ -283,26 +325,26 @@ mod tests {
             };
             let transaction = Transaction::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
 
+            kv_store.create_pending_transaction_record(&txn1_id);
+            let current_keys = kv_store.collect_all_mvcc_kvs();
+
             kv_store
                 .mvcc_put_serialized(key, None, Some(&transaction), 12)
                 .unwrap();
 
             let txn2_id = Uuid::new_v4();
 
-            let second_transaction = Transaction {
-                read_timestamp: Timestamp {
+            let second_transaction = Transaction::new(
+                txn2_id,
+                Timestamp {
                     wall_time: 12,
                     logical_time: 14,
                 },
-                transaction_id: txn2_id.to_owned(),
-                metadata: TransactionMetadata {
-                    transaction_id: txn2_id.to_owned(),
-                    write_timestamp: Timestamp {
-                        wall_time: 12,
-                        logical_time: 14,
-                    },
+                Timestamp {
+                    wall_time: 12,
+                    logical_time: 14,
                 },
-            };
+            );
 
             let res = kv_store.mvcc_put_serialized(key, None, Some(&second_transaction), 12);
 

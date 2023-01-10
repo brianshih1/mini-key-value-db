@@ -78,8 +78,17 @@ impl<'a> MVCCIterator<'a> {
         MVCCIterator::convert_raw_key_to_mvcc_key(k)
     }
 
+    pub fn current_raw_key(&mut self) -> &Box<[u8]> {
+        let (k, _) = self.curr_kv.as_ref().unwrap();
+        k
+    }
+
     pub fn convert_raw_key_to_mvcc_key(raw_key: &Box<[u8]>) -> MVCCKey {
         let vec = Vec::from(raw_key.as_ref());
+        let hm = decode_mvcc_key(&vec);
+        if let None = hm {
+            let foo = "";
+        }
         decode_mvcc_key(&vec).unwrap()
     }
 
