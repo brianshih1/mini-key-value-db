@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, path::Path};
 
-use rocksdb::{IteratorMode, DB};
+use rocksdb::{ColumnFamily, IteratorMode, DB};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -9,6 +9,7 @@ use crate::{StorageError, StorageResult};
 use super::{
     mvcc_iterator::{IterOptions, MVCCIterator},
     mvcc_key::{decode_mvcc_key, encode_mvcc_key, MVCCKey},
+    txn::TransactionRecord,
     Value,
 };
 
@@ -16,7 +17,34 @@ pub struct Storage {
     pub db: DB,
 }
 
+pub static MVCC_COLUMN_FAMILY: &str = "mvcc";
+pub static TRANSACTION_RECORD_COLUMN_FAMILY: &str = "txn";
+
 impl Storage {
+    // path example: "./tmp/data";
+    pub fn new(path: &str) -> Storage {
+        let mut options = rocksdb::Options::default();
+        options.create_if_missing(true);
+
+        options.create_missing_column_families(true);
+
+        options.set_comparator("mvcc_ordering", Storage::compare);
+        let mut db = DB::open(&options, path).unwrap();
+        let options = rocksdb::Options::default();
+        db.create_cf(MVCC_COLUMN_FAMILY, &options).unwrap();
+        db.create_cf(TRANSACTION_RECORD_COLUMN_FAMILY, &options)
+            .unwrap();
+        Storage { db }
+    }
+
+    // path example: "./tmp/data";
+    pub fn new_cleaned(path: &str) -> Storage {
+        if Path::new(path).exists() {
+            std::fs::remove_dir_all(path).unwrap();
+        }
+        Storage::new(path)
+    }
+
     // A very non-performant way to sort keys...
     // MVCCKeys are sorted in descending orders since we want the most recent
     // timestamp to be sorted first
@@ -48,85 +76,81 @@ impl Storage {
         }
     }
 
-    // path example: "./tmp/data";
-    pub fn new(path: &str) -> Storage {
-        let mut options = rocksdb::Options::default();
-        options.create_if_missing(true);
-        options.set_comparator("mvcc_ordering", Storage::compare);
-        let db = DB::open(&options, path).unwrap();
-        Storage { db }
-    }
-
-    pub fn new_iterator(&self, iter_options: IterOptions) -> MVCCIterator {
+    pub fn new_mvcc_iterator(&self, iter_options: IterOptions) -> MVCCIterator {
         MVCCIterator::new(&self.db, iter_options)
     }
 
-    // path example: "./tmp/data";
-    pub fn new_cleaned(path: &str) -> Storage {
-        if Path::new(path).exists() {
-            std::fs::remove_dir_all(path).unwrap();
-        }
-        Storage::new(path)
+    pub fn put_raw_transaction_record(&mut self, key: &str, value: Vec<u8>) -> StorageResult<()> {
+        self.put_raw(TRANSACTION_RECORD_COLUMN_FAMILY, key, value)
     }
 
-    pub fn put_raw(&mut self, key: &str, value: Vec<u8>) -> StorageResult<()> {
-        self.db.put(key, value).map_err(|e| StorageError::from(e))
+    fn get_column_family(&self, cf_name: &str) -> &ColumnFamily {
+        self.db.cf_handle(&cf_name).unwrap()
     }
 
-    pub fn put_serialized<T: Serialize>(&mut self, key: &str, value: T) -> StorageResult<()> {
+    fn put_raw(&mut self, cf_name: &str, key: &str, value: Vec<u8>) -> StorageResult<()> {
+        let cf = self.get_column_family(cf_name);
+        self.db
+            .put_cf(cf, key, value)
+            .map_err(|e| StorageError::from(e))
+    }
+
+    pub fn put_serialized<T: Serialize>(
+        &mut self,
+        cf_name: &str,
+        key: &str,
+        value: T,
+    ) -> StorageResult<()> {
         let str_res = serde_json::to_string(&value);
         match str_res {
-            Ok(serialized) => self.put_raw(&key, serialized.into_bytes()),
+            Ok(serialized) => self.put_raw(cf_name, &key, serialized.into_bytes()),
             Err(err) => Err(StorageError::new("put_error".to_owned(), err.to_string())),
         }
     }
 
     pub fn put_serialized_with_mvcc_key<T: Serialize>(
         &mut self,
-        key: MVCCKey,
+        key: &MVCCKey,
         value: T,
     ) -> StorageResult<()> {
-        let encoded = encode_mvcc_key(&key);
-        let str_res = serde_json::to_string(&value);
-        match str_res {
-            Ok(serialized) => Ok(self.db.put(encoded, serialized.into_bytes()).unwrap()),
-            Err(err) => Err(StorageError::new(
-                "put_mvcc_error".to_owned(),
-                err.to_string(),
-            )),
-        }
+        self.put_serialized(MVCC_COLUMN_FAMILY, &key.to_string(), value)
     }
 
     pub fn get_serialized_with_mvcc_key<T: DeserializeOwned>(
         &mut self,
         key: &MVCCKey,
-    ) -> StorageResult<T> {
-        let encoded = encode_mvcc_key(key);
-        let res = self.db.get(encoded);
-        match res {
-            Ok(optional) => match optional {
-                Some(value) => Ok(serde_json::from_slice::<T>(&value).unwrap()),
-                None => Err(StorageError::new(
-                    "not found".to_owned(),
-                    "not found".to_owned(),
-                )),
-            },
-            Err(err) => Err(StorageError::new(
-                "get_mvcc_error".to_owned(),
-                err.to_string(),
-            )),
-        }
+    ) -> StorageResult<Option<T>> {
+        self.get_serialized(MVCC_COLUMN_FAMILY, &key.to_string())
     }
 
-    pub fn get_serialized<T: DeserializeOwned>(&self, key: &str) -> StorageResult<T> {
-        let res = self.db.get(key);
+    pub fn get_transaction_record(&self, txn_id: &Uuid) -> Option<TransactionRecord> {
+        self.get_serialized(TRANSACTION_RECORD_COLUMN_FAMILY, &txn_id.to_string())
+            .unwrap()
+    }
+
+    pub fn put_transaction_record(
+        &mut self,
+        txn_id: &Uuid,
+        txn_record: TransactionRecord,
+    ) -> Result<(), StorageError> {
+        self.put_serialized(
+            TRANSACTION_RECORD_COLUMN_FAMILY,
+            &txn_id.to_string(),
+            txn_record,
+        )
+    }
+
+    pub fn get_serialized<T: DeserializeOwned>(
+        &self,
+        cf_name: &str,
+        key: &str,
+    ) -> StorageResult<Option<T>> {
+        let cf = self.get_column_family(cf_name);
+        let res = self.db.get_cf(cf, key);
         match res {
             Ok(optional) => match optional {
-                Some(value) => Ok(serde_json::from_slice::<T>(&value).unwrap()),
-                None => Err(StorageError::new(
-                    "not_found".to_owned(),
-                    "not_found".to_owned(),
-                )),
+                Some(value) => Ok(Some(serde_json::from_slice::<T>(&value).unwrap())),
+                None => Ok(None),
             },
             Err(err) => Err(StorageError::new(
                 "serialized_error".to_owned(),
@@ -150,15 +174,6 @@ mod Test {
     }
 
     #[test]
-    fn put_and_get() {
-        let mut storage = Storage::new_cleaned("./tmp/foo");
-        let test = Test { foo: false };
-        storage.put_serialized("foo", &test).unwrap();
-        let retrieved = storage.get_serialized::<Test>("foo").unwrap();
-        assert_eq!(test, retrieved);
-    }
-
-    #[test]
     fn put_mvcc() {
         let mut storage = Storage::new_cleaned("./tmp/foo");
         let mvcc_key = MVCCKey::new(
@@ -168,11 +183,10 @@ mod Test {
                 wall_time: 12,
             },
         );
-        storage
-            .put_serialized_with_mvcc_key(mvcc_key.to_owned(), 12)
-            .unwrap();
+        storage.put_serialized_with_mvcc_key(&mvcc_key, 12).unwrap();
         let retrieved = storage
             .get_serialized_with_mvcc_key::<i32>(&mvcc_key)
+            .unwrap()
             .unwrap();
         assert_eq!(retrieved, 12);
     }
@@ -192,10 +206,10 @@ mod Test {
             let second_mvcc_key = MVCCKey::new("a", Timestamp::new(2, 0));
 
             storage
-                .put_serialized_with_mvcc_key(second_mvcc_key.to_owned(), 13)
+                .put_serialized_with_mvcc_key(&second_mvcc_key, 13)
                 .unwrap();
             storage
-                .put_serialized_with_mvcc_key(first_mvcc_key.to_owned(), 12)
+                .put_serialized_with_mvcc_key(&first_mvcc_key, 12)
                 .unwrap();
             let mut it = storage.db.iterator(IteratorMode::Start);
             let (k, v) = it.next().unwrap().unwrap();
@@ -212,8 +226,8 @@ mod Test {
             let key = "a";
             let intent_key = MVCCKey::create_intent_key_with_str(key);
             let non_intent_key = MVCCKey::new(key, Timestamp::new(2, 0));
-            let put_res1 = storage.put_serialized_with_mvcc_key(intent_key.to_owned(), 12);
-            let put_res2 = storage.put_serialized_with_mvcc_key(non_intent_key.to_owned(), 13);
+            let put_res1 = storage.put_serialized_with_mvcc_key(&intent_key, 12);
+            let put_res2 = storage.put_serialized_with_mvcc_key(&non_intent_key, 13);
 
             let mut it = storage.db.iterator(IteratorMode::Start);
 

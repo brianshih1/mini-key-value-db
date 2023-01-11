@@ -8,6 +8,7 @@ use super::{
     mvcc_key::{create_intent_key, decode_mvcc_key, encode_mvcc_key, MVCCKey},
     mvcc_scanner::MVCCScanner,
     storage::Storage,
+    str_to_key,
     txn::{
         Transaction, TransactionMetadata, TransactionRecord, TransactionStatus, UncommittedValue,
     },
@@ -170,7 +171,7 @@ impl KVStore {
         if let Some(transaction) = txn {
             self.storage
                 .put_serialized_with_mvcc_key(
-                    create_intent_key(&key.as_bytes().to_vec()),
+                    &create_intent_key(&str_to_key(key)),
                     UncommittedValue {
                         value: value.to_owned(),
                         txn_metadata: TransactionMetadata {
@@ -182,8 +183,8 @@ impl KVStore {
                 .unwrap();
         } else {
             self.storage
-                .put_raw(&version_key.to_string(), value)
-                .unwrap();
+                .put_serialized_with_mvcc_key(&version_key, value)
+                .unwrap()
         }
 
         Ok(version_key)
@@ -194,7 +195,7 @@ impl KVStore {
         key: &Key,
     ) -> Option<(TransactionMetadata, TransactionRecord)> {
         let options = IterOptions { prefix: true };
-        let mut it = self.storage.new_iterator(options);
+        let mut it = self.storage.new_mvcc_iterator(options);
         let intent_key = create_intent_key(key);
         // TODO: range keys - if there are no range keys we could probably have
         // just done storage.get(...)
@@ -206,7 +207,7 @@ impl KVStore {
                     .current_value_serialized::<UncommittedValue>()
                     .txn_metadata;
                 let transaction_id = metadata.transaction_id;
-                let transaction_record = self.get_transaction_record(&transaction_id);
+                let transaction_record = self.get_transaction_record(&transaction_id).unwrap();
                 return Some((metadata, transaction_record));
             }
         }
@@ -222,16 +223,14 @@ impl KVStore {
         )
     }
 
-    pub fn get_transaction_record(&self, transaction_id: &Uuid) -> TransactionRecord {
-        self.storage
-            .get_serialized::<TransactionRecord>(&transaction_id.to_string())
-            .unwrap()
+    pub fn get_transaction_record(&self, transaction_id: &Uuid) -> Option<TransactionRecord> {
+        self.storage.get_transaction_record(transaction_id)
     }
 
     // This can be used to create or overwrite transaction record.
     pub fn put_transaction_record(&mut self, transaction_id: &Uuid, record: TransactionRecord) {
         self.storage
-            .put_serialized(&transaction_id.to_string(), record)
+            .put_transaction_record(&transaction_id, record)
             .unwrap();
     }
 
@@ -270,7 +269,7 @@ mod tests {
         let transaction_id = Uuid::new_v4();
 
         kv_store.create_pending_transaction_record(&transaction_id);
-        let transaction_record = kv_store.get_transaction_record(&transaction_id);
+        let transaction_record = kv_store.get_transaction_record(&transaction_id).unwrap();
         assert_eq!(
             transaction_record,
             TransactionRecord {
@@ -307,7 +306,9 @@ mod tests {
             kv_store
                 .mvcc_put_serialized(key, None, Some(&transaction), 12)
                 .unwrap();
-            let mut it = kv_store.storage.new_iterator(IterOptions { prefix: true });
+            let mut it = kv_store
+                .storage
+                .new_mvcc_iterator(IterOptions { prefix: true });
             assert_eq!(it.current_key(), MVCCKey::create_intent_key_with_str(key));
             let is_valid = it.next();
             assert_eq!(is_valid, false);
@@ -375,26 +376,26 @@ mod tests {
 
             kv_store
                 .storage
-                .put_serialized_with_mvcc_key(MVCCKey::new(&key1, key1_timestamp1), 10)
+                .put_serialized_with_mvcc_key(&MVCCKey::new(&key1, key1_timestamp1), 10)
                 .unwrap();
 
             let most_recent_key = MVCCKey::new(&key1, key1_timestamp2);
             let most_recent_value = 11;
             kv_store
                 .storage
-                .put_serialized_with_mvcc_key(most_recent_key.to_owned(), most_recent_value)
+                .put_serialized_with_mvcc_key(&most_recent_key.to_owned(), most_recent_value)
                 .unwrap();
 
             kv_store
                 .storage
-                .put_serialized_with_mvcc_key(MVCCKey::new(&key1, key1_timestamp3), 12)
+                .put_serialized_with_mvcc_key(&MVCCKey::new(&key1, key1_timestamp3), 12)
                 .unwrap();
 
             let key2 = "banana";
             let key2_timestamp = read_timestamp.decrement_by(1);
             kv_store
                 .storage
-                .put_serialized_with_mvcc_key(MVCCKey::new(&key2, key2_timestamp), 10)
+                .put_serialized_with_mvcc_key(&MVCCKey::new(&key2, key2_timestamp), 10)
                 .unwrap();
 
             let res = kv_store.mvcc_get(

@@ -23,6 +23,10 @@ pub fn str_to_key(str: &str) -> Key {
     str.as_bytes().to_vec()
 }
 
+pub fn boxed_byte_to_key(value: &Box<[u8]>) -> Key {
+    Vec::from(value.as_ref())
+}
+
 pub struct ValueWithTimestamp {
     raw_value: Value,
     timestamp: Timestamp,

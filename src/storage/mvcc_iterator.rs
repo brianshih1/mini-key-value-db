@@ -178,7 +178,7 @@ mod tests {
                 wall_time: 12,
             },
         );
-        storage.put_serialized_with_mvcc_key(mvcc_key.to_owned(), 12);
+        storage.put_serialized_with_mvcc_key(&mvcc_key.to_owned(), 12);
         let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
         assert!(iterator.valid());
         let key = iterator.current_key();
@@ -219,13 +219,13 @@ mod tests {
         let intent_key = MVCCKey::new(&key, get_intent_timestamp());
         let intent_value = 10;
         storage
-            .put_serialized_with_mvcc_key(mvcc_key_12.to_owned(), key_12_value)
+            .put_serialized_with_mvcc_key(&mvcc_key_12.to_owned(), key_12_value)
             .unwrap();
         storage
-            .put_serialized_with_mvcc_key(mvcc_key_2.to_owned(), key_2_value)
+            .put_serialized_with_mvcc_key(&mvcc_key_2.to_owned(), key_2_value)
             .unwrap();
         storage
-            .put_serialized_with_mvcc_key(intent_key.to_owned(), intent_value)
+            .put_serialized_with_mvcc_key(&intent_key.to_owned(), intent_value)
             .unwrap();
 
         let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
@@ -276,7 +276,7 @@ mod tests {
                 },
             );
             storage
-                .put_serialized_with_mvcc_key(mvcc_key_1, 12)
+                .put_serialized_with_mvcc_key(&mvcc_key_1, 12)
                 .unwrap();
 
             let mvcc_key_6 = MVCCKey::new(
@@ -287,7 +287,7 @@ mod tests {
                 },
             );
             storage
-                .put_serialized_with_mvcc_key(mvcc_key_6.to_owned(), 12)
+                .put_serialized_with_mvcc_key(&mvcc_key_6.to_owned(), 12)
                 .unwrap();
 
             let mvcc_key_4 = MVCCKey::new(
@@ -298,7 +298,7 @@ mod tests {
                 },
             );
             storage
-                .put_serialized_with_mvcc_key(mvcc_key_4, 12)
+                .put_serialized_with_mvcc_key(&mvcc_key_4, 12)
                 .unwrap();
 
             let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });

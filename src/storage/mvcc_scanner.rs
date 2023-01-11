@@ -216,7 +216,7 @@ mod tests {
                 },
             );
             storage
-                .put_serialized_with_mvcc_key(mvcc_key_1, 10)
+                .put_serialized_with_mvcc_key(&mvcc_key_1, 10)
                 .unwrap();
 
             let mvcc_key_2 = MVCCKey::new(
@@ -226,7 +226,9 @@ mod tests {
                     wall_time: 2,
                 },
             );
-            storage.put_serialized_with_mvcc_key(mvcc_key_2, 1).unwrap();
+            storage
+                .put_serialized_with_mvcc_key(&mvcc_key_2, 1)
+                .unwrap();
 
             let iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
             let scanner_timestamp = Timestamp {
