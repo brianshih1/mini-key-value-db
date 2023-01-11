@@ -20,7 +20,7 @@ mod tests {
 
     #[test]
     fn scratch() {
-        let mut test_clock = SystemTimeClock {};
+        let test_clock = SystemTimeClock {};
         println!("Time: {:?}", test_clock.current_time());
     }
 }

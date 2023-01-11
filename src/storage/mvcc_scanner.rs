@@ -62,6 +62,7 @@ impl<'a> MVCCScanner<'a> {
     }
 
     pub fn scan(&mut self) -> () {
+        // intent key will always be sorted before other MVCC keys
         let start_base = create_intent_key(&self.start_key);
         self.it.seek_ge(&start_base);
         loop {
@@ -230,7 +231,7 @@ mod tests {
                 .put_serialized_with_mvcc_key(&mvcc_key_2, 1)
                 .unwrap();
 
-            let iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
+            let iterator = MVCCIterator::new(&storage, IterOptions { prefix: true });
             let scanner_timestamp = Timestamp {
                 logical_time: 3,
                 wall_time: 3,
@@ -256,10 +257,10 @@ mod tests {
             let transaction = Transaction::new(txn_id, timestamp.to_owned(), timestamp.to_owned());
             let key = "foo";
             kv_store
-                .mvcc_put_serialized(key, Some(timestamp), Some(&transaction), 12)
+                .mvcc_put(key, Some(timestamp), Some(&transaction), 12)
                 .unwrap();
 
-            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
             let scanner_timestamp = Timestamp {
                 logical_time: 3,
                 wall_time: 3,
@@ -301,19 +302,19 @@ mod tests {
             let first_key_timestamp1 = Timestamp::new(2, 3);
             let first_key_timestamp2 = Timestamp::new(3, 0);
             kv_store
-                .mvcc_put_serialized(first_key, Some(first_key_timestamp1), None, 12)
+                .mvcc_put(first_key, Some(first_key_timestamp1), None, 12)
                 .unwrap();
             kv_store
-                .mvcc_put_serialized(first_key, Some(first_key_timestamp2), None, 13)
+                .mvcc_put(first_key, Some(first_key_timestamp2), None, 13)
                 .unwrap();
 
             let second_key = "banana";
             let second_key_timestamp = Timestamp::new(2, 3);
             kv_store
-                .mvcc_put_serialized(second_key, Some(second_key_timestamp), None, 13)
+                .mvcc_put(second_key, Some(second_key_timestamp), None, 13)
                 .unwrap();
 
-            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
             let scanner_timestamp = Timestamp {
                 logical_time: 3,
                 wall_time: 3,
@@ -338,8 +339,8 @@ mod tests {
 
         #[test]
         fn there_is_no_next_key() {
-            let mut kv_store = KVStore::new("./tmp/data");
-            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let kv_store = KVStore::new("./tmp/data");
+            let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
             let scanner_timestamp = Timestamp {
                 logical_time: 3,
                 wall_time: 3,
@@ -363,6 +364,7 @@ mod tests {
         use crate::{
             hlc::timestamp::Timestamp,
             storage::{
+                boxed_byte_to_byte_vec,
                 mvcc::KVStore,
                 mvcc_iterator::{IterOptions, MVCCIterator},
                 mvcc_key::MVCCKey,
@@ -382,33 +384,34 @@ mod tests {
             let first_key_timestamp1 = scan_timestamp.decrement_by(2);
             let first_key_timestamp2 = scan_timestamp.advance_by(3);
             kv_store
-                .mvcc_put_serialized(key1, Some(first_key_timestamp1), None, 12)
+                .mvcc_put(key1, Some(first_key_timestamp1), None, 12)
                 .unwrap();
+
             kv_store
-                .mvcc_put_serialized(key1, Some(first_key_timestamp2), None, 13)
+                .mvcc_put(key1, Some(first_key_timestamp2), None, 13)
                 .unwrap();
 
             let key2 = "banana";
             let second_key_timestamp1 = scan_timestamp.decrement_by(1);
             let second_key_timestamp2 = scan_timestamp.advance_by(10);
             kv_store
-                .mvcc_put_serialized(key2, Some(second_key_timestamp1), None, 12)
+                .mvcc_put(key2, Some(second_key_timestamp1), None, 12)
                 .unwrap();
             kv_store
-                .mvcc_put_serialized(key2, Some(second_key_timestamp2), None, 13)
+                .mvcc_put(key2, Some(second_key_timestamp2), None, 13)
                 .unwrap();
 
             let key3 = "cherry";
             let third_key_timestamp = scan_timestamp.decrement_by(10);
             kv_store
-                .mvcc_put_serialized(key3, Some(third_key_timestamp), None, 12)
+                .mvcc_put(key3, Some(third_key_timestamp), None, 12)
                 .unwrap();
 
-            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
             let mut scanner = MVCCScanner::new(
                 iterator,
-                key1.as_bytes().to_vec(),
-                Some(key2.as_bytes().to_vec()),
+                str_to_key(key1),
+                Some(str_to_key(key2)),
                 scan_timestamp,
                 5,
                 None,
@@ -430,6 +433,8 @@ mod tests {
                 },
                 serialized_to_value(12),
             ));
+            let first = vec.get(0);
+            let (k, v) = scanner.results.get(0).unwrap();
             assert_eq!(scanner.results, vec);
             assert_eq!(scanner.found_intents.len(), 0);
         }
@@ -446,12 +451,12 @@ mod tests {
             );
             let key1 = "apple";
             kv_store
-                .mvcc_put_serialized(key1, Some(transaction_timestamp), Some(&transaction), 12)
+                .mvcc_put(key1, Some(transaction_timestamp), Some(&transaction), 12)
                 .unwrap();
 
             let key2 = "banana";
             kv_store
-                .mvcc_put_serialized(
+                .mvcc_put(
                     key2,
                     Some(transaction_timestamp),
                     Some(&transaction),
@@ -461,7 +466,7 @@ mod tests {
 
             let key3 = "cherry";
             kv_store
-                .mvcc_put_serialized(
+                .mvcc_put(
                     key3,
                     Some(transaction_timestamp),
                     Some(&transaction),
@@ -469,7 +474,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let iterator = MVCCIterator::new(&kv_store.storage.db, IterOptions { prefix: true });
+            let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
             let scanner_timestamp = Timestamp {
                 logical_time: 3,
                 wall_time: 3,

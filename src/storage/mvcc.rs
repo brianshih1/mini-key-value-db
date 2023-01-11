@@ -7,6 +7,7 @@ use super::{
     mvcc_iterator::{IterOptions, MVCCIterator},
     mvcc_key::{create_intent_key, decode_mvcc_key, encode_mvcc_key, MVCCKey},
     mvcc_scanner::MVCCScanner,
+    serialized_to_value,
     storage::Storage,
     str_to_key,
     txn::{
@@ -78,7 +79,7 @@ impl KVStore {
         timestamp: Timestamp,
         scan_params: MVCCScanParams,
     ) -> Result<Vec<(MVCCKey, Value)>, WriteIntentError> {
-        let iterator = MVCCIterator::new(&self.storage.db, IterOptions { prefix: true });
+        let iterator = MVCCIterator::new(&self.storage, IterOptions { prefix: true });
         let mut scanner = MVCCScanner::new(
             iterator,
             start_key,
@@ -97,20 +98,6 @@ impl KVStore {
         }
     }
 
-    pub fn mvcc_put_serialized<T: Serialize>(
-        &mut self,
-        key: &str,
-        timestamp: Option<Timestamp>,
-        txn: Option<&Transaction>,
-        value: T,
-    ) -> StorageResult<MVCCKey> {
-        self.mvcc_put(
-            key,
-            timestamp,
-            txn,
-            serde_json::to_string(&value).unwrap().into_bytes(),
-        )
-    }
     /**
      * MVCCPut puts a new timestamped value for the key/value, as well as an
      * intent if a transaction is provided.
@@ -123,12 +110,12 @@ impl KVStore {
      * When transaction is provided, it will dictate the timestamp, not the timestamp parameter.
      * The intent will be written by txn.metadata.writeTimestamp. Reads are performed at txn.readTimestamp.
      */
-    pub fn mvcc_put(
+    pub fn mvcc_put<T: Serialize>(
         &mut self,
         key: &str,
         timestamp: Option<Timestamp>,
         txn: Option<&Transaction>,
-        value: Value,
+        value: T,
     ) -> StorageResult<MVCCKey> {
         let intent = self.mvcc_get_uncommited_value(&key.as_bytes().to_vec());
 
@@ -173,7 +160,7 @@ impl KVStore {
                 .put_serialized_with_mvcc_key(
                     &create_intent_key(&str_to_key(key)),
                     UncommittedValue {
-                        value: value.to_owned(),
+                        value: serialized_to_value(value), // is this correct?
                         txn_metadata: TransactionMetadata {
                             transaction_id: transaction.transaction_id,
                             write_timestamp: write_timestamp.to_owned(),
@@ -237,7 +224,7 @@ impl KVStore {
     // Debugger method to help collect all MVCCKey-Value pairs
     pub fn collect_all_mvcc_kvs(&mut self) -> Vec<MVCCKey> {
         let mut vec = Vec::new();
-        let mut it = MVCCIterator::new(&self.storage.db, IterOptions { prefix: false });
+        let mut it = MVCCIterator::new(&self.storage, IterOptions { prefix: false });
         loop {
             if it.valid() {
                 let raw_key = it.current_raw_key();
@@ -304,7 +291,7 @@ mod tests {
             };
             let transaction = Transaction::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
             kv_store
-                .mvcc_put_serialized(key, None, Some(&transaction), 12)
+                .mvcc_put(key, None, Some(&transaction), 12)
                 .unwrap();
             let mut it = kv_store
                 .storage
@@ -330,7 +317,7 @@ mod tests {
             let current_keys = kv_store.collect_all_mvcc_kvs();
 
             kv_store
-                .mvcc_put_serialized(key, None, Some(&transaction), 12)
+                .mvcc_put(key, None, Some(&transaction), 12)
                 .unwrap();
 
             let txn2_id = Uuid::new_v4();
@@ -347,7 +334,7 @@ mod tests {
                 },
             );
 
-            let res = kv_store.mvcc_put_serialized(key, None, Some(&second_transaction), 12);
+            let res = kv_store.mvcc_put(key, None, Some(&second_transaction), 12);
 
             let err = res.map_err(|e| e.message_id);
             assert_eq!(err, Err(WRITE_INTENT_ERROR.to_owned()));

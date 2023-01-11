@@ -4,7 +4,9 @@ use rocksdb::*;
 use serde::de::DeserializeOwned;
 
 use super::{
+    boxed_byte_to_byte_vec,
     mvcc_key::{decode_mvcc_key, encode_mvcc_key, MVCCKey},
+    storage::Storage,
     Value,
 };
 
@@ -34,8 +36,8 @@ pub struct MVCCIterator<'a> {
 
 impl<'a> MVCCIterator<'a> {
     // next() will immediately be called to try obtain a valid tuple
-    pub fn new(db: &'a DB, options: IterOptions) -> Self {
-        let it = db.iterator(IteratorMode::Start).peekable();
+    pub fn new(storage: &'a Storage, options: IterOptions) -> Self {
+        let it = storage.get_mvcc_iterator();
         let mut mvcc_it = MVCCIterator {
             it,
             prefix: options.prefix,
@@ -85,23 +87,18 @@ impl<'a> MVCCIterator<'a> {
 
     pub fn convert_raw_key_to_mvcc_key(raw_key: &Box<[u8]>) -> MVCCKey {
         let vec = Vec::from(raw_key.as_ref());
-        let hm = decode_mvcc_key(&vec);
-        if let None = hm {
-            let foo = "";
-        }
         decode_mvcc_key(&vec).unwrap()
     }
 
     // not the most efficient solution now
     pub fn current_value(&mut self) -> Value {
         let (_, v) = self.curr_kv.as_ref().unwrap();
-        let vec = Vec::from(v.as_ref());
-        vec
+        boxed_byte_to_byte_vec(v)
     }
 
     pub fn current_value_serialized<T: DeserializeOwned>(&mut self) -> T {
         let (_, v) = self.curr_kv.as_ref().unwrap();
-        let vec = Vec::from(v.as_ref());
+        let vec = boxed_byte_to_byte_vec(v);
         serde_json::from_slice::<T>(&vec).unwrap()
     }
 
@@ -179,7 +176,7 @@ mod tests {
             },
         );
         storage.put_serialized_with_mvcc_key(&mvcc_key.to_owned(), 12);
-        let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
+        let mut iterator = MVCCIterator::new(&storage, IterOptions { prefix: false });
         assert!(iterator.valid());
         let key = iterator.current_key();
         assert_eq!(key, mvcc_key);
@@ -228,7 +225,7 @@ mod tests {
             .put_serialized_with_mvcc_key(&intent_key.to_owned(), intent_value)
             .unwrap();
 
-        let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: false });
+        let mut iterator = MVCCIterator::new(&storage, IterOptions { prefix: false });
 
         assert!(iterator.valid());
         let current_key = iterator.current_key();
@@ -301,7 +298,7 @@ mod tests {
                 .put_serialized_with_mvcc_key(&mvcc_key_4, 12)
                 .unwrap();
 
-            let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
+            let mut iterator = MVCCIterator::new(&storage, IterOptions { prefix: true });
 
             let key5 = MVCCKey::new(
                 key,
@@ -312,7 +309,7 @@ mod tests {
             );
             let seek_res = iterator.seek_ge(&key5);
             assert_eq!(seek_res, true);
-            assert_eq!(iterator.current_key(), mvcc_key_6);
+            assert_eq!(iterator.current_key(), mvcc_key_4);
         }
 
         #[test]
@@ -326,7 +323,7 @@ mod tests {
                     wall_time: 1,
                 },
             );
-            let mut iterator = MVCCIterator::new(&storage.db, IterOptions { prefix: true });
+            let mut iterator = MVCCIterator::new(&storage, IterOptions { prefix: true });
             let seek_res = iterator.seek_ge(&mvcc_key_1);
             assert_eq!(seek_res, false);
         }
