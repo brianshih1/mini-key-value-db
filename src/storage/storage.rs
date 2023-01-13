@@ -261,18 +261,22 @@ mod Test {
             let key = "a";
             let intent_key = MVCCKey::create_intent_key_with_str(key);
             let non_intent_key = MVCCKey::new(key, Timestamp::new(2, 0));
-            let put_res1 = storage.put_serialized_with_mvcc_key(&intent_key, 12);
-            let put_res2 = storage.put_serialized_with_mvcc_key(&non_intent_key, 13);
+            storage
+                .put_serialized_with_mvcc_key(&intent_key, 12)
+                .unwrap();
+            storage
+                .put_serialized_with_mvcc_key(&non_intent_key, 13)
+                .unwrap();
 
             let mut it = storage.get_mvcc_iterator();
 
             let (k, _) = it.next().unwrap().unwrap();
             let key = MVCCIterator::convert_raw_key_to_mvcc_key(&k);
-            // assert_eq!(key, intent_key);
+            assert_eq!(key, intent_key);
             let next = it.next();
             let (second_k, _) = next.unwrap().unwrap();
-            // let second_key = MVCCIterator::convert_raw_key_to_mvcc_key(&second_k);
-            // assert_eq!(second_key, non_intent_key);
+            let second_key = MVCCIterator::convert_raw_key_to_mvcc_key(&second_k);
+            assert_eq!(second_key, non_intent_key);
         }
     }
 
