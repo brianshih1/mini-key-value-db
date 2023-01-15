@@ -27,8 +27,7 @@ impl fmt::Display for TreeColor {
     }
 }
 
-type NodeRc<K: NodeKey, V> = Rc<RefCell<Node<K, V>>>;
-type NodeLink<K: NodeKey, V> = Option<NodeRc<K, V>>; // TODO: Find a better data structure. This Option is quite hard to deal with.
+type NodeLink<K: NodeKey, V> = Option<Box<Node<K, V>>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Node<K: NodeKey, V> {
@@ -37,37 +36,23 @@ struct Node<K: NodeKey, V> {
     value: V,
     left_node: NodeLink<K, V>,
     right_node: NodeLink<K, V>,
-    parent_node: NodeLink<K, V>,
     color: TreeColor,
 }
 
 trait LinkHelper<K: NodeKey, V> {
     fn color(&self) -> TreeColor;
 
-    // fn left(&self) -> NodeLink<K, V>;
+    fn left(&self) -> &NodeLink<K, V>;
 }
 
 impl<K: NodeKey, V> LinkHelper<K, V> for NodeLink<K, V> {
     fn color(&self) -> TreeColor {
-        match self {
-            Some(node_rc) => node_rc.as_ref().borrow().color,
-            None => panic!("Cannot unwrap None on color"),
-        }
+        todo!()
     }
 
-    // fn left(&self) -> NodeLink<K, V> {
-    //     // let shaq = &self.unwrap().as_ref().borrow().left_node;
-    //     // todo!()
-    //     match self {
-    //         Some(node_rc) => Some(node_rc.as_ref().borrow().left_node),
-    //         None => None,
-    //     }
-    //     // self.as_ref().unwrap().as_ref().borrow().left_node
-    //     // match self {
-    //     //     Some(node_rc) => &node_rc.as_ref().borrow().left_node,
-    //     //     None => panic!("Cannot unwrap None on color"),
-    //     // }
-    // }
+    fn left(&self) -> &NodeLink<K, V> {
+        todo!()
+    }
 }
 
 impl<K: NodeKey, V> fmt::Display for Node<K, V> {
@@ -77,40 +62,22 @@ impl<K: NodeKey, V> fmt::Display for Node<K, V> {
 }
 
 impl<K: NodeKey, V> Node<K, V> {
-    fn new_node(
-        color: TreeColor,
-        start_key: K,
-        end_key: K,
-        value: V,
-        parent_node: NodeLink<K, V>,
-    ) -> Self {
+    fn new_node(color: TreeColor, start_key: K, end_key: K, value: V) -> Self {
         Node {
             start_key: start_key,
             end_key: end_key,
             left_node: None,
             right_node: None,
             value: value,
-            parent_node: parent_node,
             color,
         }
-    }
-
-    pub fn to_list(node: NodeLink<K, V>) -> Vec<NodeRc<K, V>> {
-        let mut vec = Vec::new();
-        match node {
-            Some(node_rc) => {
-                vec.push(Rc::clone(&node_rc));
-            }
-            None => {}
-        };
-        vec
     }
 }
 
 impl<K: NodeKey, V> Tree<K, V> {
     fn new_with_node(root_node: Node<K, V>) -> Self {
         Tree {
-            root: Some(Rc::new(RefCell::new(root_node))),
+            root: Some(Box::new(root_node)),
         }
     }
 
@@ -118,85 +85,77 @@ impl<K: NodeKey, V> Tree<K, V> {
         Tree { root: None }
     }
 
-    fn get_node_link(link: &NodeLink<K, V>) -> NodeLink<K, V> {
-        match link {
-            Some(node_rc) => Some(Rc::clone(&node_rc)),
-            None => None,
-        }
-    }
-
     fn insert_node(&mut self, start_key: K, end_key: K, value: V) -> () {
-        let mut cur = Self::get_node_link(&self.root);
-        let mut prev: NodeLink<K, V> = None;
+        // let mut cur = Self::get_node_link(&self.root);
+        // let mut prev: NodeLink<K, V> = None;
 
-        while cur.is_some() {
-            let node_box = cur.unwrap();
-            prev = Some(Rc::clone(&node_box));
-            if self.root.is_none() {
-                self.root = Some(Rc::clone(&node_box));
-            }
-            let node = node_box.as_ref().borrow();
-            let ord = node.start_key.cmp(&start_key);
-            match ord {
-                Ordering::Less => {
-                    cur = Self::get_node_link(&node.right_node);
-                }
-                Ordering::Equal => {
-                    // TODO: If the interval comes from the same ID, just update end.
-                    // Otherwise, if ID is less, go left, else go right. For now, we will just always
-                    // make it go left
-                    cur = Self::get_node_link(&node.left_node);
-                }
-                Ordering::Greater => {
-                    cur = Self::get_node_link(&node.left_node);
-                }
-            }
-        }
-        // new nodes are red
+        // while cur.is_some() {
+        //     let node_box = cur.unwrap();
+        //     prev = Some(Rc::clone(&node_box));
+        //     if self.root.is_none() {
+        //         self.root = Some(Rc::clone(&node_box));
+        //     }
+        //     let node = node_box.as_ref().borrow();
+        //     let ord = node.start_key.cmp(&start_key);
+        //     match ord {
+        //         Ordering::Less => {
+        //             cur = Self::get_node_link(&node.right_node);
+        //         }
+        //         Ordering::Equal => {
+        //             // TODO: If the interval comes from the same ID, just update end.
+        //             // Otherwise, if ID is less, go left, else go right. For now, we will just always
+        //             // make it go left
+        //             cur = Self::get_node_link(&node.left_node);
+        //         }
+        //         Ordering::Greater => {
+        //             cur = Self::get_node_link(&node.left_node);
+        //         }
+        //     }
+        // }
+        // // new nodes are red
 
-        match prev {
-            Some(node_rc) => {
-                let node = Some(Rc::new(RefCell::new(Node::new_node(
-                    TreeColor::RED,
-                    start_key,
-                    end_key,
-                    value,
-                    Some(Rc::clone(&node_rc)),
-                ))));
-                let mut node_ref = node_rc.as_ref().borrow_mut();
-                node_ref.parent_node = Some(Rc::clone(&node_rc));
-                let ord = node_ref.start_key.cmp(&start_key);
+        // match prev {
+        //     Some(node_rc) => {
+        //         let node = Some(Rc::new(RefCell::new(Node::new_node(
+        //             TreeColor::RED,
+        //             start_key,
+        //             end_key,
+        //             value,
+        //             Some(Rc::clone(&node_rc)),
+        //         ))));
+        //         let mut node_ref = node_rc.as_ref().borrow_mut();
+        //         node_ref.parent_node = Some(Rc::clone(&node_rc));
+        //         let ord = node_ref.start_key.cmp(&start_key);
 
-                match ord {
-                    Ordering::Less => {
-                        node_ref.right_node = Self::get_node_link(&node);
-                    }
-                    Ordering::Equal => todo!(),
-                    Ordering::Greater => {
-                        node_ref.left_node = Self::get_node_link(&node);
-                    }
-                }
-                self.fix_insert(Self::get_node_link(&node));
-            }
-            None => {
-                self.root = Some(Rc::new(RefCell::new(Node::new_node(
-                    TreeColor::BLACK,
-                    start_key,
-                    end_key,
-                    value,
-                    Self::get_node_link(&prev),
-                ))));
-                return;
-            }
-        };
-    }
-
-    pub fn get_left<'a>(link: NodeLink<K, V>) -> &'a NodeLink<K, V> {
-        &Rc::clone(link.unwrap()).as_ref().borrow().left_node
+        //         match ord {
+        //             Ordering::Less => {
+        //                 node_ref.right_node = Self::get_node_link(&node);
+        //             }
+        //             Ordering::Equal => todo!(),
+        //             Ordering::Greater => {
+        //                 node_ref.left_node = Self::get_node_link(&node);
+        //             }
+        //         }
+        //         self.fix_insert(Self::get_node_link(&node));
+        //     }
+        //     None => {
+        //         self.root = Some(Rc::new(RefCell::new(Node::new_node(
+        //             TreeColor::BLACK,
+        //             start_key,
+        //             end_key,
+        //             value,
+        //             Self::get_node_link(&prev),
+        //         ))));
+        //         return;
+        //     }
+        // };
     }
 
     pub fn fix_insert(&mut self, link: NodeLink<K, V>) {
-        while link.color() == TreeColor::BLACK {}
+        // let temp = &link;
+        // while link.color() == TreeColor::BLACK {
+        //     let parent = &temp.clone().unwrap().as_ref().borrow().parent_node;
+        // }
         todo!()
     }
 
@@ -267,33 +226,11 @@ mod Test {
     fn test_print_tree() {
         let str = Tree::<i32, i32>::get_indent(3);
         println!("Test: {}foo", str.to_string());
-        let mut node = Node::new_node(TreeColor::RED, 3, 3, 12, None);
-        node.left_node = Some(Rc::new(RefCell::new(Node::new_node(
-            TreeColor::RED,
-            4,
-            4,
-            12,
-            None,
-        ))));
-        node.right_node = Some(Rc::new(RefCell::new(Node::new_node(
-            TreeColor::RED,
-            5,
-            4,
-            12,
-            None,
-        ))));
+        let mut node = Node::new_node(TreeColor::RED, 3, 3, 12);
+        node.left_node = Some(Box::new(Node::new_node(TreeColor::RED, 4, 4, 12)));
+        node.right_node = Some(Box::new(Node::new_node(TreeColor::RED, 4, 4, 12)));
         let tree = Tree::new_with_node(node);
         tree.print_tree();
-
-        let boxed = Some(Rc::new(RefCell::new(Node::new_node(
-            TreeColor::RED,
-            4,
-            4,
-            12,
-            None,
-        ))));
-        let test = Node::to_list(boxed);
-        println!("List {:?}", test);
     }
 
     mod insert_node {
