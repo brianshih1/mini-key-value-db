@@ -128,7 +128,9 @@ impl<K: NodeKey, V> Tree<K, V> {
         }
         if new_left == NIL {
             self.nodes[parent].left_node = NIL;
+            return;
         }
+
         let original_new_node_parent = self.nodes[new_left].parent_node;
         if original_new_node_parent != NIL {
             if self.nodes[original_new_node_parent].left_node == new_left {
@@ -202,13 +204,14 @@ impl<K: NodeKey, V> Tree<K, V> {
 
         if prev == NIL {
             let added = self.add_node(Node::new_node(
-                TreeColor::RED,
+                TreeColor::BLACK,
                 start_key,
                 end_key,
                 value,
                 NIL,
             ));
             self.root = added;
+            return;
         } else {
             let new_idx = self.add_node(Node::new_node(
                 TreeColor::RED,
@@ -230,6 +233,10 @@ impl<K: NodeKey, V> Tree<K, V> {
                     parent_node.left_node = new_idx;
                 }
             }
+            if parent_node.parent_node == NIL {
+                return;
+            }
+
             self.fix_insert(new_idx);
         }
     }
@@ -239,10 +246,33 @@ impl<K: NodeKey, V> Tree<K, V> {
         self.get_node(node.parent_node)
     }
 
-    pub fn right_rotate(&mut self, k: usize) {}
+    pub fn right_rotate(&mut self, k: usize) {
+        let left = self.nodes[k].left_node;
+        let left_right = self.nodes[left].right_node;
+        let parent = self.nodes[k].parent_node;
+
+        if parent == NIL {
+            self.root = left;
+            self.nodes[left].parent_node = NIL;
+        } else {
+            // is k the right of its parent
+            let is_k_right = self.nodes[parent].right_node == k;
+            if is_k_right {
+                self.set_right(parent, left);
+            } else {
+                self.set_left(parent, left);
+            }
+        }
+
+        self.set_right(left, k);
+        self.set_left(k, left_right);
+    }
 
     pub fn left_rotate(&mut self, k: usize) {
         let right = self.nodes[k].right_node;
+        if right == NIL {
+            let foo = "";
+        }
         let right_left = self.nodes[right].left_node;
         let parent = self.nodes[k].parent_node;
 
@@ -265,60 +295,62 @@ impl<K: NodeKey, V> Tree<K, V> {
 
     pub fn fix_insert(&mut self, k: usize) {
         let mut k = k;
-        while self.nodes[k].color == TreeColor::RED {
+        while &self.nodes[self.nodes[k].parent_node].color == &TreeColor::RED {
+            println!("hello");
             let k_parent = self.nodes[k].parent_node;
             // grand parent is guaranteed to not be NIL because of the while check^
             let grand_parent = self.nodes[k_parent].parent_node;
             // if (k.parent == k.parent.parent.right)
             if k_parent == self.nodes[grand_parent].right_node {
                 let uncle = self.nodes[grand_parent].left_node;
-                match self.nodes[uncle].color {
-                    TreeColor::RED => {
-                        // case 3.1
-                        self.nodes[uncle].color = TreeColor::BLACK;
-                        self.nodes[k_parent].color = TreeColor::BLACK;
-                        self.nodes[grand_parent].color = TreeColor::RED;
-                        k = grand_parent;
+
+                // NIL counts as black
+                if uncle != NIL && self.nodes[uncle].color == TreeColor::RED {
+                    // case 3.1
+                    self.nodes[uncle].color = TreeColor::BLACK;
+                    self.nodes[k_parent].color = TreeColor::BLACK;
+                    self.nodes[grand_parent].color = TreeColor::RED;
+                    k = grand_parent;
+                } else {
+                    if k == self.nodes[k_parent].left_node {
+                        // case 3.2.2
+                        k = k_parent;
+                        self.right_rotate(k);
                     }
-                    TreeColor::BLACK => {
-                        if k == self.nodes[k_parent].left_node {
-                            // case 3.2.2
-                            k = k_parent;
-                            self.right_rotate(k);
-                        }
-                        self.nodes[k_parent].color = TreeColor::BLACK;
-                        self.nodes[grand_parent].color = TreeColor::RED;
-                        self.left_rotate(k);
-                    }
+                    let parent = self.nodes[k].parent_node;
+                    let grand_parent = self.nodes[parent].parent_node;
+
+                    self.nodes[parent].color = TreeColor::BLACK;
+                    self.nodes[grand_parent].color = TreeColor::RED;
+                    self.left_rotate(grand_parent);
                 }
             } else {
-                let uncle = self.nodes[k_parent].right_node;
-                match self.nodes[uncle].color {
-                    TreeColor::RED => {
-                        // case 3.1 (mirror)
-                        self.nodes[uncle].color = TreeColor::BLACK;
-                        self.nodes[k_parent].color = TreeColor::BLACK;
-                        self.nodes[grand_parent].color = TreeColor::RED;
-                        k = grand_parent;
+                let uncle = self.nodes[grand_parent].right_node;
+                if uncle != NIL && self.nodes[uncle].color == TreeColor::RED {
+                    // case 3.1 (mirror)
+                    self.nodes[uncle].color = TreeColor::BLACK;
+                    self.nodes[k_parent].color = TreeColor::BLACK;
+                    self.nodes[grand_parent].color = TreeColor::RED;
+                    k = grand_parent;
+                } else {
+                    if k == self.nodes[k_parent].right_node {
+                        // 3.2.2 (mirror)
+                        k = k_parent;
+                        self.left_rotate(k);
                     }
-                    TreeColor::BLACK => {
-                        if k == self.nodes[k_parent].right_node {
-                            // 3.2.2 (mirror)
-                            k = k_parent;
-                            self.left_rotate(k);
-                        }
-                        // 3.2.1 (mirror)
-                        self.nodes[k_parent].color = TreeColor::BLACK;
-                        self.nodes[grand_parent].color = TreeColor::RED;
-                        self.right_rotate(grand_parent);
-                    }
+                    let parent = self.nodes[k].parent_node;
+                    let grand_parent = self.nodes[parent].parent_node;
+                    // 3.2.1 (mirror)
+                    self.nodes[parent].color = TreeColor::BLACK;
+                    self.nodes[grand_parent].color = TreeColor::RED;
+                    self.right_rotate(grand_parent);
                 }
             }
             if self.nodes[k].parent_node == NIL {
                 break;
             }
         }
-        self.nodes[0].color = TreeColor::BLACK;
+        self.nodes[self.root].color = TreeColor::BLACK;
     }
 
     pub fn get_node(&self, idx: usize) -> &Node<K, V> {
@@ -443,6 +475,55 @@ impl<K: NodeKey, V> Tree<K, V> {
         };
         vec
     }
+
+    pub fn assert_rbtree_invariants(&self) {
+        if self.root != NIL {
+            assert_eq!(self.nodes[self.root].color, TreeColor::BLACK);
+        }
+        self.assert_black_count(self.root);
+        self.assert_colors(self.root);
+    }
+
+    // assert that if a node is red, both of its children are black.
+    pub fn assert_colors(&self, k: usize) {
+        let node = &self.nodes[k];
+        if node.color == TreeColor::RED {
+            if node.left_node != NIL {
+                assert_eq!(self.nodes[node.left_node].color, TreeColor::BLACK);
+            }
+            if node.right_node != NIL {
+                assert_eq!(self.nodes[node.right_node].color, TreeColor::BLACK);
+            }
+        }
+        if node.left_node != NIL {
+            self.assert_colors(node.left_node);
+        }
+        if node.right_node != NIL {
+            self.assert_colors(node.right_node);
+        }
+    }
+
+    // asserts that all paths from node to a NIl node has the same number of black nodes.
+    // Returns the number of black nodes encountered
+    pub fn assert_black_count(&self, k: usize) -> usize {
+        let count = match self.nodes[k].color {
+            TreeColor::RED => 0,
+            TreeColor::BLACK => 1,
+        };
+
+        let left_count = if self.nodes[k].left_node == NIL {
+            1
+        } else {
+            self.assert_black_count(self.nodes[k].left_node)
+        };
+        let right_count = if self.nodes[k].right_node == NIL {
+            1
+        } else {
+            self.assert_black_count(self.nodes[k].right_node)
+        };
+        assert_eq!(right_count, left_count);
+        return left_count + count;
+    }
 }
 
 impl NodeKey for i32 {}
@@ -462,6 +543,7 @@ mod Test {
             let mut tree = Tree::<i32, i32>::new();
             tree.insert_node(2, 3, 1);
             assert_eq!(tree.to_inorder_keys(), Vec::from([2]));
+            tree.assert_rbtree_invariants();
         }
 
         #[test]
@@ -471,9 +553,49 @@ mod Test {
             tree.insert_node(1, 3, 1);
             tree.insert_node(3, 3, 1);
             tree.insert_node(0, 3, 1);
-            tree.print_tree();
-
             assert_eq!(tree.to_inorder_keys(), Vec::from([0, 1, 2, 3]));
+            tree.assert_rbtree_invariants();
+        }
+
+        #[test]
+        fn case_3_1() {
+            let mut tree = Tree::<i32, i32>::new();
+            tree.insert_node(61, 3, 1);
+            tree.insert_node(52, 3, 1);
+            tree.insert_node(85, 3, 1);
+            tree.insert_node(78, 3, 1);
+            tree.insert_node(93, 3, 1);
+            tree.insert_node(100, 3, 1);
+
+            assert_eq!(tree.to_inorder_keys(), Vec::from([52, 61, 78, 85, 93, 100]));
+            tree.assert_rbtree_invariants();
+            tree.print_tree();
+        }
+
+        #[test]
+        fn case_3_2_1() {
+            let mut tree = Tree::<i32, i32>::new();
+            tree.insert_node(61, 3, 1);
+            tree.insert_node(52, 3, 1);
+            tree.insert_node(85, 3, 1);
+            tree.insert_node(93, 3, 1);
+            tree.insert_node(100, 3, 1);
+
+            assert_eq!(tree.to_inorder_keys(), Vec::from([52, 61, 85, 93, 100]));
+            tree.assert_rbtree_invariants();
+        }
+
+        #[test]
+        fn case_3_2_2() {
+            let mut tree = Tree::<i32, i32>::new();
+            tree.insert_node(61, 3, 1);
+            tree.insert_node(52, 3, 1);
+            tree.insert_node(85, 3, 1);
+            tree.insert_node(93, 3, 1);
+            tree.insert_node(87, 3, 1);
+
+            assert_eq!(tree.to_inorder_keys(), Vec::from([52, 61, 85, 87, 93]));
+            tree.assert_rbtree_invariants();
         }
     }
 
@@ -540,6 +662,67 @@ mod Test {
             tree.left_rotate(six);
             assert_eq!(tree.to_inorder_keys(), Vec::from([2, 3, 5, 6, 7, 8, 9]));
             assert_eq!(tree.to_preorder_keys(), Vec::from([3, 2, 8, 6, 5, 7, 9]));
+        }
+    }
+
+    mod right_rotate {
+        use crate::llrb::llrb::{Node, Tree, TreeColor};
+
+        #[test]
+        fn simple_right_rotate_on_root() {
+            let mut tree = Tree::<i32, i32>::new();
+            let zero = tree.add_node(Node::new(0, 0, 3, TreeColor::BLACK));
+            let one = tree.add_node(Node::new(1, 0, 3, TreeColor::BLACK));
+            let two = tree.add_node(Node::new(2, 0, 3, TreeColor::BLACK));
+            tree.set_left(one, zero);
+            tree.set_right(one, two);
+            tree.right_rotate(one);
+            assert_eq!(tree.to_inorder_keys(), Vec::from([0, 1, 2]));
+            assert_eq!(tree.to_preorder_keys(), Vec::from([0, 1, 2]));
+        }
+
+        /**
+         * Original:
+         * - 7
+         *    - 5
+         *        - 3
+         *            - 2
+         *            - 4
+         *        - 6
+         *    - 8
+         *   
+         * After right-rotate
+         * - 7
+         *     - 3
+         *        - 2
+         *        - 5
+         *            - 4
+         *            - 6
+         *     - 8       
+         */
+        #[test]
+        fn complex_right_rotate() {
+            let mut tree = Tree::<i32, i32>::new();
+
+            let two = tree.add_node(Node::new(2, 0, 3, TreeColor::BLACK));
+            let three = tree.add_node(Node::new(3, 0, 3, TreeColor::BLACK));
+            let four = tree.add_node(Node::new(4, 0, 3, TreeColor::BLACK));
+            let five = tree.add_node(Node::new(5, 0, 3, TreeColor::BLACK));
+            let six = tree.add_node(Node::new(6, 0, 3, TreeColor::BLACK));
+            let seven = tree.add_node(Node::new(7, 0, 3, TreeColor::BLACK));
+            let eight = tree.add_node(Node::new(8, 0, 3, TreeColor::BLACK));
+            tree.root = seven;
+            tree.set_left(seven, five);
+            tree.set_right(seven, eight);
+            tree.set_left(five, three);
+            tree.set_right(five, six);
+            tree.set_left(three, two);
+            tree.set_right(three, four);
+            assert_eq!(tree.to_inorder_keys(), Vec::from([2, 3, 4, 5, 6, 7, 8]));
+            assert_eq!(tree.to_preorder_keys(), Vec::from([7, 5, 3, 2, 4, 6, 8]));
+            tree.right_rotate(five);
+            assert_eq!(tree.to_inorder_keys(), Vec::from([2, 3, 4, 5, 6, 7, 8]));
+            assert_eq!(tree.to_preorder_keys(), Vec::from([7, 3, 2, 5, 4, 6, 8]));
         }
     }
 
