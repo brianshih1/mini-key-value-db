@@ -9,7 +9,8 @@ use std::{
 pub trait NodeKey: Copy + Eq + PartialOrd + Ord + std::fmt::Display {}
 
 struct Tree<K: NodeKey, V> {
-    root: NodeLink<K, V>,
+    nodes: Vec<Node<K, V>>,
+    root: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
@@ -27,31 +28,34 @@ impl fmt::Display for TreeColor {
     }
 }
 
-type NodeLink<K: NodeKey, V> = Option<Box<Node<K, V>>>;
+const NIL: usize = std::usize::MAX;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Node<K: NodeKey, V> {
     start_key: K,
     end_key: K,
     value: V,
-    left_node: NodeLink<K, V>,
-    right_node: NodeLink<K, V>,
+    left_node: usize,
+    right_node: usize,
+    parent_node: usize,
     color: TreeColor,
 }
 
-trait LinkHelper<K: NodeKey, V> {
-    fn color(&self) -> TreeColor;
-
-    fn left(&self) -> &NodeLink<K, V>;
-}
-
-impl<K: NodeKey, V> LinkHelper<K, V> for NodeLink<K, V> {
-    fn color(&self) -> TreeColor {
-        todo!()
+impl<K: NodeKey, V> Node<K, V> {
+    fn left<'a>(&self, tree: &'a Tree<K, V>) -> Option<&'a Node<K, V>> {
+        if self.left_node == NIL {
+            None
+        } else {
+            Some(&tree.nodes[self.left_node])
+        }
     }
 
-    fn left(&self) -> &NodeLink<K, V> {
-        todo!()
+    fn right<'a>(&self, tree: &'a Tree<K, V>) -> Option<&'a Node<K, V>> {
+        if self.right_node == NIL {
+            None
+        } else {
+            Some(&tree.nodes[self.right_node])
+        }
     }
 }
 
@@ -62,13 +66,14 @@ impl<K: NodeKey, V> fmt::Display for Node<K, V> {
 }
 
 impl<K: NodeKey, V> Node<K, V> {
-    fn new_node(color: TreeColor, start_key: K, end_key: K, value: V) -> Self {
+    fn new_node(color: TreeColor, start_key: K, end_key: K, value: V, parent_node: usize) -> Self {
         Node {
             start_key: start_key,
             end_key: end_key,
-            left_node: None,
-            right_node: None,
+            left_node: NIL,
+            right_node: NIL,
             value: value,
+            parent_node,
             color,
         }
     }
@@ -77,108 +82,127 @@ impl<K: NodeKey, V> Node<K, V> {
 impl<K: NodeKey, V> Tree<K, V> {
     fn new_with_node(root_node: Node<K, V>) -> Self {
         Tree {
-            root: Some(Box::new(root_node)),
+            root: 0,
+            nodes: Vec::from([root_node]),
         }
     }
 
     fn new() -> Self {
-        Tree { root: None }
+        Tree {
+            root: NIL,
+            nodes: Vec::new(),
+        }
+    }
+
+    // returns the idx of the added node
+    fn add_node(&mut self, node: Node<K, V>) -> usize {
+        self.nodes.push(node);
+        let idx = self.nodes.len() - 1;
+        if self.root == NIL {
+            self.root = idx;
+        }
+        idx
     }
 
     fn insert_node(&mut self, start_key: K, end_key: K, value: V) -> () {
-        // let mut cur = Self::get_node_link(&self.root);
-        // let mut prev: NodeLink<K, V> = None;
+        let mut cur = self.root;
+        let mut prev: usize = NIL;
 
-        // while cur.is_some() {
-        //     let node_box = cur.unwrap();
-        //     prev = Some(Rc::clone(&node_box));
-        //     if self.root.is_none() {
-        //         self.root = Some(Rc::clone(&node_box));
-        //     }
-        //     let node = node_box.as_ref().borrow();
-        //     let ord = node.start_key.cmp(&start_key);
-        //     match ord {
-        //         Ordering::Less => {
-        //             cur = Self::get_node_link(&node.right_node);
-        //         }
-        //         Ordering::Equal => {
-        //             // TODO: If the interval comes from the same ID, just update end.
-        //             // Otherwise, if ID is less, go left, else go right. For now, we will just always
-        //             // make it go left
-        //             cur = Self::get_node_link(&node.left_node);
-        //         }
-        //         Ordering::Greater => {
-        //             cur = Self::get_node_link(&node.left_node);
-        //         }
-        //     }
-        // }
-        // // new nodes are red
+        while cur != NIL {
+            let cur_node = self.get_node(cur);
+            let ord = cur_node.start_key.cmp(&start_key);
+            prev = cur;
+            match ord {
+                Ordering::Less => {
+                    cur = cur_node.right_node;
+                }
+                Ordering::Equal => {
+                    // TODO: If the interval comes from the same ID, just update end.
+                    // Otherwise, if ID is less, go left, else go right. For now, we will just always
+                    // make it go left
+                    cur = cur_node.left_node;
+                }
+                Ordering::Greater => {
+                    cur = cur_node.left_node;
+                }
+            }
+        }
 
-        // match prev {
-        //     Some(node_rc) => {
-        //         let node = Some(Rc::new(RefCell::new(Node::new_node(
-        //             TreeColor::RED,
-        //             start_key,
-        //             end_key,
-        //             value,
-        //             Some(Rc::clone(&node_rc)),
-        //         ))));
-        //         let mut node_ref = node_rc.as_ref().borrow_mut();
-        //         node_ref.parent_node = Some(Rc::clone(&node_rc));
-        //         let ord = node_ref.start_key.cmp(&start_key);
-
-        //         match ord {
-        //             Ordering::Less => {
-        //                 node_ref.right_node = Self::get_node_link(&node);
-        //             }
-        //             Ordering::Equal => todo!(),
-        //             Ordering::Greater => {
-        //                 node_ref.left_node = Self::get_node_link(&node);
-        //             }
-        //         }
-        //         self.fix_insert(Self::get_node_link(&node));
-        //     }
-        //     None => {
-        //         self.root = Some(Rc::new(RefCell::new(Node::new_node(
-        //             TreeColor::BLACK,
-        //             start_key,
-        //             end_key,
-        //             value,
-        //             Self::get_node_link(&prev),
-        //         ))));
-        //         return;
-        //     }
-        // };
+        if prev == NIL {
+            self.add_node(Node::new_node(
+                TreeColor::RED,
+                start_key,
+                end_key,
+                value,
+                NIL,
+            ));
+        } else {
+            let new_idx = self.add_node(Node::new_node(
+                TreeColor::RED,
+                start_key,
+                end_key,
+                value,
+                prev,
+            ));
+            let mut parent_node = self.get_mut_node(prev);
+            let ord = parent_node.start_key.cmp(&start_key);
+            match ord {
+                Ordering::Less => {
+                    parent_node.right_node = new_idx;
+                }
+                Ordering::Equal => {
+                    parent_node.left_node = new_idx;
+                }
+                Ordering::Greater => {
+                    parent_node.left_node = new_idx;
+                }
+            }
+            self.fix_insert(new_idx);
+        }
     }
 
-    pub fn fix_insert(&mut self, link: NodeLink<K, V>) {
+    pub fn fix_insert(&mut self, node: usize) {
         // let temp = &link;
         // while link.color() == TreeColor::BLACK {
-        //     let parent = &temp.clone().unwrap().as_ref().borrow().parent_node;
+        //     let parent = temp.unwrap().as_ref().borrow().parent_node;
         // }
-        todo!()
     }
 
-    pub fn left_rotate(link: NodeLink<K, V>) {}
+    pub fn left_rotate(link: &Node<K, V>) {}
 
-    pub fn right_rotate(link: NodeLink<K, V>) {}
+    pub fn right_rotate(link: &Node<K, V>) {}
+
+    pub fn get_node(&self, idx: usize) -> &Node<K, V> {
+        &self.nodes[idx]
+    }
+
+    pub fn get_mut_node(&mut self, idx: usize) -> &mut Node<K, V> {
+        &mut self.nodes[idx]
+    }
+
+    pub fn get_root(&self) -> Option<&Node<K, V>> {
+        if self.root == NIL {
+            None
+        } else {
+            Some(self.get_node(self.root))
+        }
+    }
 
     // preorder print of the tree
     pub fn print_tree(&self) {
-        self.print_tree_internal(&self.root, 0);
+        self.print_tree_internal(self.get_root(), 0);
     }
 
-    pub fn print_tree_internal(&self, node: &NodeLink<K, V>, depth: usize) {
+    pub fn print_tree_internal(&self, node: Option<&Node<K, V>>, depth: usize) {
         let indent = Self::get_indent(depth * 3);
         match &node {
-            Some(node_rc) => {
-                let node = node_rc.as_ref().borrow();
+            Some(node) => {
                 println!(
                     "{}{}({}, {})",
                     &indent, node.color, node.start_key, node.end_key
                 );
-                self.print_tree_internal(&node.left_node, depth + 1);
-                self.print_tree_internal(&node.right_node, depth + 1);
+                self.print_tree_internal(node.left(&self), depth + 1);
+                self.print_tree_internal(node.right(&self), depth + 1);
             }
             None => println!("{}None", &indent),
         }
@@ -192,19 +216,18 @@ impl<K: NodeKey, V> Tree<K, V> {
     // to assert the sorted list against expected list
     // Note: checking inorder + preorder is enough to verify if two trees are structurally the same
     pub fn to_inorder_list(&self) -> Vec<K> {
-        Self::to_inorder_list_internal(&self.root)
+        self.to_inorder_list_internal(self.get_root())
     }
 
-    pub fn to_inorder_list_internal(link: &NodeLink<K, V>) -> Vec<K> {
+    pub fn to_inorder_list_internal(&self, link: Option<&Node<K, V>>) -> Vec<K> {
         let mut vec = Vec::new();
         match &link {
-            Some(node_rc) => {
-                let node = node_rc.as_ref().borrow();
+            Some(node) => {
                 let key = node.start_key;
-                let mut left_tree_list = Self::to_inorder_list_internal(&node.left_node);
+                let mut left_tree_list = self.to_inorder_list_internal(node.left(&self));
                 vec.append(&mut left_tree_list);
                 vec.push(key);
-                let mut right_tree_list = Self::to_inorder_list_internal(&node.right_node);
+                let mut right_tree_list = self.to_inorder_list_internal(node.right(&self));
                 vec.append(&mut right_tree_list);
             }
             None => {}
@@ -221,17 +244,6 @@ mod Test {
     use crate::llrb::llrb::{Node, TreeColor};
 
     use super::Tree;
-
-    #[test]
-    fn test_print_tree() {
-        let str = Tree::<i32, i32>::get_indent(3);
-        println!("Test: {}foo", str.to_string());
-        let mut node = Node::new_node(TreeColor::RED, 3, 3, 12);
-        node.left_node = Some(Box::new(Node::new_node(TreeColor::RED, 4, 4, 12)));
-        node.right_node = Some(Box::new(Node::new_node(TreeColor::RED, 4, 4, 12)));
-        let tree = Tree::new_with_node(node);
-        tree.print_tree();
-    }
 
     mod insert_node {
         use crate::llrb::llrb::Tree;
@@ -250,6 +262,8 @@ mod Test {
             tree.insert_node(1, 3, 1);
             tree.insert_node(3, 3, 1);
             tree.insert_node(0, 3, 1);
+            tree.print_tree();
+
             assert_eq!(tree.to_inorder_list(), Vec::from([0, 1, 2, 3]));
         }
     }
