@@ -42,6 +42,18 @@ struct Node<K: NodeKey, V> {
 }
 
 impl<K: NodeKey, V> Node<K, V> {
+    pub fn new(start_key: K, end_key: K, value: V, color: TreeColor) -> Self {
+        Node {
+            start_key: start_key,
+            end_key: end_key,
+            value,
+            left_node: NIL,
+            right_node: NIL,
+            parent_node: NIL,
+            color,
+        }
+    }
+
     fn left<'a>(&self, tree: &'a Tree<K, V>) -> Option<&'a Node<K, V>> {
         if self.left_node == NIL {
             None
@@ -55,6 +67,22 @@ impl<K: NodeKey, V> Node<K, V> {
             None
         } else {
             Some(&tree.nodes[self.right_node])
+        }
+    }
+
+    fn get_parent<'a>(&self, tree: &'a Tree<K, V>) -> Option<&'a Node<K, V>> {
+        if self.parent_node == NIL {
+            None
+        } else {
+            Some(&tree.nodes[self.parent_node])
+        }
+    }
+
+    fn get_mut_parent<'a>(&self, tree: &'a Tree<K, V>) -> Option<&'a Node<K, V>> {
+        if self.parent_node == NIL {
+            None
+        } else {
+            Some(&tree.nodes[self.parent_node])
         }
     }
 }
@@ -94,13 +122,57 @@ impl<K: NodeKey, V> Tree<K, V> {
         }
     }
 
+    pub fn set_left(&mut self, parent: usize, new_left: usize) {
+        if parent == NIL {
+            panic!("cannot be NIL");
+        }
+        if new_left == NIL {
+            self.nodes[parent].left_node = NIL;
+        }
+        let original_new_node_parent = self.nodes[new_left].parent_node;
+        if original_new_node_parent != NIL {
+            if self.nodes[original_new_node_parent].left_node == new_left {
+                self.nodes[original_new_node_parent].left_node = NIL;
+            } else {
+                self.nodes[original_new_node_parent].right_node = NIL;
+            }
+        }
+        let original_left = self.nodes[parent].left_node;
+        if original_left != NIL {
+            self.nodes[original_left].parent_node = NIL;
+        }
+        self.nodes[parent].left_node = new_left;
+        self.nodes[new_left].parent_node = parent;
+    }
+
+    pub fn set_right(&mut self, parent: usize, new_right: usize) {
+        if parent == NIL {
+            panic!("cannot be NIL");
+        }
+        if new_right == NIL {
+            self.nodes[parent].right_node = NIL;
+            return;
+        }
+        let original_new_node_parent = self.nodes[new_right].parent_node;
+        if original_new_node_parent != NIL {
+            if self.nodes[original_new_node_parent].left_node == new_right {
+                self.nodes[original_new_node_parent].left_node = NIL;
+            } else {
+                self.nodes[original_new_node_parent].right_node = NIL;
+            }
+        }
+        let original_right = self.nodes[parent].right_node;
+        if original_right != NIL {
+            self.nodes[original_right].parent_node = NIL;
+        }
+        self.nodes[parent].right_node = new_right;
+        self.nodes[new_right].parent_node = parent;
+    }
+
     // returns the idx of the added node
     fn add_node(&mut self, node: Node<K, V>) -> usize {
         self.nodes.push(node);
         let idx = self.nodes.len() - 1;
-        if self.root == NIL {
-            self.root = idx;
-        }
         idx
     }
 
@@ -129,13 +201,14 @@ impl<K: NodeKey, V> Tree<K, V> {
         }
 
         if prev == NIL {
-            self.add_node(Node::new_node(
+            let added = self.add_node(Node::new_node(
                 TreeColor::RED,
                 start_key,
                 end_key,
                 value,
                 NIL,
             ));
+            self.root = added;
         } else {
             let new_idx = self.add_node(Node::new_node(
                 TreeColor::RED,
@@ -161,16 +234,92 @@ impl<K: NodeKey, V> Tree<K, V> {
         }
     }
 
-    pub fn fix_insert(&mut self, node: usize) {
-        // let temp = &link;
-        // while link.color() == TreeColor::BLACK {
-        //     let parent = temp.unwrap().as_ref().borrow().parent_node;
-        // }
+    pub fn get_parent_with_idx(&self, k: usize) -> &Node<K, V> {
+        let node = self.get_node(k);
+        self.get_node(node.parent_node)
     }
 
-    pub fn left_rotate(link: &Node<K, V>) {}
+    pub fn right_rotate(&mut self, k: usize) {}
 
-    pub fn right_rotate(link: &Node<K, V>) {}
+    pub fn left_rotate(&mut self, k: usize) {
+        let right = self.nodes[k].right_node;
+        let right_left = self.nodes[right].left_node;
+        let parent = self.nodes[k].parent_node;
+
+        if parent == NIL {
+            self.root = right;
+            self.nodes[right].parent_node = NIL;
+        } else {
+            // is k the right of its parent
+            let is_k_right = self.nodes[parent].right_node == k;
+            if is_k_right {
+                self.set_right(parent, right);
+            } else {
+                self.set_left(parent, right);
+            }
+        }
+
+        self.set_left(right, k);
+        self.set_right(k, right_left);
+    }
+
+    pub fn fix_insert(&mut self, k: usize) {
+        let mut k = k;
+        while self.nodes[k].color == TreeColor::RED {
+            let k_parent = self.nodes[k].parent_node;
+            // grand parent is guaranteed to not be NIL because of the while check^
+            let grand_parent = self.nodes[k_parent].parent_node;
+            // if (k.parent == k.parent.parent.right)
+            if k_parent == self.nodes[grand_parent].right_node {
+                let uncle = self.nodes[grand_parent].left_node;
+                match self.nodes[uncle].color {
+                    TreeColor::RED => {
+                        // case 3.1
+                        self.nodes[uncle].color = TreeColor::BLACK;
+                        self.nodes[k_parent].color = TreeColor::BLACK;
+                        self.nodes[grand_parent].color = TreeColor::RED;
+                        k = grand_parent;
+                    }
+                    TreeColor::BLACK => {
+                        if k == self.nodes[k_parent].left_node {
+                            // case 3.2.2
+                            k = k_parent;
+                            self.right_rotate(k);
+                        }
+                        self.nodes[k_parent].color = TreeColor::BLACK;
+                        self.nodes[grand_parent].color = TreeColor::RED;
+                        self.left_rotate(k);
+                    }
+                }
+            } else {
+                let uncle = self.nodes[k_parent].right_node;
+                match self.nodes[uncle].color {
+                    TreeColor::RED => {
+                        // case 3.1 (mirror)
+                        self.nodes[uncle].color = TreeColor::BLACK;
+                        self.nodes[k_parent].color = TreeColor::BLACK;
+                        self.nodes[grand_parent].color = TreeColor::RED;
+                        k = grand_parent;
+                    }
+                    TreeColor::BLACK => {
+                        if k == self.nodes[k_parent].right_node {
+                            // 3.2.2 (mirror)
+                            k = k_parent;
+                            self.left_rotate(k);
+                        }
+                        // 3.2.1 (mirror)
+                        self.nodes[k_parent].color = TreeColor::BLACK;
+                        self.nodes[grand_parent].color = TreeColor::RED;
+                        self.right_rotate(grand_parent);
+                    }
+                }
+            }
+            if self.nodes[k].parent_node == NIL {
+                break;
+            }
+        }
+        self.nodes[0].color = TreeColor::BLACK;
+    }
 
     pub fn get_node(&self, idx: usize) -> &Node<K, V> {
         &self.nodes[idx]
@@ -190,21 +339,61 @@ impl<K: NodeKey, V> Tree<K, V> {
 
     // preorder print of the tree
     pub fn print_tree(&self) {
-        self.print_tree_internal(self.get_root(), 0);
+        self.print_tree_internal(self.root, 0, None);
     }
 
-    pub fn print_tree_internal(&self, node: Option<&Node<K, V>>, depth: usize) {
+    pub fn stringify_idx(idx: usize) -> String {
+        if idx == NIL {
+            "NIL".to_owned()
+        } else {
+            idx.to_string()
+        }
+    }
+
+    pub fn print_nodes(&self) {
+        for (pos, node) in self.nodes.iter().enumerate() {
+            println!(
+                "Index {}. Keys: ({}, {}). Parent: {}. Left: {}, Right: {}",
+                pos,
+                node.start_key,
+                node.end_key,
+                Self::stringify_idx(node.parent_node),
+                Self::stringify_idx(node.left_node),
+                Self::stringify_idx(node.right_node)
+            )
+        }
+    }
+
+    pub fn print_tree_internal(&self, node_idx: usize, depth: usize, is_left: Option<bool>) {
         let indent = Self::get_indent(depth * 3);
-        match &node {
-            Some(node) => {
-                println!(
-                    "{}{}({}, {})",
-                    &indent, node.color, node.start_key, node.end_key
-                );
-                self.print_tree_internal(node.left(&self), depth + 1);
-                self.print_tree_internal(node.right(&self), depth + 1);
-            }
-            None => println!("{}None", &indent),
+        if node_idx == NIL {
+            println!("{}NIL", &indent)
+        } else {
+            let node = &self.nodes[node_idx];
+            println!(
+                "{} - {}{}({}, {}), parent: {}, index: {node_idx}",
+                &indent,
+                match is_left {
+                    Some(is_left) => {
+                        if is_left {
+                            "Left: ".to_owned()
+                        } else {
+                            "Right: ".to_owned()
+                        }
+                    }
+                    None => "".to_owned(),
+                },
+                node.color,
+                node.start_key,
+                node.end_key,
+                if node.parent_node == NIL {
+                    "NIL".to_owned()
+                } else {
+                    node.parent_node.to_string()
+                }
+            );
+            self.print_tree_internal(node.left_node, depth + 1, Some(true));
+            self.print_tree_internal(node.right_node, depth + 1, Some(false));
         }
     }
 
@@ -212,22 +401,42 @@ impl<K: NodeKey, V> Tree<K, V> {
         " ".repeat(depth)
     }
 
-    // turns the tree into a list. This is for testing purposes
-    // to assert the sorted list against expected list
-    // Note: checking inorder + preorder is enough to verify if two trees are structurally the same
-    pub fn to_inorder_list(&self) -> Vec<K> {
-        self.to_inorder_list_internal(self.get_root())
+    pub fn to_preorder_keys(&self) -> Vec<K> {
+        self.preorder_keys_internal(self.get_root())
     }
 
-    pub fn to_inorder_list_internal(&self, link: Option<&Node<K, V>>) -> Vec<K> {
+    pub fn preorder_keys_internal(&self, link: Option<&Node<K, V>>) -> Vec<K> {
         let mut vec = Vec::new();
         match &link {
             Some(node) => {
                 let key = node.start_key;
-                let mut left_tree_list = self.to_inorder_list_internal(node.left(&self));
+                vec.push(key);
+                let mut left_tree_list = self.preorder_keys_internal(node.left(&self));
+                vec.append(&mut left_tree_list);
+                let mut right_tree_list = self.preorder_keys_internal(node.right(&self));
+                vec.append(&mut right_tree_list);
+            }
+            None => {}
+        };
+        vec
+    }
+
+    // turns the tree into a list. This is for testing purposes
+    // to assert the sorted list against expected list
+    // Note: checking inorder + preorder is enough to verify if two trees are structurally the same
+    pub fn to_inorder_keys(&self) -> Vec<K> {
+        self.inorder_keys_internal(self.get_root())
+    }
+
+    pub fn inorder_keys_internal(&self, link: Option<&Node<K, V>>) -> Vec<K> {
+        let mut vec = Vec::new();
+        match &link {
+            Some(node) => {
+                let key = node.start_key;
+                let mut left_tree_list = self.inorder_keys_internal(node.left(&self));
                 vec.append(&mut left_tree_list);
                 vec.push(key);
-                let mut right_tree_list = self.to_inorder_list_internal(node.right(&self));
+                let mut right_tree_list = self.inorder_keys_internal(node.right(&self));
                 vec.append(&mut right_tree_list);
             }
             None => {}
@@ -252,7 +461,7 @@ mod Test {
         fn insert_into_empty_tree() {
             let mut tree = Tree::<i32, i32>::new();
             tree.insert_node(2, 3, 1);
-            assert_eq!(tree.to_inorder_list(), Vec::from([2]));
+            assert_eq!(tree.to_inorder_keys(), Vec::from([2]));
         }
 
         #[test]
@@ -264,7 +473,73 @@ mod Test {
             tree.insert_node(0, 3, 1);
             tree.print_tree();
 
-            assert_eq!(tree.to_inorder_list(), Vec::from([0, 1, 2, 3]));
+            assert_eq!(tree.to_inorder_keys(), Vec::from([0, 1, 2, 3]));
+        }
+    }
+
+    mod left_rotate {
+        use crate::llrb::llrb::{Node, Tree, TreeColor};
+
+        #[test]
+        fn left_rotate_on_root() {
+            let mut tree = Tree::<i32, i32>::new();
+            let left = tree.add_node(Node::new(0, 0, 3, TreeColor::BLACK));
+
+            let mid = tree.add_node(Node::new(1, 0, 3, TreeColor::BLACK));
+            let right = tree.add_node(Node::new(2, 0, 3, TreeColor::BLACK));
+
+            tree.root = mid;
+            tree.set_left(mid, left);
+            tree.set_right(mid, right);
+            tree.left_rotate(mid);
+            assert_eq!(tree.to_inorder_keys(), Vec::from([0, 1, 2]));
+            assert_eq!(tree.to_preorder_keys(), Vec::from([2, 0, 1]));
+        }
+
+        /**
+         * Original:
+         * 3
+         *  - 2
+         *  - 6
+         *      - 5
+         *      - 8
+         *          - 7
+         *          - 9
+         *
+         * Perform left rotation on node 6
+         *
+         * After
+         * 3
+         *   - 2
+         *   - 8
+         *      - 6
+         *         - 5
+         *         - 7
+         *      - 9
+         */
+        #[test]
+        fn left_rotate_on_non_root() {
+            let mut tree = Tree::<i32, i32>::new();
+            let two = tree.add_node(Node::new(2, 0, 3, TreeColor::BLACK));
+            let three = tree.add_node(Node::new(3, 0, 3, TreeColor::BLACK));
+            let five = tree.add_node(Node::new(5, 0, 3, TreeColor::BLACK));
+            let six = tree.add_node(Node::new(6, 0, 3, TreeColor::BLACK));
+            let seven = tree.add_node(Node::new(7, 0, 3, TreeColor::BLACK));
+            let eight = tree.add_node(Node::new(8, 0, 3, TreeColor::BLACK));
+            let nine = tree.add_node(Node::new(9, 0, 3, TreeColor::BLACK));
+
+            tree.root = three;
+            tree.set_left(three, two);
+            tree.set_right(three, six);
+            tree.set_left(six, five);
+            tree.set_right(six, eight);
+            tree.set_left(eight, seven);
+            tree.set_right(eight, nine);
+            tree.print_tree();
+
+            tree.left_rotate(six);
+            assert_eq!(tree.to_inorder_keys(), Vec::from([2, 3, 5, 6, 7, 8, 9]));
+            assert_eq!(tree.to_preorder_keys(), Vec::from([3, 2, 8, 6, 5, 7, 9]));
         }
     }
 
