@@ -6,11 +6,13 @@ use std::{
     rc::Rc,
 };
 
-pub trait NodeKey: Copy + Eq + PartialOrd + Ord + std::fmt::Display {}
+pub trait NodeKey: std::fmt::Debug + Clone + Eq + PartialOrd + Ord {}
 
-struct Tree<K: NodeKey, V> {
-    nodes: Vec<Node<K, V>>,
-    root: usize,
+pub trait NodeValue: Clone {}
+
+pub struct RbTree<K: NodeKey, V: NodeValue> {
+    pub nodes: Vec<Node<K, V>>,
+    pub root: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
@@ -28,20 +30,20 @@ impl fmt::Display for TreeColor {
     }
 }
 
-const NIL: usize = std::usize::MAX;
+pub const NIL: usize = std::usize::MAX;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Node<K: NodeKey, V> {
-    start_key: K,
-    end_key: K,
-    value: V,
-    left_node: usize,
-    right_node: usize,
-    parent_node: usize,
+pub struct Node<K: NodeKey, V: NodeValue> {
+    pub start_key: K,
+    pub end_key: K,
+    pub value: V,
+    pub left_node: usize,
+    pub right_node: usize,
+    pub parent_node: usize,
     color: TreeColor,
 }
 
-impl<K: NodeKey, V> Node<K, V> {
+impl<K: NodeKey, V: NodeValue> Node<K, V> {
     pub fn new(start_key: K, end_key: K, value: V, color: TreeColor) -> Self {
         Node {
             start_key: start_key,
@@ -54,7 +56,7 @@ impl<K: NodeKey, V> Node<K, V> {
         }
     }
 
-    fn left<'a>(&self, tree: &'a Tree<K, V>) -> Option<&'a Node<K, V>> {
+    fn left<'a>(&self, tree: &'a RbTree<K, V>) -> Option<&'a Node<K, V>> {
         if self.left_node == NIL {
             None
         } else {
@@ -62,7 +64,7 @@ impl<K: NodeKey, V> Node<K, V> {
         }
     }
 
-    fn right<'a>(&self, tree: &'a Tree<K, V>) -> Option<&'a Node<K, V>> {
+    fn right<'a>(&self, tree: &'a RbTree<K, V>) -> Option<&'a Node<K, V>> {
         if self.right_node == NIL {
             None
         } else {
@@ -70,7 +72,7 @@ impl<K: NodeKey, V> Node<K, V> {
         }
     }
 
-    fn get_parent<'a>(&self, tree: &'a Tree<K, V>) -> Option<&'a Node<K, V>> {
+    fn get_parent<'a>(&self, tree: &'a RbTree<K, V>) -> Option<&'a Node<K, V>> {
         if self.parent_node == NIL {
             None
         } else {
@@ -78,7 +80,7 @@ impl<K: NodeKey, V> Node<K, V> {
         }
     }
 
-    fn get_mut_parent<'a>(&self, tree: &'a Tree<K, V>) -> Option<&'a Node<K, V>> {
+    fn get_mut_parent<'a>(&self, tree: &'a RbTree<K, V>) -> Option<&'a Node<K, V>> {
         if self.parent_node == NIL {
             None
         } else {
@@ -87,13 +89,13 @@ impl<K: NodeKey, V> Node<K, V> {
     }
 }
 
-impl<K: NodeKey, V> fmt::Display for Node<K, V> {
+impl<K: NodeKey, V: NodeValue> fmt::Display for Node<K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}, {})", self.start_key, self.end_key)
+        write!(f, "({:?}, {:?})", self.start_key, self.end_key)
     }
 }
 
-impl<K: NodeKey, V> Node<K, V> {
+impl<K: NodeKey, V: NodeValue> Node<K, V> {
     fn new_node(color: TreeColor, start_key: K, end_key: K, value: V, parent_node: usize) -> Self {
         Node {
             start_key: start_key,
@@ -107,16 +109,16 @@ impl<K: NodeKey, V> Node<K, V> {
     }
 }
 
-impl<K: NodeKey, V> Tree<K, V> {
+impl<K: NodeKey, V: NodeValue> RbTree<K, V> {
     fn new_with_node(root_node: Node<K, V>) -> Self {
-        Tree {
+        RbTree {
             root: 0,
             nodes: Vec::from([root_node]),
         }
     }
 
     fn new() -> Self {
-        Tree {
+        RbTree {
             root: NIL,
             nodes: Vec::new(),
         }
@@ -178,12 +180,12 @@ impl<K: NodeKey, V> Tree<K, V> {
         idx
     }
 
-    fn insert_node(&mut self, start_key: K, end_key: K, value: V) -> () {
+    pub fn insert_node(&mut self, start_key: K, end_key: K, value: V) -> () {
         let mut cur = self.root;
         let mut prev: usize = NIL;
 
         while cur != NIL {
-            let cur_node = self.get_node(cur);
+            let cur_node = &self.nodes[cur];
             let ord = cur_node.start_key.cmp(&start_key);
             prev = cur;
             match ord {
@@ -215,13 +217,13 @@ impl<K: NodeKey, V> Tree<K, V> {
         } else {
             let new_idx = self.add_node(Node::new_node(
                 TreeColor::RED,
-                start_key,
+                start_key.clone(),
                 end_key,
                 value,
                 prev,
             ));
-            let mut parent_node = self.get_mut_node(prev);
-            let ord = parent_node.start_key.cmp(&start_key);
+            let mut parent_node = &mut self.nodes[prev];
+            let ord = parent_node.start_key.cmp(&start_key.clone());
             match ord {
                 Ordering::Less => {
                     parent_node.right_node = new_idx;
@@ -239,11 +241,6 @@ impl<K: NodeKey, V> Tree<K, V> {
 
             self.fix_insert(new_idx);
         }
-    }
-
-    pub fn get_parent_with_idx(&self, k: usize) -> &Node<K, V> {
-        let node = self.get_node(k);
-        self.get_node(node.parent_node)
     }
 
     pub fn right_rotate(&mut self, k: usize) {
@@ -353,22 +350,6 @@ impl<K: NodeKey, V> Tree<K, V> {
         self.nodes[self.root].color = TreeColor::BLACK;
     }
 
-    pub fn get_node(&self, idx: usize) -> &Node<K, V> {
-        &self.nodes[idx]
-    }
-
-    pub fn get_mut_node(&mut self, idx: usize) -> &mut Node<K, V> {
-        &mut self.nodes[idx]
-    }
-
-    pub fn get_root(&self) -> Option<&Node<K, V>> {
-        if self.root == NIL {
-            None
-        } else {
-            Some(self.get_node(self.root))
-        }
-    }
-
     // preorder print of the tree
     pub fn print_tree(&self) {
         self.print_tree_internal(self.root, 0, None);
@@ -385,7 +366,7 @@ impl<K: NodeKey, V> Tree<K, V> {
     pub fn print_nodes(&self) {
         for (pos, node) in self.nodes.iter().enumerate() {
             println!(
-                "Index {}. Keys: ({}, {}). Parent: {}. Left: {}, Right: {}",
+                "Index {}. Keys: ({:?}, {:?}). Parent: {}. Left: {}, Right: {}",
                 pos,
                 node.start_key,
                 node.end_key,
@@ -403,7 +384,7 @@ impl<K: NodeKey, V> Tree<K, V> {
         } else {
             let node = &self.nodes[node_idx];
             println!(
-                "{} - {}{}({}, {}), parent: {}, index: {node_idx}",
+                "{} - {}{}({:?}, {:?}), parent: {}, index: {node_idx}",
                 &indent,
                 match is_left {
                     Some(is_left) => {
@@ -434,14 +415,14 @@ impl<K: NodeKey, V> Tree<K, V> {
     }
 
     pub fn to_preorder_keys(&self) -> Vec<K> {
-        self.preorder_keys_internal(self.get_root())
+        self.preorder_keys_internal(Some(&self.nodes[self.root]))
     }
 
     pub fn preorder_keys_internal(&self, link: Option<&Node<K, V>>) -> Vec<K> {
         let mut vec = Vec::new();
         match &link {
             Some(node) => {
-                let key = node.start_key;
+                let key = node.start_key.clone();
                 vec.push(key);
                 let mut left_tree_list = self.preorder_keys_internal(node.left(&self));
                 vec.append(&mut left_tree_list);
@@ -457,14 +438,14 @@ impl<K: NodeKey, V> Tree<K, V> {
     // to assert the sorted list against expected list
     // Note: checking inorder + preorder is enough to verify if two trees are structurally the same
     pub fn to_inorder_keys(&self) -> Vec<K> {
-        self.inorder_keys_internal(self.get_root())
+        self.inorder_keys_internal(Some(&self.nodes[self.root]))
     }
 
     pub fn inorder_keys_internal(&self, link: Option<&Node<K, V>>) -> Vec<K> {
         let mut vec = Vec::new();
         match &link {
             Some(node) => {
-                let key = node.start_key;
+                let key = node.start_key.clone();
                 let mut left_tree_list = self.inorder_keys_internal(node.left(&self));
                 vec.append(&mut left_tree_list);
                 vec.push(key);
@@ -533,14 +514,14 @@ mod Test {
 
     use crate::llrb::llrb::{Node, TreeColor};
 
-    use super::Tree;
+    use super::RbTree;
 
     mod insert_node {
-        use crate::llrb::llrb::Tree;
+        use crate::llrb::llrb::RbTree;
 
         #[test]
         fn insert_into_empty_tree() {
-            let mut tree = Tree::<i32, i32>::new();
+            let mut tree = RbTree::<i32, i32>::new();
             tree.insert_node(2, 3, 1);
             assert_eq!(tree.to_inorder_keys(), Vec::from([2]));
             tree.assert_rbtree_invariants();
@@ -548,7 +529,7 @@ mod Test {
 
         #[test]
         fn insert_a_few_elements() {
-            let mut tree = Tree::<i32, i32>::new();
+            let mut tree = RbTree::<i32, i32>::new();
             tree.insert_node(2, 3, 1);
             tree.insert_node(1, 3, 1);
             tree.insert_node(3, 3, 1);
@@ -559,7 +540,7 @@ mod Test {
 
         #[test]
         fn case_3_1() {
-            let mut tree = Tree::<i32, i32>::new();
+            let mut tree = RbTree::<i32, i32>::new();
             tree.insert_node(61, 3, 1);
             tree.insert_node(52, 3, 1);
             tree.insert_node(85, 3, 1);
@@ -574,7 +555,7 @@ mod Test {
 
         #[test]
         fn case_3_2_1() {
-            let mut tree = Tree::<i32, i32>::new();
+            let mut tree = RbTree::<i32, i32>::new();
             tree.insert_node(61, 3, 1);
             tree.insert_node(52, 3, 1);
             tree.insert_node(85, 3, 1);
@@ -587,7 +568,7 @@ mod Test {
 
         #[test]
         fn case_3_2_2() {
-            let mut tree = Tree::<i32, i32>::new();
+            let mut tree = RbTree::<i32, i32>::new();
             tree.insert_node(61, 3, 1);
             tree.insert_node(52, 3, 1);
             tree.insert_node(85, 3, 1);
@@ -600,11 +581,11 @@ mod Test {
     }
 
     mod left_rotate {
-        use crate::llrb::llrb::{Node, Tree, TreeColor};
+        use crate::llrb::llrb::{Node, RbTree, TreeColor};
 
         #[test]
         fn left_rotate_on_root() {
-            let mut tree = Tree::<i32, i32>::new();
+            let mut tree = RbTree::<i32, i32>::new();
             let left = tree.add_node(Node::new(0, 0, 3, TreeColor::BLACK));
 
             let mid = tree.add_node(Node::new(1, 0, 3, TreeColor::BLACK));
@@ -615,7 +596,7 @@ mod Test {
             tree.set_right(mid, right);
             tree.left_rotate(mid);
             assert_eq!(tree.to_inorder_keys(), Vec::from([0, 1, 2]));
-            assert_eq!(tree.to_preorder_keys(), Vec::from([2, 0, 1]));
+            assert_eq!(tree.to_preorder_keys(), Vec::from([2, 1, 0]));
         }
 
         /**
@@ -641,7 +622,7 @@ mod Test {
          */
         #[test]
         fn left_rotate_on_non_root() {
-            let mut tree = Tree::<i32, i32>::new();
+            let mut tree = RbTree::<i32, i32>::new();
             let two = tree.add_node(Node::new(2, 0, 3, TreeColor::BLACK));
             let three = tree.add_node(Node::new(3, 0, 3, TreeColor::BLACK));
             let five = tree.add_node(Node::new(5, 0, 3, TreeColor::BLACK));
@@ -666,11 +647,11 @@ mod Test {
     }
 
     mod right_rotate {
-        use crate::llrb::llrb::{Node, Tree, TreeColor};
+        use crate::llrb::llrb::{Node, RbTree, TreeColor};
 
         #[test]
         fn simple_right_rotate_on_root() {
-            let mut tree = Tree::<i32, i32>::new();
+            let mut tree = RbTree::<i32, i32>::new();
             let zero = tree.add_node(Node::new(0, 0, 3, TreeColor::BLACK));
             let one = tree.add_node(Node::new(1, 0, 3, TreeColor::BLACK));
             let two = tree.add_node(Node::new(2, 0, 3, TreeColor::BLACK));
@@ -702,7 +683,7 @@ mod Test {
          */
         #[test]
         fn complex_right_rotate() {
-            let mut tree = Tree::<i32, i32>::new();
+            let mut tree = RbTree::<i32, i32>::new();
 
             let two = tree.add_node(Node::new(2, 0, 3, TreeColor::BLACK));
             let three = tree.add_node(Node::new(3, 0, 3, TreeColor::BLACK));
@@ -723,6 +704,7 @@ mod Test {
             tree.right_rotate(five);
             assert_eq!(tree.to_inorder_keys(), Vec::from([2, 3, 4, 5, 6, 7, 8]));
             assert_eq!(tree.to_preorder_keys(), Vec::from([7, 3, 2, 5, 4, 6, 8]));
+            tree.print_tree();
         }
     }
 

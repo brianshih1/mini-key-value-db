@@ -1,4 +1,5 @@
 mod hlc;
+mod interval;
 mod llrb;
 mod storage;
 mod timestamp_oracle;
