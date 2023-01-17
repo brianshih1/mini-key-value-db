@@ -8,10 +8,11 @@ pub struct IntervalTree<K: NodeKey, V: NodeValue> {
     rbtree: RbTree<K, V>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RangeValue<K: NodeKey, V> {
-    start_key: K,
-    end_key: K,
-    value: V,
+    pub start_key: K,
+    pub end_key: K,
+    pub value: V,
 }
 
 pub fn does_range_overlap<K: NodeKey>(
@@ -38,16 +39,23 @@ pub fn does_range_overlap<K: NodeKey>(
 }
 
 impl<K: NodeKey, V: NodeValue> IntervalTree<K, V> {
+    pub fn new() -> Self {
+        let rbtree = RbTree::<K, V>::new();
+        IntervalTree { rbtree }
+    }
+
     pub fn insert(&mut self, start_key: K, end_key: K, value: V) {
         self.rbtree.insert_node(start_key, end_key, value)
     }
 
     pub fn get_overlap(&self, start_key: K, end_key: K) -> Vec<RangeValue<K, V>> {
-        todo!()
+        let mut vec = Vec::new();
+        self.add_overlapping_nodes(start_key, end_key, self.rbtree.root, &mut vec);
+        vec
     }
 
     // Returns true if overlap is done. This prevents visiting nodes that doesn't need to be visited
-    pub fn add_overlapping_nodes(
+    fn add_overlapping_nodes(
         &self,
         start_key: K,
         end_key: K,
@@ -76,7 +84,7 @@ impl<K: NodeKey, V: NodeValue> IntervalTree<K, V> {
         ) {
             overlaps.push(RangeValue {
                 start_key: self.rbtree.nodes[node].start_key.to_owned(),
-                end_key: self.rbtree.nodes[node].start_key.to_owned(),
+                end_key: self.rbtree.nodes[node].end_key.to_owned(),
                 value: self.rbtree.nodes[node].value.clone(),
             });
         }
@@ -90,5 +98,42 @@ impl<K: NodeKey, V: NodeValue> IntervalTree<K, V> {
             self.rbtree.nodes[node].right_node,
             overlaps,
         );
+    }
+}
+
+mod tests {
+
+    mod get_overlap {
+        use crate::interval::interval_tree::{IntervalTree, RangeValue};
+
+        #[test]
+        fn test_overlap() {
+            let mut tree = IntervalTree::<i32, i32>::new();
+            tree.insert(0, 5, 12);
+            tree.insert(3, 7, 13);
+            tree.insert(4, 5, 8);
+            tree.insert(11, 2, 5);
+            let overlaps = tree.get_overlap(1, 5);
+            assert_eq!(
+                overlaps,
+                Vec::from([
+                    RangeValue {
+                        start_key: 0,
+                        end_key: 5,
+                        value: 12
+                    },
+                    RangeValue {
+                        start_key: 3,
+                        end_key: 7,
+                        value: 13
+                    },
+                    RangeValue {
+                        start_key: 4,
+                        end_key: 5,
+                        value: 8
+                    }
+                ])
+            );
+        }
     }
 }

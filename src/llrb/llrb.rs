@@ -117,7 +117,7 @@ impl<K: NodeKey, V: NodeValue> RbTree<K, V> {
         }
     }
 
-    fn new() -> Self {
+    pub fn new() -> Self {
         RbTree {
             root: NIL,
             nodes: Vec::new(),
@@ -293,7 +293,6 @@ impl<K: NodeKey, V: NodeValue> RbTree<K, V> {
     pub fn fix_insert(&mut self, k: usize) {
         let mut k = k;
         while &self.nodes[self.nodes[k].parent_node].color == &TreeColor::RED {
-            println!("hello");
             let k_parent = self.nodes[k].parent_node;
             // grand parent is guaranteed to not be NIL because of the while check^
             let grand_parent = self.nodes[k_parent].parent_node;
@@ -508,6 +507,8 @@ impl<K: NodeKey, V: NodeValue> RbTree<K, V> {
 }
 
 impl NodeKey for i32 {}
+
+impl NodeValue for i32 {}
 
 mod Test {
     use std::{cell::RefCell, rc::Rc};
