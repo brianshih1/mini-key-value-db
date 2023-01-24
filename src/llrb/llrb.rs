@@ -710,8 +710,5 @@ mod Test {
     }
 
     #[test]
-    fn test() {
-        let first = Rc::new(12);
-        let second = Rc::new(13);
-    }
+    fn test() {}
 }
