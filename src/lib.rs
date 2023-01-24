@@ -1,5 +1,7 @@
+mod concurrency;
 mod hlc;
 mod interval;
+mod latch_manager;
 mod llrb;
 mod storage;
 mod timestamp_oracle;
