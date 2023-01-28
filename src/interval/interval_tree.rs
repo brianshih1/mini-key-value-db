@@ -110,7 +110,7 @@ mod tests {
             borrow::{Borrow, BorrowMut},
             cell::RefCell,
             ops::Deref,
-            rc::Rc,
+            rc::{Rc, Weak},
         };
 
         use crate::interval::interval_tree::{IntervalTree, RangeValue, Test};
@@ -146,7 +146,9 @@ mod tests {
         }
 
         #[test]
-        fn experiment() {}
+        fn experiment() {
+            let cell = RefCell::new(12);
+        }
     }
 }
 
