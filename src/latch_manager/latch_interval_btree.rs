@@ -29,6 +29,65 @@ pub fn print_tree<K: NodeKey>(link: &NodeLink<K>) {
     print_tree_internal(link, 0);
 }
 
+// Doesn't print recursively. Just prints that single node's attributes
+pub fn print_node<K: NodeKey>(node: Rc<Node<K>>) {
+    match node.as_ref() {
+        Node::Internal(node) => {
+            println!("Internal. Keys: {:?}", node.keys);
+        }
+        Node::Leaf(ref node) => {
+            println!(
+                "Leaf. Keys: {:?}. Left start: {:?} Right start: {:?}",
+                node.start_keys,
+                get_first_key_from_weak_link(&node.left_sibling),
+                get_first_key_from_weak_link(&node.right_sibling)
+            );
+        }
+    }
+}
+
+pub fn get_start_keys_from_weak_link<K: NodeKey>(link: &WeakNodeLink<K>) -> Option<Vec<K>> {
+    let edge = &*link.borrow();
+    if let Some(ref rc) = edge {
+        let upgraded_ref = rc.upgrade();
+        let unwrapped = upgraded_ref.unwrap();
+        match unwrapped.as_ref() {
+            Node::Internal(_) => {
+                panic!("Cannot get sibling from internal node");
+            }
+            Node::Leaf(ref node) => {
+                let keys = node.start_keys.borrow();
+                Some(keys.clone())
+            }
+        }
+    } else {
+        None
+    }
+}
+
+fn get_first_key_from_weak_link<K: NodeKey>(link: &WeakNodeLink<K>) -> Option<K> {
+    let edge = &*link.borrow();
+    if let Some(ref rc) = edge {
+        let upgraded_ref = rc.upgrade();
+        let unwrapped = upgraded_ref.unwrap();
+        match unwrapped.as_ref() {
+            Node::Internal(_) => {
+                panic!("Cannot get sibling from internal node");
+            }
+            Node::Leaf(ref node) => {
+                let keys = node.start_keys.borrow();
+                let first = keys.get(0);
+                match first {
+                    Some(k) => Some(k.clone()),
+                    None => todo!(),
+                }
+            }
+        }
+    } else {
+        None
+    }
+}
+
 fn print_tree_internal<K: NodeKey>(link: &NodeLink<K>, depth: usize) {
     let edge = link.borrow().clone();
     if let Some(ref rc) = edge {
@@ -42,7 +101,13 @@ fn print_tree_internal<K: NodeKey>(link: &NodeLink<K>, depth: usize) {
                 }
             }
             Node::Leaf(node) => {
-                println!("{}Leaf. Keys: {:?}", get_indent(depth), node.start_keys);
+                println!(
+                    "{}Leaf. Keys: {:?}. Left start: {:?} Right start: {:?}",
+                    get_indent(depth),
+                    node.start_keys,
+                    get_first_key_from_weak_link(&node.left_sibling),
+                    get_first_key_from_weak_link(&node.right_sibling)
+                );
             }
         }
     }
@@ -191,39 +256,36 @@ impl<K: NodeKey> BTree<K> {
         let leaf = self.find_leaf_to_add(&range.start_key);
     }
 
-    pub fn split_node(&self, nodelink: Rc<Node<K>>) -> () {
-        // match nodelink.as_ref() {
-        //     Node::Internal(_) => todo!(),
-        //     Node::Leaf(leaf_node) => {
-        //         let mid = leaf_node.start_keys.len() / 2;
-        //         let right_start_keys = leaf_node.start_keys.split_off(mid);
-
-        //         let right_end_keys = leaf_node.end_keys.split_off(mid);
-        //         let right_sibling = leaf_node.right_sibling.borrow_mut().take();
-
-        //         let new_right_node = LeafNode {
-        //             start_keys: right_start_keys,
-        //             end_keys: right_end_keys,
-        //             left_sibling: RefCell::new(None), // TODO: set the left_sibling to the current leaf node later
-        //             right_sibling: RefCell::new(right_sibling),
-        //             order: self.order,
-        //         };
-        //         let right_rc = Rc::new(Node::Leaf(new_right_node));
-        //         leaf_node
-        //             .right_sibling
-        //             .borrow_mut()
-        //             .replace(Rc::downgrade(&right_rc));
-        //     }
-        // }
-    }
-
     /**
-     * The middle key is pushed to parent node.
      * Allocate a new leaf node and move half keys to the new node.
-     * Returns the new node.
+     * Returns the new node and the smallest key in the new node.
      */
-    pub fn split_leaf(leaf: Rc<RefCell<Node<K>>>) -> Rc<RefCell<Node<K>>> {
-        todo!()
+    pub fn split_node(node: Rc<Node<K>>) -> (Rc<Node<K>>, K) {
+        match node.as_ref() {
+            Node::Internal(_) => todo!(),
+            Node::Leaf(leaf_node) => {
+                let mid = leaf_node.start_keys.borrow().len() / 2;
+                let right_start_keys = leaf_node.start_keys.borrow_mut().split_off(mid);
+
+                let right_end_keys = leaf_node.end_keys.borrow_mut().split_off(mid);
+                let right_sibling = leaf_node.right_sibling.borrow_mut().take();
+                let right_start = right_start_keys[0].clone();
+
+                let new_right_node = LeafNode {
+                    start_keys: RefCell::new(right_start_keys),
+                    end_keys: RefCell::new(right_end_keys),
+                    left_sibling: RefCell::new(Some(Rc::downgrade(&node))), // TODO: set the left_sibling to the current leaf node later
+                    right_sibling: RefCell::new(right_sibling),
+                    order: leaf_node.order,
+                };
+                let right_rc = Rc::new(Node::Leaf(new_right_node));
+                leaf_node
+                    .right_sibling
+                    .borrow_mut()
+                    .replace(Rc::downgrade(&right_rc));
+                (right_rc, right_start)
+            }
+        }
     }
 }
 
@@ -311,6 +373,70 @@ mod Test {
             }
 
             print_tree(&tree.root);
+        }
+    }
+
+    mod split {
+        use std::{borrow::Borrow, cell::RefCell, rc::Rc};
+
+        use crate::latch_manager::latch_interval_btree::{
+            get_start_keys_from_weak_link, print_node, print_tree, BTree, LeafNode, Node,
+        };
+
+        #[test]
+        fn order_4() {
+            let leaf = LeafNode {
+                start_keys: RefCell::new(Vec::from([0, 1, 2])),
+                end_keys: RefCell::new(Vec::from([0, 1, 2])),
+                left_sibling: RefCell::new(None),
+                right_sibling: RefCell::new(None),
+                order: 4,
+            };
+
+            let leaf_rc = Rc::new(Node::Leaf(leaf));
+            let right_sibling = LeafNode {
+                start_keys: RefCell::new(Vec::from([4, 5, 6])),
+                end_keys: RefCell::new(Vec::from([0, 1, 2])),
+                left_sibling: RefCell::new(Some(Rc::downgrade(&leaf_rc))),
+                right_sibling: RefCell::new(None),
+                order: 4,
+            };
+            let right_sibling_rc = Rc::new(Node::Leaf(right_sibling));
+
+            match leaf_rc.as_ref() {
+                Node::Internal(_) => panic!("Leaf is somehow internal"),
+                Node::Leaf(leaf) => leaf
+                    .right_sibling
+                    .borrow_mut()
+                    .replace(Rc::downgrade(&right_sibling_rc)),
+            };
+
+            let (split_node, right_start_key) = BTree::split_node(leaf_rc.clone());
+            assert_eq!(right_start_key, 1);
+
+            match split_node.as_ref() {
+                Node::Internal(_) => panic!("Split node cannot be internal"),
+                Node::Leaf(leaf) => {
+                    assert_eq!(&*leaf.start_keys.borrow(), &Vec::from([1, 2]));
+                    assert_eq!(&*leaf.end_keys.borrow(), &Vec::from([1, 2]));
+                    let left_start_keys = get_start_keys_from_weak_link(&leaf.left_sibling);
+                    match left_start_keys.clone() {
+                        Some(left_start_keys) => {
+                            assert_eq!(left_start_keys, Vec::from([0]));
+                        }
+                        None => panic!("Left key has start keys"),
+                    }
+                    let right_start_keys = get_start_keys_from_weak_link(&leaf.right_sibling);
+                    match right_start_keys.clone() {
+                        Some(left_start_keys) => {
+                            assert_eq!(left_start_keys, Vec::from([4, 5, 6]));
+                        }
+                        None => panic!("Right key has start keys"),
+                    }
+                }
+            }
+
+            print_node(split_node.clone());
         }
     }
 }
