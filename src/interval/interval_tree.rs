@@ -147,9 +147,20 @@ mod tests {
 
         #[test]
         fn experiment() {
-            let cell = RefCell::new(12);
+            // let test = Rc::new(Test { prop1: true });
+            // let cell = RefCell::new(test.clone());
+            // let cell2 = RefCell::new(test.clone());
+            // test.toggle_bool();
         }
     }
 }
 
-struct Test {}
+struct Test {
+    prop1: bool,
+}
+
+impl Test {
+    fn toggle_bool(&mut self) {
+        self.prop1 = !self.prop1
+    }
+}

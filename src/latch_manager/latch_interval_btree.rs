@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     cell::RefCell,
     rc::{Rc, Weak},
 };
@@ -35,7 +36,8 @@ fn print_tree_internal<K: NodeKey>(link: &NodeLink<K>, depth: usize) {
         match node {
             Node::Internal(node) => {
                 println!("{}Internal. Keys: {:?}", get_indent(depth), node.keys);
-                for edge in &node.edges {
+
+                for edge in &*node.edges.borrow() {
                     print_tree_internal(edge, depth + 1);
                 }
             }
@@ -50,17 +52,17 @@ fn print_tree_internal<K: NodeKey>(link: &NodeLink<K>, depth: usize) {
 
 #[derive(Debug, Clone)]
 pub struct InternalNode<K: NodeKey> {
-    keys: Vec<K>,
-    edges: Vec<NodeLink<K>>,
+    keys: RefCell<Vec<K>>,
+    edges: RefCell<Vec<NodeLink<K>>>,
     order: u16,
-    upper: Option<K>,
-    lower: Option<K>,
+    upper: RefCell<Option<K>>,
+    lower: RefCell<Option<K>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct LeafNode<K: NodeKey> {
-    start_keys: Vec<K>,
-    end_keys: Vec<K>,
+    start_keys: RefCell<Vec<K>>,
+    end_keys: RefCell<Vec<K>>,
     left_sibling: WeakNodeLink<K>,
     right_sibling: WeakNodeLink<K>,
     order: u16,
@@ -69,11 +71,11 @@ pub struct LeafNode<K: NodeKey> {
 impl<K: NodeKey> InternalNode<K> {
     pub fn new(capacity: u16) -> Self {
         InternalNode {
-            keys: Vec::new(),
-            edges: Vec::new(),
+            keys: RefCell::new(Vec::new()),
+            edges: RefCell::new(Vec::new()),
             order: capacity,
-            upper: None,
-            lower: None,
+            upper: RefCell::new(None),
+            lower: RefCell::new(None),
         }
     }
 }
@@ -81,30 +83,41 @@ impl<K: NodeKey> InternalNode<K> {
 impl<K: NodeKey> LeafNode<K> {
     pub fn new(capacity: u16) -> Self {
         LeafNode {
-            start_keys: Vec::new(),
-            end_keys: Vec::new(),
+            start_keys: RefCell::new(Vec::new()),
+            end_keys: RefCell::new(Vec::new()),
             left_sibling: RefCell::new(None),
             right_sibling: RefCell::new(None),
             order: capacity,
         }
     }
 
+    // order 4 means at most 3 keys per node
+    pub fn has_capacity(&self) -> bool {
+        self.start_keys.borrow().len() < usize::from(self.order)
+    }
+
     // returns the newly created leaf
     // We assume leaf's capacity is at least 2
-    pub fn split(&mut self) -> InternalNode<K> {
-        let mid = self.start_keys.len() / 2;
-        let mut right_start_keys = self.start_keys.split_off(mid);
-        let mid_start_key = right_start_keys.remove(0);
+    pub fn split(&mut self) -> Rc<Node<K>> {
+        let mid = self.start_keys.borrow().len() / 2;
+        // let right_start_keys = self.start_keys.split_off(mid);
 
-        let mut right_end_keys = self.end_keys.split_off(mid);
-        let mid_end_key = right_end_keys.remove(0);
+        // let right_end_keys = self.end_keys.split_off(mid);
+        // let right_sibling = self.right_sibling.borrow_mut().take();
 
         // let new_right_node = LeafNode {
         //     start_keys: right_start_keys,
         //     end_keys: right_end_keys,
-        //     left_sibling: self
-        // }
-        // let new_right_node =
+        //     left_sibling: RefCell::new(None), // TODO: set the left_sibling to the current leaf node later
+        //     right_sibling: RefCell::new(right_sibling),
+        //     order: self.order,
+        // };
+        // let right_rc = Rc::new(Node::Leaf(new_right_node));
+        // self.right_sibling
+        //     .borrow_mut()
+        //     .replace(Rc::downgrade(&right_rc));
+
+        // right_rc
         todo!()
     }
 }
@@ -137,13 +150,14 @@ impl<K: NodeKey> BTree<K> {
             match temp_node {
                 Some(ref node) => match node.as_ref() {
                     Node::Internal(internal_node) => {
-                        for (idx, k) in internal_node.keys.iter().enumerate() {
+                        for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
                             if key < k {
-                                return internal_node.edges[idx].borrow().clone();
+                                return internal_node.edges.borrow()[idx].borrow().clone();
                             }
 
-                            if idx == internal_node.keys.len() - 1 {
-                                next = internal_node.edges[internal_node.edges.len() - 1]
+                            if idx == internal_node.keys.borrow().len() - 1 {
+                                next = internal_node.edges.borrow()
+                                    [internal_node.edges.borrow().len() - 1]
                                     .borrow()
                                     .clone();
                             }
@@ -173,9 +187,44 @@ impl<K: NodeKey> BTree<K> {
      * - if parent is full, split it too. Keep repeating the process until a parent doesn't need to split
      * - if the root splits, create a new root with one key and two children
      */
-    pub fn insert(&self, range: Range<K>) -> () {}
+    pub fn insert(&self, range: Range<K>) -> () {
+        let leaf = self.find_leaf_to_add(&range.start_key);
+    }
 
-    pub fn split_leaf(leaf: Rc<RefCell<Node<K>>>) -> () {}
+    pub fn split_node(&self, nodelink: Rc<Node<K>>) -> () {
+        // match nodelink.as_ref() {
+        //     Node::Internal(_) => todo!(),
+        //     Node::Leaf(leaf_node) => {
+        //         let mid = leaf_node.start_keys.len() / 2;
+        //         let right_start_keys = leaf_node.start_keys.split_off(mid);
+
+        //         let right_end_keys = leaf_node.end_keys.split_off(mid);
+        //         let right_sibling = leaf_node.right_sibling.borrow_mut().take();
+
+        //         let new_right_node = LeafNode {
+        //             start_keys: right_start_keys,
+        //             end_keys: right_end_keys,
+        //             left_sibling: RefCell::new(None), // TODO: set the left_sibling to the current leaf node later
+        //             right_sibling: RefCell::new(right_sibling),
+        //             order: self.order,
+        //         };
+        //         let right_rc = Rc::new(Node::Leaf(new_right_node));
+        //         leaf_node
+        //             .right_sibling
+        //             .borrow_mut()
+        //             .replace(Rc::downgrade(&right_rc));
+        //     }
+        // }
+    }
+
+    /**
+     * The middle key is pushed to parent node.
+     * Allocate a new leaf node and move half keys to the new node.
+     * Returns the new node.
+     */
+    pub fn split_leaf(leaf: Rc<RefCell<Node<K>>>) -> Rc<RefCell<Node<K>>> {
+        todo!()
+    }
 }
 
 mod Test {
@@ -190,42 +239,47 @@ mod Test {
         fn one_level_deep() {
             let order = 4;
             let first = RefCell::new(Some(Rc::new(Node::Leaf(LeafNode {
-                start_keys: Vec::from([11]),
-                end_keys: Vec::from([12]),
+                start_keys: RefCell::new(Vec::from([11])),
+                end_keys: RefCell::new(Vec::from([12])),
                 left_sibling: RefCell::new(None),
                 right_sibling: RefCell::new(None),
                 order: order,
             }))));
 
             let second = RefCell::new(Some(Rc::new(Node::Leaf(LeafNode {
-                start_keys: Vec::from([14]),
-                end_keys: Vec::from([14]),
+                start_keys: RefCell::new(Vec::from([14])),
+                end_keys: RefCell::new(Vec::from([14])),
                 left_sibling: RefCell::new(None),
                 right_sibling: RefCell::new(None),
                 order: order,
             }))));
 
             let third = RefCell::new(Some(Rc::new(Node::Leaf(LeafNode {
-                start_keys: Vec::from([18]),
-                end_keys: Vec::from([19]),
+                start_keys: RefCell::new(Vec::from([18])),
+                end_keys: RefCell::new(Vec::from([19])),
                 left_sibling: RefCell::new(None),
                 right_sibling: RefCell::new(None),
                 order: order,
             }))));
             let fourth = RefCell::new(Some(Rc::new(Node::Leaf(LeafNode {
-                start_keys: Vec::from([25]),
-                end_keys: Vec::from([30]),
+                start_keys: RefCell::new(Vec::from([25])),
+                end_keys: RefCell::new(Vec::from([30])),
                 left_sibling: RefCell::new(None),
                 right_sibling: RefCell::new(None),
                 order: order,
             }))));
 
             let node = InternalNode {
-                keys: Vec::from([12, 15, 19]),
-                edges: Vec::from([first.clone(), second.clone(), third.clone(), fourth.clone()]), //Vec<Option<Rc<RefCell<Node<K>>>>
+                keys: RefCell::new(Vec::from([12, 15, 19])),
+                edges: RefCell::new(Vec::from([
+                    first.clone(),
+                    second.clone(),
+                    third.clone(),
+                    fourth.clone(),
+                ])), //Vec<Option<Rc<RefCell<Node<K>>>>
                 order: order,
-                upper: None,
-                lower: None,
+                upper: RefCell::new(None),
+                lower: RefCell::new(None),
             };
             let tree = BTree {
                 root: RefCell::new(Some(Rc::new(Node::Internal(node)))),
@@ -236,7 +290,7 @@ mod Test {
             match &leaf1.as_ref() {
                 Node::Internal(_) => panic!("searched should not be internal node"),
                 Node::Leaf(leaf) => {
-                    assert_eq!(leaf.start_keys, Vec::from([11]))
+                    assert_eq!(&*leaf.start_keys.borrow(), &Vec::from([11]))
                 }
             }
 
@@ -244,7 +298,7 @@ mod Test {
             match &leaf2.as_ref() {
                 Node::Internal(_) => panic!("searched should not be internal node"),
                 Node::Leaf(leaf) => {
-                    assert_eq!(leaf.start_keys, Vec::from([18]))
+                    assert_eq!(&*leaf.start_keys.borrow(), &Vec::from([18]))
                 }
             }
 
@@ -252,7 +306,7 @@ mod Test {
             match &leaf4.as_ref() {
                 Node::Internal(_) => panic!("searched should not be internal node"),
                 Node::Leaf(leaf) => {
-                    assert_eq!(leaf.start_keys, Vec::from([25]))
+                    assert_eq!(&*leaf.start_keys.borrow(), &Vec::from([25]))
                 }
             }
 
