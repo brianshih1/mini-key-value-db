@@ -710,5 +710,10 @@ mod Test {
     }
 
     #[test]
-    fn test() {}
+    fn test() {
+        let rc = Rc::new(12);
+        let rc_1 = rc.clone();
+
+        assert_eq!(RefCell::new(rc), RefCell::new(rc_1));
+    }
 }
