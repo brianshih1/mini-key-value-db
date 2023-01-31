@@ -174,10 +174,19 @@ impl<K: NodeKey> BTree<K> {
         }
     }
 
+    /**
+     * Returns the node to delete. In addition, it returns a stack of (index, parent_node). The index
+     * corresponds to the index of the parent_node. This is useful when we need to find the siblings
+     * of the nodes when borrowing / merging.
+     */
+    pub fn find_leaf_to_delete(&self, key: &K) -> (Option<Rc<Node<K>>>, Vec<(usize, Rc<Node<K>>)>) {
+        todo!()
+    }
+
     // determines which leaf node a new key should go into
     // we assume there will at least always be one root.
     // Returns the leaf node to add and the stack of parent nodes
-    pub fn find_leaf_to_add(&self, key: &K) -> (Option<Rc<Node<K>>>, Vec<Rc<Node<K>>>) {
+    pub fn find_leaf_to_add(&self, key_to_add: &K) -> (Option<Rc<Node<K>>>, Vec<Rc<Node<K>>>) {
         let mut temp_node = self.root.borrow().clone();
 
         let mut next = None;
@@ -188,8 +197,9 @@ impl<K: NodeKey> BTree<K> {
                     Node::Internal(internal_node) => {
                         stack.push(node.clone());
                         for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
-                            if key < k {
-                                return (internal_node.edges.borrow()[idx].borrow().clone(), stack);
+                            if key_to_add < k {
+                                next = internal_node.edges.borrow()[idx].borrow().clone();
+                                break;
                             }
 
                             if idx == internal_node.keys.borrow().len() - 1 {
@@ -715,60 +725,33 @@ mod Test {
 
         use crate::latch_manager::latch_interval_btree::{
             BTree, InternalNode, LeafNode, Node,
-            Test::{assert_internal, assert_leaf, print_tree},
+            Test::{
+                assert_internal, assert_leaf, create_test_node, create_test_tree, print_tree,
+                TestInternalNode, TestLeafNode, TestNode,
+            },
         };
 
         #[test]
         fn one_level_deep() {
-            let order = 4;
-            let first = RefCell::new(Some(Rc::new(Node::Leaf(LeafNode {
-                start_keys: RefCell::new(Vec::from([11])),
-                end_keys: RefCell::new(Vec::from([12])),
-                left_sibling: RefCell::new(None),
-                right_sibling: RefCell::new(None),
-                order: order,
-            }))));
+            let test_node = TestNode::Internal(TestInternalNode {
+                keys: Vec::from([12, 15, 19]),
+                edges: Vec::from([
+                    Some(TestNode::Leaf(TestLeafNode {
+                        keys: Vec::from([11]),
+                    })),
+                    Some(TestNode::Leaf(TestLeafNode {
+                        keys: Vec::from([14]),
+                    })),
+                    Some(TestNode::Leaf(TestLeafNode {
+                        keys: Vec::from([18]),
+                    })),
+                    Some(TestNode::Leaf(TestLeafNode {
+                        keys: Vec::from([25]),
+                    })),
+                ]),
+            });
+            let tree = create_test_tree(&test_node, 4);
 
-            let second = RefCell::new(Some(Rc::new(Node::Leaf(LeafNode {
-                start_keys: RefCell::new(Vec::from([14])),
-                end_keys: RefCell::new(Vec::from([14])),
-                left_sibling: RefCell::new(None),
-                right_sibling: RefCell::new(None),
-                order: order,
-            }))));
-
-            let third = RefCell::new(Some(Rc::new(Node::Leaf(LeafNode {
-                start_keys: RefCell::new(Vec::from([18])),
-                end_keys: RefCell::new(Vec::from([19])),
-                left_sibling: RefCell::new(None),
-                right_sibling: RefCell::new(None),
-                order: order,
-            }))));
-            let fourth = RefCell::new(Some(Rc::new(Node::Leaf(LeafNode {
-                start_keys: RefCell::new(Vec::from([25])),
-                end_keys: RefCell::new(Vec::from([30])),
-                left_sibling: RefCell::new(None),
-                right_sibling: RefCell::new(None),
-                order: order,
-            }))));
-
-            let node = InternalNode {
-                keys: RefCell::new(Vec::from([12, 15, 19])),
-                edges: RefCell::new(Vec::from([
-                    first.clone(),
-                    second.clone(),
-                    third.clone(),
-                    fourth.clone(),
-                ])), //Vec<Option<Rc<RefCell<Node<K>>>>
-                order: order,
-                upper: RefCell::new(None),
-                lower: RefCell::new(None),
-            };
-            let node_rc = Rc::new(Node::Internal(node));
-            let tree = BTree {
-                root: RefCell::new(Some(node_rc)),
-                order: order,
-            };
             let (leaf1, stack) = tree.find_leaf_to_add(&0);
             assert_eq!(stack.len(), 1);
             assert_internal(stack[0].clone(), Vec::from([12, 15, 19]));
@@ -823,9 +806,8 @@ mod Test {
             assert_eq!(median, 20);
 
             let split_test_node = TestNode::Internal(TestInternalNode {
-                keys: Vec::from([20, 30]),
+                keys: Vec::from([30]),
                 edges: Vec::from([
-                    None,
                     Some(TestNode::Leaf(TestLeafNode {
                         keys: Vec::from([21, 25]),
                     })),
@@ -836,10 +818,9 @@ mod Test {
             });
             assert_node(split_node.clone(), &split_test_node);
             let leaves = get_all_leaves(split_node.clone());
-            assert_eq!(leaves.len(), 3);
-            assert_eq!(leaves[0].is_none(), true);
+            assert_eq!(leaves.len(), 2);
             assert_leaf_with_siblings(
-                leaves[1].as_ref().unwrap().clone(),
+                leaves[0].as_ref().unwrap().clone(),
                 &TestLeafNode {
                     keys: Vec::from([21, 25]),
                 },
@@ -850,7 +831,7 @@ mod Test {
                     keys: Vec::from([35]),
                 }),
             );
-            print_node_recursive(split_node.clone());
+            // print_node_recursive(split_node.clone());
         }
 
         #[test]
