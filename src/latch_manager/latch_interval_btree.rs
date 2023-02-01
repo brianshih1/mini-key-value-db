@@ -40,7 +40,14 @@ impl<K: NodeKey> Node<K> {
 
     pub fn get_upper(&self) -> Option<K> {
         match self {
-            Node::Internal(internal) => internal.upper.borrow().clone(),
+            Node::Internal(internal) => {
+                let keys = internal.keys.borrow_mut();
+                if keys.len() == 0 {
+                    None
+                } else {
+                    Some(keys[keys.len() - 1].clone())
+                }
+            }
             Node::Leaf(leaf) => {
                 let keys = leaf.start_keys.borrow_mut();
                 if keys.len() == 0 {
@@ -52,9 +59,31 @@ impl<K: NodeKey> Node<K> {
         }
     }
 
+    pub fn is_underflow(&self) -> bool {
+        match self {
+            Node::Internal(internal) => internal.is_underflow(),
+            Node::Leaf(leaf) => leaf.is_underflow(),
+        }
+    }
+
+    // Returns whether a sibling can steal a key from the current node
+    pub fn has_spare_key(&self) -> bool {
+        match self {
+            Node::Internal(internal) => internal.has_spare_key(),
+            Node::Leaf(leaf) => leaf.has_spare_key(),
+        }
+    }
+
     pub fn get_lower(&self) -> Option<K> {
         match self {
-            Node::Internal(internal) => internal.lower.borrow().clone(),
+            Node::Internal(internal) => {
+                let keys = internal.keys.borrow_mut();
+                if keys.len() == 0 {
+                    None
+                } else {
+                    Some(keys[0].clone())
+                }
+            }
             Node::Leaf(leaf) => {
                 let keys = leaf.start_keys.borrow_mut();
                 if keys.len() == 0 {
@@ -65,6 +94,17 @@ impl<K: NodeKey> Node<K> {
             }
         }
     }
+
+    pub fn update_key_at_index(&self, idx: usize, new_key: K) {
+        match self {
+            Node::Internal(internal) => {
+                internal.keys.borrow_mut()[idx] = new_key;
+            }
+            Node::Leaf(leaf) => {
+                panic!("Currently don't support updating key for leaf node")
+            }
+        }
+    }
 }
 
 // There's always one more edges than keys
@@ -72,10 +112,10 @@ impl<K: NodeKey> Node<K> {
 #[derive(Debug, Clone)]
 pub struct InternalNode<K: NodeKey> {
     keys: RefCell<Vec<K>>,
+    // a key's corresponding left edge will contain nodes with keys stricly less
+    // than the key
     edges: RefCell<Vec<NodeLink<K>>>,
     order: u16,
-    upper: RefCell<Option<K>>,
-    lower: RefCell<Option<K>>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,14 +127,13 @@ pub struct LeafNode<K: NodeKey> {
     order: u16,
 }
 
+// impl internal
 impl<K: NodeKey> InternalNode<K> {
     pub fn new(capacity: u16) -> Self {
         InternalNode {
             keys: RefCell::new(Vec::new()),
             edges: RefCell::new(Vec::new()),
             order: capacity,
-            upper: RefCell::new(None),
-            lower: RefCell::new(None),
         }
     }
 
@@ -122,8 +161,20 @@ impl<K: NodeKey> InternalNode<K> {
             .borrow_mut()
             .insert(insert_idx + 1, RefCell::new(Some(node)));
     }
+
+    pub fn is_underflow(&self) -> bool {
+        let min_nodes = self.order / 2;
+        self.keys.borrow().len() <= min_nodes.try_into().unwrap()
+    }
+
+    // Returns whether a sibling can steal a node from the current node
+    pub fn has_spare_key(&self) -> bool {
+        let min_nodes = self.order / 2;
+        self.keys.borrow().len() > (min_nodes + 1).into()
+    }
 }
 
+// impl leaf
 impl<K: NodeKey> LeafNode<K> {
     pub fn new(capacity: u16) -> Self {
         LeafNode {
@@ -140,6 +191,9 @@ impl<K: NodeKey> LeafNode<K> {
         self.start_keys.borrow().len() < usize::from(self.order)
     }
 
+    /**
+     * Just inserts, doesn't check for overflow and not responsible for splitting.
+     */
     pub fn insert_range(&self, range: Range<K>) {
         let mut insert_idx = self.start_keys.borrow().len();
         for (pos, k) in self.start_keys.borrow().iter().enumerate() {
@@ -152,6 +206,70 @@ impl<K: NodeKey> LeafNode<K> {
             .borrow_mut()
             .insert(insert_idx, range.start_key);
         self.end_keys.borrow_mut().insert(insert_idx, range.end_key);
+    }
+
+    pub fn find_key_idx(&self, key: &K) -> Option<usize> {
+        println!("key to match: {:?}", key);
+        for (idx, k) in self.start_keys.borrow().iter().enumerate() {
+            println!("K: {:?}", k);
+            if k == key {
+                return Some(idx);
+            }
+        }
+        None
+    }
+
+    // Returns true if a key was removed, false if key not found
+    pub fn remove_key(&self, key_to_delete: K) -> bool {
+        let idx = self.find_key_idx(&key_to_delete);
+        match idx {
+            Some(idx) => {
+                self.start_keys.borrow_mut().remove(idx);
+                self.end_keys.borrow_mut().remove(idx);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn is_underflow(&self) -> bool {
+        let min_nodes = self.order / 2;
+        self.start_keys.borrow().len() <= min_nodes.try_into().unwrap()
+    }
+
+    // Returns whether a sibling can steal a node from the current node
+    pub fn has_spare_key(&self) -> bool {
+        let min_nodes = self.order / 2;
+        self.start_keys.borrow().len() > (min_nodes + 1).into()
+    }
+
+    pub fn get_smallest_key(&self) -> K {
+        self.start_keys.borrow().first().unwrap().clone()
+    }
+
+    // Returns the stolen key
+    pub fn steal_smallest_key(&self) -> Range<K> {
+        if !self.has_spare_key() {
+            panic!("Cannot steal key from leaf, will underflow")
+        }
+        let start_key = self.start_keys.borrow_mut().remove(0);
+        let end_key = self.end_keys.borrow_mut().remove(0);
+        Range { start_key, end_key }
+    }
+
+    pub fn get_largest(&self) -> K {
+        self.start_keys.borrow().last().unwrap().clone()
+    }
+
+    // Returns the stolen key
+    pub fn steal_biggest_key(&self) -> Range<K> {
+        if !self.has_spare_key() {
+            panic!("Cannot steal key from leaf, will underflow")
+        }
+        let idx = self.start_keys.borrow().len() - 1;
+        let start_key = self.start_keys.borrow_mut().remove(idx);
+        let end_key = self.end_keys.borrow_mut().remove(idx);
+        Range { start_key, end_key }
     }
 }
 
@@ -175,12 +293,79 @@ impl<K: NodeKey> BTree<K> {
     }
 
     /**
+     * Find the left sibling provided the index of the corresponding edge in the parent's node
+     */
+    pub fn find_left_sibling(parent_node: Rc<Node<K>>, idx: usize) -> Option<Rc<Node<K>>> {
+        match parent_node.as_ref() {
+            Node::Internal(internal) => {
+                if idx == 0 {
+                    return None;
+                }
+                return internal.edges.borrow()[idx - 1].borrow().clone();
+            }
+            Node::Leaf(_) => panic!("leaf node doesn't have child"),
+        };
+    }
+
+    /**
+     * Find the right sibling provided the index of the corresponding edge in the parent's node
+     */
+    pub fn find_right_sibling(parent_node: Rc<Node<K>>, idx: usize) -> Option<Rc<Node<K>>> {
+        match parent_node.as_ref() {
+            Node::Internal(internal) => {
+                if idx == internal.edges.borrow().len() - 1 {
+                    return None;
+                }
+                return internal.edges.borrow()[idx + 1].borrow().clone();
+            }
+            Node::Leaf(_) => panic!("leaf node doesn't have child"),
+        };
+    }
+
+    /**
      * Returns the node to delete. In addition, it returns a stack of (index, parent_node). The index
      * corresponds to the index of the parent_node. This is useful when we need to find the siblings
      * of the nodes when borrowing / merging.
      */
-    pub fn find_leaf_to_delete(&self, key: &K) -> (Option<Rc<Node<K>>>, Vec<(usize, Rc<Node<K>>)>) {
-        todo!()
+    pub fn find_leaf_to_delete(
+        &self,
+        key_to_delete: &K,
+    ) -> (Option<Rc<Node<K>>>, Vec<(usize, Rc<Node<K>>)>) {
+        let mut temp_node = self.root.borrow().clone();
+
+        let mut next = None;
+        let mut stack = Vec::new();
+        loop {
+            match temp_node {
+                Some(ref node) => match node.as_ref() {
+                    Node::Internal(internal_node) => {
+                        for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
+                            if key_to_delete < k {
+                                stack.push((idx, node.clone()));
+                                next = internal_node.edges.borrow()[idx].borrow().clone();
+                                break;
+                            }
+
+                            if idx == internal_node.keys.borrow().len() - 1 {
+                                stack.push((idx + 1, node.clone()));
+                                next = internal_node.edges.borrow()[idx].borrow().clone();
+                                break;
+                            }
+                        }
+                    }
+
+                    Node::Leaf(_) => break,
+                },
+                None => panic!("should not be undefined"),
+            }
+
+            match next {
+                Some(_) => temp_node = next.clone(),
+                None => panic!("next is not provided"),
+            }
+        }
+
+        (temp_node, stack)
     }
 
     // determines which leaf node a new key should go into
@@ -270,8 +455,6 @@ impl<K: NodeKey> BTree<K> {
                                         RefCell::new(Some(split_node.clone())),
                                     ])),
                                     order: self.order,
-                                    upper: RefCell::new(split_node.get_upper()),
-                                    lower: RefCell::new(current_node.get_lower()),
                                 })));
                             break;
                         }
@@ -309,8 +492,6 @@ impl<K: NodeKey> BTree<K> {
                     keys: RefCell::new(right_keys),
                     edges: RefCell::new(right_edges),
                     order: internal_node.order,
-                    upper: RefCell::new(internal_node.upper.borrow().clone()),
-                    lower: RefCell::new(Some(right_start.clone())),
                 };
                 (Rc::new(Node::Internal(new_right_node)), right_start)
             }
@@ -336,6 +517,76 @@ impl<K: NodeKey> BTree<K> {
                     .replace(Rc::downgrade(&right_rc));
                 (right_rc, right_start)
             }
+        }
+    }
+
+    /**
+     * - Find the leaf where the key exists
+     * - Remove the key
+     * - If the node didn't underflow, stop
+     * - if the node underflows.
+     *      - if either the left or right sibling has a node to spare, steal the node.
+     *        update the keys in the parent since the split point has changed (this involves simply
+     *        changing a key above, no deletion or insertion)
+     *      - if neigher siblings have node to spare, the merge the node with its sibling. If the node
+     *        is internal, we will need to incorporate the split key from the parent into the merging.
+     *        In either case, we will need to repeat the removal algorithm on the parent node to remove the split
+     *        key that previously separated these merged nodes unless the parent is the root and we are removing
+     *        the finaly key from the root. In which case the merged node becomes the new root.
+     */
+    pub fn delete(&self, key: K) -> () {
+        let (node_to_delete, stack) = self.find_leaf_to_delete(&key);
+        match node_to_delete {
+            Some(ref node_ref) => {
+                let leaf_node = node_ref.as_ref().as_leaf_node();
+                let is_deleted = leaf_node.remove_key(key);
+                if !is_deleted {
+                    return;
+                }
+                if !leaf_node.is_underflow() {
+                    return;
+                }
+                // if there are no parents, then the leaf is the only element. We will allow root to underflow
+                if stack.len() == 0 {
+                    return;
+                }
+                let (idx, parent_node) = stack[stack.len() - 1].clone();
+                let left_sibling_option = BTree::find_left_sibling(parent_node.clone(), idx);
+                let mut is_stolen = false;
+                if let Some(left_sibling) = left_sibling_option {
+                    if left_sibling.has_spare_key() {
+                        let left_leaf_sibling = left_sibling.as_ref().as_leaf_node();
+                        let stolen_range = left_leaf_sibling.steal_biggest_key();
+                        let stolen_key = stolen_range.start_key.clone();
+                        leaf_node.insert_range(stolen_range);
+
+                        // Update parent's split key. Since we are stealing from left sibling,
+                        // the new split_key will be the stolen key
+                        parent_node
+                            .as_ref()
+                            .update_key_at_index(idx - 1, stolen_key);
+                        is_stolen = true;
+                    }
+                }
+                if !is_stolen {
+                    let right_sibling_option = BTree::find_right_sibling(parent_node.clone(), idx);
+                    if let Some(right_sibling) = right_sibling_option {
+                        if right_sibling.has_spare_key() {
+                            let right_leaf_sibling = right_sibling.as_ref().as_leaf_node();
+                            let stolen_range = right_leaf_sibling.steal_smallest_key();
+                            leaf_node.insert_range(stolen_range);
+
+                            // Update parent's split key. Since we are stealing from right sibling,
+                            // the new split_key will be the right sibling's new smallest key
+                            parent_node
+                                .as_ref()
+                                .update_key_at_index(idx - 1, right_sibling.get_lower().unwrap());
+                            is_stolen = true;
+                        }
+                    }
+                }
+            }
+            None => return,
         }
     }
 }
@@ -423,10 +674,6 @@ mod Test {
                     keys: RefCell::new(internal_node.keys.clone()),
                     edges: RefCell::new(edges),
                     order,
-                    upper: RefCell::new(Some(
-                        internal_node.keys[internal_node.keys.len() - 1].clone(),
-                    )),
-                    lower: RefCell::new(Some(internal_node.keys[0].clone())),
                 };
                 (Rc::new(Node::Internal(ret_node)), leaves)
             }
@@ -1016,6 +1263,113 @@ mod Test {
             });
 
             assert_tree(&tree, &test_node);
+        }
+    }
+
+    mod leaf_underflow {
+        use std::cell::RefCell;
+
+        use crate::latch_manager::latch_interval_btree::LeafNode;
+
+        #[test]
+        fn underflows() {
+            let leaf = LeafNode {
+                start_keys: RefCell::new(Vec::from([0])),
+                end_keys: RefCell::new(Vec::from([0])),
+                left_sibling: RefCell::new(None),
+                right_sibling: RefCell::new(None),
+                order: 2,
+            };
+            assert!(leaf.is_underflow());
+        }
+    }
+
+    mod delete {
+        mod find_leaf_to_delete {
+            use crate::latch_manager::latch_interval_btree::Test::{
+                create_test_tree, TestInternalNode, TestLeafNode, TestNode,
+            };
+
+            #[test]
+            fn test_leaf() {
+                let test_node = TestNode::Internal(TestInternalNode {
+                    keys: Vec::from([15]),
+                    edges: Vec::from([
+                        Some(TestNode::Internal(TestInternalNode {
+                            keys: Vec::from([10]),
+                            edges: Vec::from([
+                                Some(TestNode::Leaf(TestLeafNode {
+                                    keys: Vec::from([5]),
+                                })),
+                                Some(TestNode::Leaf(TestLeafNode {
+                                    keys: Vec::from([10]),
+                                })),
+                            ]),
+                        })),
+                        Some(TestNode::Internal(TestInternalNode {
+                            keys: Vec::from([20]),
+                            edges: Vec::from([
+                                Some(TestNode::Leaf(TestLeafNode {
+                                    keys: Vec::from([15]),
+                                })),
+                                Some(TestNode::Leaf(TestLeafNode {
+                                    keys: Vec::from([20, 25]),
+                                })),
+                            ]),
+                        })),
+                    ]),
+                });
+                let tree = create_test_tree(&test_node, 3);
+                let (node, path) = tree.find_leaf_to_delete(&20);
+                let indices = path
+                    .iter()
+                    .map(|(idx, _)| idx.clone())
+                    .collect::<Vec<usize>>();
+                assert_eq!(indices, Vec::from([1, 1]));
+            }
+        }
+
+        mod leaf_stealing {
+            use crate::latch_manager::latch_interval_btree::Test::{
+                create_test_tree, print_tree, TestInternalNode, TestLeafNode, TestNode,
+            };
+
+            #[test]
+            fn leaf_steals_left_sibling() {
+                let test_node = TestNode::Internal(TestInternalNode {
+                    keys: Vec::from([8]),
+                    edges: Vec::from([
+                        Some(TestNode::Internal(TestInternalNode {
+                            keys: Vec::from([5]),
+                            edges: Vec::from([
+                                Some(TestNode::Leaf(TestLeafNode {
+                                    keys: Vec::from([1, 3]),
+                                })),
+                                Some(TestNode::Leaf(TestLeafNode {
+                                    keys: Vec::from([5]),
+                                })),
+                            ]),
+                        })),
+                        Some(TestNode::Internal(TestInternalNode {
+                            keys: Vec::from([10]),
+                            edges: Vec::from([
+                                Some(TestNode::Leaf(TestLeafNode {
+                                    keys: Vec::from([8, 9]),
+                                })),
+                                Some(TestNode::Leaf(TestLeafNode {
+                                    keys: Vec::from([10, 15]),
+                                })),
+                            ]),
+                        })),
+                    ]),
+                });
+                let tree = create_test_tree(&test_node, 3);
+                tree.delete(5);
+                print_tree(&tree.root);
+            }
+
+            #[test]
+            fn leaf_steals_right_sibling() {}
         }
     }
 }
