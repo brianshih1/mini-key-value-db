@@ -95,6 +95,20 @@ impl<K: NodeKey> Node<K> {
         }
     }
 
+    // Just for debugging
+    pub fn get_keys(&self) -> Vec<K> {
+        match self {
+            Node::Internal(internal) => {
+                let keys = internal.keys.borrow_mut();
+                keys.clone()
+            }
+            Node::Leaf(leaf) => {
+                let keys = leaf.start_keys.borrow_mut();
+                keys.clone()
+            }
+        }
+    }
+
     pub fn update_key_at_index(&self, idx: usize, new_key: K) {
         match self {
             Node::Internal(internal) => {
@@ -164,13 +178,13 @@ impl<K: NodeKey> InternalNode<K> {
 
     pub fn is_underflow(&self) -> bool {
         let min_nodes = self.order / 2;
-        self.keys.borrow().len() <= min_nodes.try_into().unwrap()
+        self.keys.borrow().len() < min_nodes.try_into().unwrap()
     }
 
     // Returns whether a sibling can steal a node from the current node
     pub fn has_spare_key(&self) -> bool {
         let min_nodes = self.order / 2;
-        self.keys.borrow().len() > (min_nodes + 1).into()
+        self.keys.borrow().len() > min_nodes.into()
     }
 }
 
@@ -234,13 +248,13 @@ impl<K: NodeKey> LeafNode<K> {
 
     pub fn is_underflow(&self) -> bool {
         let min_nodes = self.order / 2;
-        self.start_keys.borrow().len() <= min_nodes.try_into().unwrap()
+        self.start_keys.borrow().len() < min_nodes.try_into().unwrap()
     }
 
     // Returns whether a sibling can steal a node from the current node
     pub fn has_spare_key(&self) -> bool {
         let min_nodes = self.order / 2;
-        self.start_keys.borrow().len() > (min_nodes + 1).into()
+        self.start_keys.borrow().len() > min_nodes.into()
     }
 
     pub fn get_smallest_key(&self) -> K {
@@ -348,7 +362,7 @@ impl<K: NodeKey> BTree<K> {
 
                             if idx == internal_node.keys.borrow().len() - 1 {
                                 stack.push((idx + 1, node.clone()));
-                                next = internal_node.edges.borrow()[idx].borrow().clone();
+                                next = internal_node.edges.borrow()[idx + 1].borrow().clone();
                                 break;
                             }
                         }
@@ -358,9 +372,8 @@ impl<K: NodeKey> BTree<K> {
                 },
                 None => panic!("should not be undefined"),
             }
-
             match next {
-                Some(_) => temp_node = next.clone(),
+                Some(ref v) => temp_node = next.clone(),
                 None => panic!("next is not provided"),
             }
         }
@@ -388,10 +401,7 @@ impl<K: NodeKey> BTree<K> {
                             }
 
                             if idx == internal_node.keys.borrow().len() - 1 {
-                                next = internal_node.edges.borrow()
-                                    [internal_node.edges.borrow().len() - 1]
-                                    .borrow()
-                                    .clone();
+                                next = internal_node.edges.borrow()[idx - 1].borrow().clone();
                             }
                         }
                     }
@@ -754,7 +764,7 @@ mod Test {
                     let first = keys.get(0);
                     match first {
                         Some(k) => Some(k.clone()),
-                        None => todo!(),
+                        None => None,
                     }
                 }
             }
@@ -1330,46 +1340,114 @@ mod Test {
         }
 
         mod leaf_stealing {
-            use crate::latch_manager::latch_interval_btree::Test::{
-                create_test_tree, print_tree, TestInternalNode, TestLeafNode, TestNode,
+            use crate::latch_manager::latch_interval_btree::{
+                Node,
+                Test::{create_test_tree, print_tree, TestInternalNode, TestLeafNode, TestNode},
             };
 
-            #[test]
-            fn leaf_steals_left_sibling() {
-                let test_node = TestNode::Internal(TestInternalNode {
-                    keys: Vec::from([8]),
-                    edges: Vec::from([
-                        Some(TestNode::Internal(TestInternalNode {
-                            keys: Vec::from([5]),
-                            edges: Vec::from([
-                                Some(TestNode::Leaf(TestLeafNode {
-                                    keys: Vec::from([1, 3]),
-                                })),
-                                Some(TestNode::Leaf(TestLeafNode {
-                                    keys: Vec::from([5]),
-                                })),
-                            ]),
-                        })),
-                        Some(TestNode::Internal(TestInternalNode {
-                            keys: Vec::from([10]),
-                            edges: Vec::from([
-                                Some(TestNode::Leaf(TestLeafNode {
-                                    keys: Vec::from([8, 9]),
-                                })),
-                                Some(TestNode::Leaf(TestLeafNode {
-                                    keys: Vec::from([10, 15]),
-                                })),
-                            ]),
-                        })),
-                    ]),
-                });
-                let tree = create_test_tree(&test_node, 3);
-                tree.delete(5);
-                print_tree(&tree.root);
+            mod has_spare_keys {
+                use std::cell::RefCell;
+
+                use crate::latch_manager::latch_interval_btree::LeafNode;
+
+                #[test]
+                fn internal_node() {}
+
+                #[test]
+                fn leaf_node_has_spare_key() {
+                    let leaf_node = LeafNode {
+                        start_keys: RefCell::new(Vec::from([0, 1])),
+                        end_keys: RefCell::new(Vec::from([0, 1])),
+                        left_sibling: RefCell::new(None),
+                        right_sibling: RefCell::new(None),
+                        order: 3,
+                    };
+                    assert_eq!(leaf_node.has_spare_key(), true);
+                }
+
+                #[test]
+                fn leaf_node_has_no_spare_key() {
+                    let leaf_node = LeafNode {
+                        start_keys: RefCell::new(Vec::from([0])),
+                        end_keys: RefCell::new(Vec::from([0])),
+                        left_sibling: RefCell::new(None),
+                        right_sibling: RefCell::new(None),
+                        order: 3,
+                    };
+                    assert_eq!(leaf_node.has_spare_key(), false);
+                }
             }
 
-            #[test]
-            fn leaf_steals_right_sibling() {}
+            mod stealing_core {
+                use crate::latch_manager::latch_interval_btree::Test::{
+                    assert_tree, create_test_tree, print_tree, TestInternalNode, TestLeafNode,
+                    TestNode,
+                };
+
+                #[test]
+                fn leaf_steals_left_sibling() {
+                    let test_node = TestNode::Internal(TestInternalNode {
+                        keys: Vec::from([8]),
+                        edges: Vec::from([
+                            Some(TestNode::Internal(TestInternalNode {
+                                keys: Vec::from([5]),
+                                edges: Vec::from([
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([1, 3]),
+                                    })),
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([5]),
+                                    })),
+                                ]),
+                            })),
+                            Some(TestNode::Internal(TestInternalNode {
+                                keys: Vec::from([10]),
+                                edges: Vec::from([
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([8, 9]),
+                                    })),
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([10, 15]),
+                                    })),
+                                ]),
+                            })),
+                        ]),
+                    });
+                    let tree = create_test_tree(&test_node, 3);
+                    tree.delete(5);
+                    let expected_tree_after_delete = TestNode::Internal(TestInternalNode {
+                        keys: Vec::from([8]),
+                        edges: Vec::from([
+                            Some(TestNode::Internal(TestInternalNode {
+                                keys: Vec::from([3]),
+                                edges: Vec::from([
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([1]),
+                                    })),
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([3]),
+                                    })),
+                                ]),
+                            })),
+                            Some(TestNode::Internal(TestInternalNode {
+                                keys: Vec::from([10]),
+                                edges: Vec::from([
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([8, 9]),
+                                    })),
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([10, 15]),
+                                    })),
+                                ]),
+                            })),
+                        ]),
+                    });
+                    assert_tree(&tree, &expected_tree_after_delete);
+                }
+
+                #[test]
+                fn leaf_steals_right_sibling() {}
+            }
         }
     }
 }
