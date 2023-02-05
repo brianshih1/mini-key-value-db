@@ -416,7 +416,7 @@ impl<K: NodeKey> BTree<K> {
                             }
 
                             if idx == internal_node.keys.borrow().len() - 1 {
-                                next = internal_node.edges.borrow()[idx - 1].borrow().clone();
+                                next = internal_node.edges.borrow()[idx + 1].borrow().clone();
                             }
                         }
                     }
@@ -1349,10 +1349,12 @@ mod Test {
 
             assert_tree(&tree, &test_node);
 
+            // here
             tree.insert(Range {
                 start_key: 15,
                 end_key: 15,
             });
+            print_tree(&tree.root);
             let test_node = TestNode::Internal(TestInternalNode {
                 keys: Vec::from([10, 15]),
                 edges: Vec::from([
@@ -1419,7 +1421,7 @@ mod Test {
                 end_keys: RefCell::new(Vec::from([0])),
                 left_sibling: RefCell::new(None),
                 right_sibling: RefCell::new(None),
-                order: 2,
+                order: 4,
             };
             assert!(leaf.is_underflow());
         }
