@@ -23,6 +23,12 @@ pub enum Node<K: NodeKey> {
     Leaf(LeafNode<K>),
 }
 
+#[derive(Debug, Clone)]
+pub enum Direction {
+    Left,
+    Right,
+}
+
 impl<K: NodeKey> Node<K> {
     pub fn as_internal_node(&self) -> &InternalNode<K> {
         match self {
@@ -344,7 +350,7 @@ impl<K: NodeKey> BTree<K> {
     pub fn find_leaf_to_delete(
         &self,
         key_to_delete: &K,
-    ) -> (Option<Rc<Node<K>>>, Vec<(usize, Rc<Node<K>>)>) {
+    ) -> (Option<Rc<Node<K>>>, Vec<(usize, Direction, Rc<Node<K>>)>) {
         let mut temp_node = self.root.borrow().clone();
 
         let mut next = None;
@@ -355,13 +361,13 @@ impl<K: NodeKey> BTree<K> {
                     Node::Internal(internal_node) => {
                         for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
                             if key_to_delete < k {
-                                stack.push((idx, node.clone()));
+                                stack.push((idx, Direction::Left, node.clone()));
                                 next = internal_node.edges.borrow()[idx].borrow().clone();
                                 break;
                             }
 
                             if idx == internal_node.keys.borrow().len() - 1 {
-                                stack.push((idx + 1, node.clone()));
+                                stack.push((idx + 1, Direction::Right, node.clone()));
                                 next = internal_node.edges.borrow()[idx + 1].borrow().clone();
                                 break;
                             }
@@ -544,12 +550,12 @@ impl<K: NodeKey> BTree<K> {
      *        key that previously separated these merged nodes unless the parent is the root and we are removing
      *        the finaly key from the root. In which case the merged node becomes the new root.
      */
-    pub fn delete(&self, key: K) -> () {
-        let (node_to_delete, stack) = self.find_leaf_to_delete(&key);
+    pub fn delete(&self, key_to_delete: K) -> () {
+        let (node_to_delete, stack) = self.find_leaf_to_delete(&key_to_delete);
         match node_to_delete {
             Some(ref node_ref) => {
                 let leaf_node = node_ref.as_ref().as_leaf_node();
-                let is_deleted = leaf_node.remove_key(key);
+                let is_deleted = leaf_node.remove_key(key_to_delete.clone());
                 if !is_deleted {
                     return;
                 }
@@ -560,9 +566,10 @@ impl<K: NodeKey> BTree<K> {
                 if stack.len() == 0 {
                     return;
                 }
-                let (idx, parent_node) = stack[stack.len() - 1].clone();
+                let (idx, direction, parent_node) = stack[stack.len() - 1].clone();
                 let left_sibling_option = BTree::find_left_sibling(parent_node.clone(), idx);
                 let mut is_stolen = false;
+                // try to borrow left sibling for a key
                 if let Some(left_sibling) = left_sibling_option {
                     if left_sibling.has_spare_key() {
                         let left_leaf_sibling = left_sibling.as_ref().as_leaf_node();
@@ -578,23 +585,47 @@ impl<K: NodeKey> BTree<K> {
                         is_stolen = true;
                     }
                 }
+                // try to borrow right sibling for a key
                 if !is_stolen {
                     let right_sibling_option = BTree::find_right_sibling(parent_node.clone(), idx);
                     if let Some(right_sibling) = right_sibling_option {
                         if right_sibling.has_spare_key() {
                             let right_leaf_sibling = right_sibling.as_ref().as_leaf_node();
                             let stolen_range = right_leaf_sibling.steal_smallest_key();
+                            let stolen_key = stolen_range.start_key.clone();
                             leaf_node.insert_range(stolen_range);
 
-                            // Update parent's split key. Since we are stealing from right sibling,
-                            // the new split_key will be the right sibling's new smallest key
-                            parent_node
-                                .as_ref()
-                                .update_key_at_index(idx - 1, right_sibling.get_lower().unwrap());
+                            // Update any parent's split key. Since we are stealing from right sibling,
+                            // if the split key is the key to delete, it is now the stolen key from right sibling
+                            for (iter_idx, (idx, direction, node)) in stack.iter().enumerate() {
+                                let key_idx = match direction {
+                                    Direction::Left => *idx,
+                                    Direction::Right => *idx - 1,
+                                };
+                                let internal_node = node.as_ref().as_internal_node();
+
+                                if iter_idx == stack.len() - 1 {
+                                    // Update parent's split key. Since we are stealing from right sibling,
+                                    // the new split_key will be the right sibling's new smallest key
+                                    node.as_ref().update_key_at_index(
+                                        key_idx,
+                                        right_sibling.get_lower().unwrap(),
+                                    );
+                                } else {
+                                    let mut keys = internal_node.keys.borrow_mut();
+                                    let key = &keys[key_idx];
+                                    if key == &key_to_delete {
+                                        keys[key_idx] = stolen_key.clone();
+                                    }
+                                }
+                            }
+
                             is_stolen = true;
                         }
                     }
                 }
+                // Neither siblings have a spare, so we must merge with sibling
+                if !is_stolen {}
             }
             None => return,
         }
@@ -1333,7 +1364,7 @@ mod Test {
                 let (node, path) = tree.find_leaf_to_delete(&20);
                 let indices = path
                     .iter()
-                    .map(|(idx, _)| idx.clone())
+                    .map(|(idx, _, _)| idx.clone())
                     .collect::<Vec<usize>>();
                 assert_eq!(indices, Vec::from([1, 1]));
             }
@@ -1446,7 +1477,65 @@ mod Test {
                 }
 
                 #[test]
-                fn leaf_steals_right_sibling() {}
+                fn leaf_steals_right_sibling() {
+                    let test_node = TestNode::Internal(TestInternalNode {
+                        keys: Vec::from([10]),
+                        edges: Vec::from([
+                            Some(TestNode::Internal(TestInternalNode {
+                                keys: Vec::from([5]),
+                                edges: Vec::from([
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([2]),
+                                    })),
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([5, 6]),
+                                    })),
+                                ]),
+                            })),
+                            Some(TestNode::Internal(TestInternalNode {
+                                keys: Vec::from([12]),
+                                edges: Vec::from([
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([10]),
+                                    })),
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([12, 20]),
+                                    })),
+                                ]),
+                            })),
+                        ]),
+                    });
+                    let tree = create_test_tree(&test_node, 3);
+                    tree.delete(10);
+                    let expected_tree_after_delete = TestNode::Internal(TestInternalNode {
+                        keys: Vec::from([12]),
+                        edges: Vec::from([
+                            Some(TestNode::Internal(TestInternalNode {
+                                keys: Vec::from([5]),
+                                edges: Vec::from([
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([2]),
+                                    })),
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([5, 6]),
+                                    })),
+                                ]),
+                            })),
+                            Some(TestNode::Internal(TestInternalNode {
+                                keys: Vec::from([20]),
+                                edges: Vec::from([
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([12]),
+                                    })),
+                                    Some(TestNode::Leaf(TestLeafNode {
+                                        keys: Vec::from([20]),
+                                    })),
+                                ]),
+                            })),
+                        ]),
+                    });
+                    assert_tree(&tree, &expected_tree_after_delete);
+                }
             }
         }
     }
