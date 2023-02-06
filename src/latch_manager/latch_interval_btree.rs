@@ -801,12 +801,54 @@ impl<K: NodeKey> BTree<K> {
         }
     }
 
-    // finds left and right leaf nodes (in that order)
+    /**
+     * We first try to merge with left sibling if there is one.
+     * Otherwise we try to merge with the right node.
+     *
+     * Algorithm:
+     * - Remove the parent split key and put that onto the left_node
+     * - Add the keys and edges from right_node to left_node
+     * - Remove the edge corresponding to the right_node
+     */
     pub fn merge_internal_node(
         internal_node: &InternalNode<K>,
-        parent_node: Rc<Node<K>>,
+        parent_rc: Rc<Node<K>>,
         edge_idx: usize,
     ) {
+        let left_sibling = BTree::find_left_sibling(parent_rc.clone(), edge_idx);
+
+        let parent_node = parent_rc.as_internal_node();
+        if let Some(left_rc) = left_sibling {
+            let left_node = left_rc.as_internal_node();
+            let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx - 1);
+            let mut left_keys = left_node.keys.borrow_mut();
+            left_keys.push(parent_split_key);
+            left_keys.append(&mut internal_node.keys.borrow_mut());
+            left_node
+                .edges
+                .borrow_mut()
+                .append(&mut internal_node.edges.borrow_mut());
+
+            // removing the edge corresponding to the internal node since it's merged into the left node
+            parent_node.edges.borrow_mut().remove(edge_idx);
+        } else {
+            let right_sibling = BTree::find_right_sibling(parent_rc.clone(), edge_idx);
+            if let Some(right_rc) = right_sibling {
+                let right_node = right_rc.as_internal_node();
+                // we merge right node into the current node
+                let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx);
+                let mut current_keys = internal_node.keys.borrow_mut();
+                current_keys.push(parent_split_key);
+                current_keys.append(&mut right_node.keys.borrow_mut());
+                internal_node
+                    .edges
+                    .borrow_mut()
+                    .append(&mut right_node.edges.borrow_mut());
+
+                // removing the edge corresponding to the right node since we are merging into the current node
+                parent_node.edges.borrow_mut().remove(edge_idx + 1);
+            }
+        }
     }
 
     // Tries to steal nodes from siblings if they have spares.
