@@ -196,6 +196,160 @@ impl<K: NodeKey> InternalNode<K> {
     pub fn remove_largest_key(&self) {}
 
     pub fn remove_smallest_key(&self) {}
+
+    // Tries to steal nodes from siblings if they have spares.
+    // Returns whether or not it successfully stole from sibling
+    pub fn steal_from_sibling(&self, parent_node: Rc<Node<K>>, edge_idx: usize) -> bool {
+        let left_sibling = self.find_left_sibling(edge_idx);
+        let mut is_stolen = false;
+        match left_sibling {
+            Some(left_rc) => {
+                let left_node = left_rc.as_internal_node();
+                is_stolen = self.steal_from_left_sibling(left_node, parent_node.clone(), edge_idx);
+                if is_stolen {
+                    return true;
+                }
+            }
+            None => {}
+        };
+        let right_sibling = self.find_right_sibling(edge_idx);
+        let mut is_stolen = false;
+        match right_sibling {
+            Some(right_rc) => {
+                let right_node = right_rc.as_internal_node();
+                is_stolen =
+                    self.steal_from_right_sibling(right_node, parent_node.clone(), edge_idx);
+                if is_stolen {
+                    return true;
+                }
+            }
+            None => {}
+        };
+
+        is_stolen
+    }
+
+    /**
+     * Algorithm:
+     * - steal the right-most edge from the right sibling
+     * - update the parent's split key to the split key of the stolen key
+     * - set the new split key for the current internal node to the parent's split key. This is because the
+     * parent's split key represents the smallest of that right subtree, so it will be the new split key for the
+     * current node.
+     */
+    pub fn steal_from_left_sibling(
+        &self,
+        left_sibling: &InternalNode<K>,
+        parent_rc: Rc<Node<K>>,
+        edge_idx: usize,
+    ) -> bool {
+        if !left_sibling.has_spare_key() {
+            return false;
+        }
+        let parent_node = parent_rc.as_internal_node();
+        // this will be the new split key for the current node
+        let parent_split_key = parent_node.keys.borrow()[edge_idx - 1].clone();
+        let left_size = left_sibling.edges.borrow().len();
+        let stolen_edge = left_sibling.edges.borrow_mut().remove(left_size - 1);
+        let left_keys_len = left_sibling.keys.borrow().len();
+        let stolen_split_key = left_sibling.keys.borrow()[left_keys_len - 1].clone();
+        self.keys.borrow_mut().insert(0, parent_split_key);
+        self.edges.borrow_mut().insert(0, stolen_edge);
+        parent_node.keys.borrow_mut()[edge_idx - 1] = stolen_split_key;
+        true
+    }
+
+    /**
+     * Algorithm:
+     * - Steal the left-most edge of the right sibling
+     * - for the new split key for the stolen edge, use the split key to the right of the edge from the parent
+     * - update the parent’s split key to use the removed split key (left-most) from the right sibling
+     */
+    pub fn steal_from_right_sibling(
+        &self,
+        right_sibling: &InternalNode<K>,
+        parent_rc: Rc<Node<K>>,
+        edge_idx: usize,
+    ) -> bool {
+        if !right_sibling.has_spare_key() {
+            return false;
+        }
+        let parent_node = parent_rc.as_internal_node();
+        // this will be the new split key for the current node
+        let parent_split_key = parent_node.keys.borrow()[edge_idx].clone();
+        let stolen_edge = right_sibling.edges.borrow_mut().remove(0);
+        // This will become parent's new split key
+        let stolen_key = right_sibling.keys.borrow_mut().remove(0);
+        self.keys.borrow_mut().push(parent_split_key);
+        self.edges.borrow_mut().push(stolen_edge);
+        parent_node.keys.borrow_mut()[edge_idx] = stolen_key;
+        true
+    }
+
+    /**
+     * Find the left sibling provided the index of the corresponding edge in the parent's node
+     */
+    pub fn find_left_sibling(&self, edge_idx: usize) -> Option<Rc<Node<K>>> {
+        if edge_idx == 0 {
+            return None;
+        }
+        self.edges.borrow()[edge_idx - 1].borrow().clone()
+    }
+
+    /**
+     * Find the right sibling provided the index of the corresponding edge in the parent's node
+     */
+    pub fn find_right_sibling(&self, edge_idx: usize) -> Option<Rc<Node<K>>> {
+        if edge_idx == self.edges.borrow().len() - 1 {
+            return None;
+        }
+        self.edges.borrow()[edge_idx + 1].borrow().clone()
+    }
+
+    /**
+     * We first try to merge with left sibling if there is one.
+     * Otherwise we try to merge with the right node.
+     *
+     * Algorithm:
+     * - Remove the parent split key and put that onto the left_node
+     * - Add the keys and edges from right_node to left_node
+     * - Remove the edge corresponding to the right_node
+     */
+    pub fn merge_with_sibling(&self, parent_rc: Rc<Node<K>>, edge_idx: usize) {
+        let left_sibling = self.find_left_sibling(edge_idx);
+
+        let parent_node = parent_rc.as_internal_node();
+        if let Some(left_rc) = left_sibling {
+            let left_node = left_rc.as_internal_node();
+            let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx - 1);
+            let mut left_keys = left_node.keys.borrow_mut();
+            left_keys.push(parent_split_key);
+            left_keys.append(&mut self.keys.borrow_mut());
+            left_node
+                .edges
+                .borrow_mut()
+                .append(&mut self.edges.borrow_mut());
+
+            // removing the edge corresponding to the internal node since it's merged into the left node
+            parent_node.edges.borrow_mut().remove(edge_idx);
+        } else {
+            let right_sibling = self.find_right_sibling(edge_idx);
+            if let Some(right_rc) = right_sibling {
+                let right_node = right_rc.as_internal_node();
+                // we merge right node into the current node
+                let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx);
+                let mut current_keys = self.keys.borrow_mut();
+                current_keys.push(parent_split_key);
+                current_keys.append(&mut right_node.keys.borrow_mut());
+                self.edges
+                    .borrow_mut()
+                    .append(&mut right_node.edges.borrow_mut());
+
+                // removing the edge corresponding to the right node since we are merging into the current node
+                parent_node.edges.borrow_mut().remove(edge_idx + 1);
+            }
+        }
+    }
 }
 
 // impl leaf
@@ -304,6 +458,127 @@ impl<K: NodeKey> LeafNode<K> {
         let end_key = self.end_keys.borrow_mut().remove(idx);
         Range { start_key, end_key }
     }
+
+    // Returns whether it was stolen from right sibling
+    pub fn steal_from_right_leaf_sibling(
+        &self,
+        key_to_delete: &K,
+        right_sibling: Rc<Node<K>>,
+        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
+    ) -> bool {
+        if right_sibling.has_spare_key() {
+            let right_leaf_sibling = right_sibling.as_ref().as_leaf_node();
+            let stolen_range = right_leaf_sibling.steal_smallest_key();
+            let stolen_key = stolen_range.start_key.clone();
+            self.insert_range(stolen_range);
+
+            // Update any parent's split key. Since we are stealing from right sibling,
+            // if the split key is the key to delete, it is now the stolen key from right sibling
+            for (iter_idx, (idx, direction, node)) in stack.iter().enumerate() {
+                let key_idx = match direction {
+                    Direction::Left => *idx,
+                    Direction::Right => *idx - 1,
+                };
+                let internal_node = node.as_ref().as_internal_node();
+
+                if iter_idx == stack.len() - 1 {
+                    // Update parent's split key. Since we are stealing from right sibling,
+                    // the new split_key will be the right sibling's new smallest key
+                    node.as_ref()
+                        .update_key_at_index(key_idx, right_sibling.get_lower().unwrap());
+                } else {
+                    let mut keys = internal_node.keys.borrow_mut();
+                    let key = &keys[key_idx];
+                    if key == key_to_delete {
+                        keys[key_idx] = stolen_key.clone();
+                    }
+                }
+            }
+            true;
+        }
+        false
+    }
+
+    pub fn steal_from_left_leaf_sibling(
+        &self,
+        key_to_delete: &K,
+        left_sibling: Rc<Node<K>>,
+        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
+    ) -> bool {
+        if left_sibling.has_spare_key() {
+            let left_leaf_sibling = left_sibling.as_ref().as_leaf_node();
+            let stolen_range = left_leaf_sibling.steal_biggest_key();
+            let stolen_key = stolen_range.start_key.clone();
+            self.insert_range(stolen_range);
+
+            let (idx, direction, parent_node) = stack[stack.len() - 1].clone();
+            // Update parent's split key. Since we are stealing from left sibling,
+            // the new split_key will be the stolen key
+            parent_node
+                .as_ref()
+                .update_key_at_index(idx - 1, stolen_key);
+            return true;
+        }
+        false
+    }
+
+    /**
+     * - First check if there is a left node. If there is, we assume there is no spare mode since
+     * we would've stolen from it if otherwise.
+     * - We then merge the left node's start key and left key into the current node.
+     * - Then we update the current left node's left ptr to the left ptr's left ptr.
+     * - We then update the parent node to remove the split node between the merged nodes.
+     *
+     * We apply the same to the right node if there is no left node
+     */
+    pub fn merge_node(&self, parent_rc: Rc<Node<K>>, edge_idx: usize) {
+        let internal_node = parent_rc.as_internal_node();
+        let left_sibling = internal_node.find_left_sibling(edge_idx);
+        match left_sibling {
+            Some(left_rc) => {
+                // merge left node into current node
+                let left_node = left_rc.as_ref().as_leaf_node();
+                self.start_keys
+                    .borrow_mut()
+                    .append(&mut left_node.start_keys.borrow_mut());
+                self.end_keys
+                    .borrow_mut()
+                    .append(&mut left_node.end_keys.borrow_mut());
+
+                // edge_idx - 1 | split_key | edge_idx
+                // We want to remove edge_idx - 1 and split_key (will be edge_idx - 1 in coresponding keys vec)
+                let parent_node = parent_rc.as_ref().as_internal_node();
+                parent_node.edges.borrow_mut().remove(edge_idx - 1);
+                parent_node.keys.borrow_mut().remove(edge_idx - 1);
+                *self.left_ptr.borrow_mut() = left_node.left_ptr.take();
+            }
+            None => {
+                let right_sibling = internal_node.find_right_sibling(edge_idx);
+                match right_sibling {
+                    Some(right_rc) => {
+                        // merge left node into current node
+                        let right_node = right_rc.as_ref().as_leaf_node();
+                        self.start_keys
+                            .borrow_mut()
+                            .append(&mut right_node.start_keys.borrow_mut());
+                        self.end_keys
+                            .borrow_mut()
+                            .append(&mut right_node.end_keys.borrow_mut());
+
+                        // edge_idx | split_key | edge_idx + 1
+                        // We want to remove edge_idx + 1 and split_key (will be edge_idx in coresponding keys vec)
+                        let parent_node = parent_rc.as_ref().as_internal_node();
+                        parent_node.edges.borrow_mut().remove(edge_idx + 1);
+                        parent_node.keys.borrow_mut().remove(edge_idx);
+                        *self.right_ptr.borrow_mut() = right_node.right_ptr.take();
+                    }
+                    None => {
+                        todo!()
+                    }
+                };
+            }
+        }
+    }
 }
 
 // Order of 3 means each node can only store 2 keys.
@@ -323,36 +598,6 @@ impl<K: NodeKey> BTree<K> {
             root: RefCell::new(Some(Rc::new(Node::Leaf(LeafNode::new(capacity))))),
             order: capacity,
         }
-    }
-
-    /**
-     * Find the left sibling provided the index of the corresponding edge in the parent's node
-     */
-    pub fn find_left_sibling(parent_node: Rc<Node<K>>, edge_idx: usize) -> Option<Rc<Node<K>>> {
-        match parent_node.as_ref() {
-            Node::Internal(internal) => {
-                if edge_idx == 0 {
-                    return None;
-                }
-                return internal.edges.borrow()[edge_idx - 1].borrow().clone();
-            }
-            Node::Leaf(_) => panic!("leaf node doesn't have child"),
-        };
-    }
-
-    /**
-     * Find the right sibling provided the index of the corresponding edge in the parent's node
-     */
-    pub fn find_right_sibling(parent_node: Rc<Node<K>>, edge_idx: usize) -> Option<Rc<Node<K>>> {
-        match parent_node.as_ref() {
-            Node::Internal(internal) => {
-                if edge_idx == internal.edges.borrow().len() - 1 {
-                    return None;
-                }
-                return internal.edges.borrow()[edge_idx + 1].borrow().clone();
-            }
-            Node::Leaf(_) => panic!("leaf node doesn't have child"),
-        };
     }
 
     /**
@@ -580,9 +825,10 @@ impl<K: NodeKey> BTree<K> {
                 if stack.len() == 0 {
                     return;
                 }
-                let (idx, _, parent_node) = stack[stack.len() - 1].clone();
-                let right_sibling_option = BTree::find_right_sibling(parent_node.clone(), idx);
-                let left_sibling_option = BTree::find_left_sibling(parent_node.clone(), idx);
+                let (edge_idx, _, parent_node) = stack[stack.len() - 1].clone();
+                let internal_node = parent_node.as_internal_node();
+                let right_sibling_option = internal_node.find_right_sibling(edge_idx);
+                let left_sibling_option = internal_node.find_left_sibling(edge_idx);
                 if !leaf_node.is_underflow() {
                     self.update_ancestors_after_delete(
                         &key_to_delete,
@@ -595,27 +841,27 @@ impl<K: NodeKey> BTree<K> {
                 let mut is_stolen = false;
                 // try to borrow left sibling for a key
                 if let Some(left_sibling) = left_sibling_option {
-                    self.steal_from_left_leaf_sibling(
+                    is_stolen = leaf_node.steal_from_left_leaf_sibling(
                         &key_to_delete,
                         left_sibling,
-                        leaf_node,
                         &stack,
                     );
                 }
                 // try to borrow right sibling for a key
                 if !is_stolen {
                     if let Some(right_sibling) = right_sibling_option {
-                        is_stolen = self.steal_from_right_leaf_sibling(
+                        is_stolen = leaf_node.steal_from_left_leaf_sibling(
                             &key_to_delete,
                             right_sibling,
-                            leaf_node,
                             &stack,
                         );
                     }
                 }
 
-                // Can't borrow from either siblings
-                if !is_stolen {}
+                // Can't borrow from either siblings. In this case we merge
+                if !is_stolen {
+                    leaf_node.merge_node(parent_node.clone(), edge_idx);
+                }
             }
             None => return,
         }
@@ -675,283 +921,12 @@ impl<K: NodeKey> BTree<K> {
         }
     }
 
-    pub fn steal_from_left_leaf_sibling(
-        &self,
-        key_to_delete: &K,
-        left_sibling: Rc<Node<K>>,
-        leaf_node: &LeafNode<K>,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
-    ) -> bool {
-        if left_sibling.has_spare_key() {
-            let left_leaf_sibling = left_sibling.as_ref().as_leaf_node();
-            let stolen_range = left_leaf_sibling.steal_biggest_key();
-            let stolen_key = stolen_range.start_key.clone();
-            leaf_node.insert_range(stolen_range);
-
-            let (idx, direction, parent_node) = stack[stack.len() - 1].clone();
-            // Update parent's split key. Since we are stealing from left sibling,
-            // the new split_key will be the stolen key
-            parent_node
-                .as_ref()
-                .update_key_at_index(idx - 1, stolen_key);
-            return true;
-        }
-        false
-    }
-
-    // Returns whether it was stolen from right sibling
-    pub fn steal_from_right_leaf_sibling(
-        &self,
-        key_to_delete: &K,
-        right_sibling: Rc<Node<K>>,
-        leaf_node: &LeafNode<K>,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
-    ) -> bool {
-        if right_sibling.has_spare_key() {
-            let right_leaf_sibling = right_sibling.as_ref().as_leaf_node();
-            let stolen_range = right_leaf_sibling.steal_smallest_key();
-            let stolen_key = stolen_range.start_key.clone();
-            leaf_node.insert_range(stolen_range);
-
-            // Update any parent's split key. Since we are stealing from right sibling,
-            // if the split key is the key to delete, it is now the stolen key from right sibling
-            for (iter_idx, (idx, direction, node)) in stack.iter().enumerate() {
-                let key_idx = match direction {
-                    Direction::Left => *idx,
-                    Direction::Right => *idx - 1,
-                };
-                let internal_node = node.as_ref().as_internal_node();
-
-                if iter_idx == stack.len() - 1 {
-                    // Update parent's split key. Since we are stealing from right sibling,
-                    // the new split_key will be the right sibling's new smallest key
-                    node.as_ref()
-                        .update_key_at_index(key_idx, right_sibling.get_lower().unwrap());
-                } else {
-                    let mut keys = internal_node.keys.borrow_mut();
-                    let key = &keys[key_idx];
-                    if key == key_to_delete {
-                        keys[key_idx] = stolen_key.clone();
-                    }
-                }
-            }
-            true;
-        }
-        false
-    }
-
-    /**
-     * - First check if there is a left node. If there is, we assume there is no spare mode since
-     * we would've stolen from it if otherwise.
-     * - We then merge the left node's start key and left key into the current node.
-     * - Then we update the current left node's left ptr to the left ptr's left ptr.
-     * - We then update the parent node to remove the split node between the merged nodes.
-     *
-     * We apply the same to the right node if there is no left node
-     */
-    pub fn merge_leaf_node(leaf_node: &LeafNode<K>, parent_node: Rc<Node<K>>, edge_idx: usize) {
-        let left_sibling = BTree::find_left_sibling(parent_node.clone(), edge_idx);
-        match left_sibling {
-            Some(left_rc) => {
-                // merge left node into current node
-                let left_node = left_rc.as_ref().as_leaf_node();
-                leaf_node
-                    .start_keys
-                    .borrow_mut()
-                    .append(&mut left_node.start_keys.borrow_mut());
-                leaf_node
-                    .end_keys
-                    .borrow_mut()
-                    .append(&mut left_node.end_keys.borrow_mut());
-
-                // edge_idx - 1 | split_key | edge_idx
-                // We want to remove edge_idx - 1 and split_key (will be edge_idx - 1 in coresponding keys vec)
-                let parent_node = parent_node.as_ref().as_internal_node();
-                parent_node.edges.borrow_mut().remove(edge_idx - 1);
-                parent_node.keys.borrow_mut().remove(edge_idx - 1);
-                *leaf_node.left_ptr.borrow_mut() = left_node.left_ptr.take();
-            }
-            None => {
-                let right_sibling = BTree::find_right_sibling(parent_node.clone(), edge_idx);
-                match right_sibling {
-                    Some(right_rc) => {
-                        // merge left node into current node
-                        let right_node = right_rc.as_ref().as_leaf_node();
-                        leaf_node
-                            .start_keys
-                            .borrow_mut()
-                            .append(&mut right_node.start_keys.borrow_mut());
-                        leaf_node
-                            .end_keys
-                            .borrow_mut()
-                            .append(&mut right_node.end_keys.borrow_mut());
-
-                        // edge_idx | split_key | edge_idx + 1
-                        // We want to remove edge_idx + 1 and split_key (will be edge_idx in coresponding keys vec)
-                        let parent_node = parent_node.as_ref().as_internal_node();
-                        parent_node.edges.borrow_mut().remove(edge_idx + 1);
-                        parent_node.keys.borrow_mut().remove(edge_idx);
-                        *leaf_node.right_ptr.borrow_mut() = right_node.right_ptr.take();
-                    }
-                    None => {
-                        todo!()
-                    }
-                };
-            }
-        }
-    }
-
-    /**
-     * We first try to merge with left sibling if there is one.
-     * Otherwise we try to merge with the right node.
-     *
-     * Algorithm:
-     * - Remove the parent split key and put that onto the left_node
-     * - Add the keys and edges from right_node to left_node
-     * - Remove the edge corresponding to the right_node
-     */
-    pub fn merge_internal_node(
-        internal_node: &InternalNode<K>,
-        parent_rc: Rc<Node<K>>,
-        edge_idx: usize,
-    ) {
-        let left_sibling = BTree::find_left_sibling(parent_rc.clone(), edge_idx);
-
-        let parent_node = parent_rc.as_internal_node();
-        if let Some(left_rc) = left_sibling {
-            let left_node = left_rc.as_internal_node();
-            let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx - 1);
-            let mut left_keys = left_node.keys.borrow_mut();
-            left_keys.push(parent_split_key);
-            left_keys.append(&mut internal_node.keys.borrow_mut());
-            left_node
-                .edges
-                .borrow_mut()
-                .append(&mut internal_node.edges.borrow_mut());
-
-            // removing the edge corresponding to the internal node since it's merged into the left node
-            parent_node.edges.borrow_mut().remove(edge_idx);
-        } else {
-            let right_sibling = BTree::find_right_sibling(parent_rc.clone(), edge_idx);
-            if let Some(right_rc) = right_sibling {
-                let right_node = right_rc.as_internal_node();
-                // we merge right node into the current node
-                let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx);
-                let mut current_keys = internal_node.keys.borrow_mut();
-                current_keys.push(parent_split_key);
-                current_keys.append(&mut right_node.keys.borrow_mut());
-                internal_node
-                    .edges
-                    .borrow_mut()
-                    .append(&mut right_node.edges.borrow_mut());
-
-                // removing the edge corresponding to the right node since we are merging into the current node
-                parent_node.edges.borrow_mut().remove(edge_idx + 1);
-            }
-        }
-    }
-
-    // Tries to steal nodes from siblings if they have spares.
-    // Returns whether or not it successfully stole from sibling
-    pub fn steal_from_sibling(
+    // returns a boolean which is whether or not the parent node got merged
+    pub fn deal_with_internal_node_underflow(
         internal_node: &InternalNode<K>,
         parent_node: Rc<Node<K>>,
         edge_idx: usize,
-    ) -> bool {
-        let left_sibling = BTree::find_left_sibling(parent_node.clone(), edge_idx);
-        let mut is_stolen = false;
-        match left_sibling {
-            Some(left_rc) => {
-                let left_node = left_rc.as_internal_node();
-                is_stolen = BTree::steal_from_left_internal_sibling(
-                    internal_node,
-                    left_node,
-                    parent_node.clone(),
-                    edge_idx,
-                );
-                if is_stolen {
-                    return true;
-                }
-            }
-            None => {}
-        };
-        let right_sibling = BTree::find_right_sibling(parent_node.clone(), edge_idx);
-        let mut is_stolen = false;
-        match right_sibling {
-            Some(right_rc) => {
-                let right_node = right_rc.as_internal_node();
-                is_stolen = BTree::steal_from_right_internal_sibling(
-                    internal_node,
-                    right_node,
-                    parent_node.clone(),
-                    edge_idx,
-                );
-                if is_stolen {
-                    return true;
-                }
-            }
-            None => {}
-        };
-
-        is_stolen
-    }
-
-    /**
-     * Algorithm:
-     * - steal the right-most edge from the right sibling
-     * - update the parent's split key to the split key of the stolen key
-     * - set the new split key for the current internal node to the parent's split key. This is because the
-     * parent's split key represents the smallest of that right subtree, so it will be the new split key for the
-     * current node.
-     */
-    pub fn steal_from_left_internal_sibling(
-        internal_node: &InternalNode<K>,
-        left_sibling: &InternalNode<K>,
-        parent_rc: Rc<Node<K>>,
-        edge_idx: usize,
-    ) -> bool {
-        if !left_sibling.has_spare_key() {
-            return false;
-        }
-        let parent_node = parent_rc.as_internal_node();
-        // this will be the new split key for the current node
-        let parent_split_key = parent_node.keys.borrow()[edge_idx - 1].clone();
-        let left_size = left_sibling.edges.borrow().len();
-        let stolen_edge = left_sibling.edges.borrow_mut().remove(left_size - 1);
-        let left_keys_len = left_sibling.keys.borrow().len();
-        let stolen_split_key = left_sibling.keys.borrow()[left_keys_len - 1].clone();
-        internal_node.keys.borrow_mut().insert(0, parent_split_key);
-        internal_node.edges.borrow_mut().insert(0, stolen_edge);
-        parent_node.keys.borrow_mut()[edge_idx - 1] = stolen_split_key;
-        true
-    }
-
-    /**
-     * Algorithm:
-     * - Steal the left-most edge of the right sibling
-     * - for the new split key for the stolen edge, use the split key to the right of the edge from the parent
-     * - update the parent’s split key to use the removed split key (left-most) from the right sibling
-     */
-    pub fn steal_from_right_internal_sibling(
-        internal_node: &InternalNode<K>,
-        right_sibling: &InternalNode<K>,
-        parent_rc: Rc<Node<K>>,
-        edge_idx: usize,
-    ) -> bool {
-        if !right_sibling.has_spare_key() {
-            return false;
-        }
-        let parent_node = parent_rc.as_internal_node();
-        // this will be the new split key for the current node
-        let parent_split_key = parent_node.keys.borrow()[edge_idx].clone();
-        let stolen_edge = right_sibling.edges.borrow_mut().remove(0);
-        // This will become parent's new split key
-        let stolen_key = right_sibling.keys.borrow_mut().remove(0);
-        internal_node.keys.borrow_mut().push(parent_split_key);
-        internal_node.edges.borrow_mut().push(stolen_edge);
-        parent_node.keys.borrow_mut()[edge_idx] = stolen_key;
-
-        true
+    ) {
     }
 }
 
