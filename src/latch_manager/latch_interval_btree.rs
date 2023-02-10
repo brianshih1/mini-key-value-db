@@ -265,14 +265,14 @@ impl<K: NodeKey> InternalNode<K> {
 
     // Tries to steal nodes from siblings if they have spares.
     // Returns whether or not it successfully stole from sibling
-    pub fn steal_from_sibling(&self, parent_rc: Rc<Node<K>>, edge_idx: usize) -> bool {
-        let parent_node = parent_rc.as_internal_node();
+    pub fn steal_from_sibling(&self, parent_node: &InternalNode<K>, edge_idx: usize) -> bool {
         let left_sibling = parent_node.find_child_left_sibling(edge_idx);
         let mut is_stolen = false;
         match left_sibling {
-            Some(left_rc) => {
-                let left_node = left_rc.as_internal_node();
-                is_stolen = self.steal_from_left_sibling(left_node, parent_rc.clone(), edge_idx);
+            Some(left_latch_node) => {
+                let left_guard = left_latch_node.as_ref().write().unwrap();
+                let left_node = left_guard.as_internal_node();
+                is_stolen = self.steal_from_left_sibling(left_node, parent_node, edge_idx);
                 if is_stolen {
                     return true;
                 }
@@ -282,9 +282,11 @@ impl<K: NodeKey> InternalNode<K> {
         let right_sibling = parent_node.find_child_right_sibling(edge_idx);
         let mut is_stolen = false;
         match right_sibling {
-            Some(right_rc) => {
-                let right_node = right_rc.as_internal_node();
-                is_stolen = self.steal_from_right_sibling(right_node, parent_rc.clone(), edge_idx);
+            Some(right_latch_node) => {
+                let right_guard = right_latch_node.as_ref().write().unwrap();
+                let right_node = right_guard.as_internal_node();
+                is_stolen = self.steal_from_right_sibling(right_node, parent_node, edge_idx);
+
                 if is_stolen {
                     return true;
                 }
@@ -333,13 +335,12 @@ impl<K: NodeKey> InternalNode<K> {
     pub fn steal_from_right_sibling(
         &self,
         right_sibling: &InternalNode<K>,
-        parent_rc: Rc<Node<K>>,
+        parent_node: &InternalNode<K>,
         edge_idx: usize,
     ) -> bool {
         if !right_sibling.has_spare_key() {
             return false;
         }
-        let parent_node = parent_rc.as_internal_node();
         // this will be the new split key for the current node
         let parent_split_key = parent_node.keys.borrow()[edge_idx].clone();
         let stolen_edge = right_sibling.edges.borrow_mut().remove(0);
@@ -384,8 +385,7 @@ impl<K: NodeKey> InternalNode<K> {
      * - Add the keys and edges from right_node to left_node
      * - Remove the edge corresponding to the right_node
      */
-    pub fn merge_with_sibling(&self, parent_rc: Rc<Node<K>>, edge_idx: usize) {
-        let parent_node = parent_rc.as_internal_node();
+    pub fn merge_with_sibling(&self, parent_node: &InternalNode<K>, edge_idx: usize) {
         let left_sibling = parent_node.find_child_left_sibling(edge_idx);
         if let Some(ref left_latch_node) = left_sibling {
             let left_guard = left_latch_node.as_ref().write().unwrap();
@@ -436,16 +436,14 @@ impl<K: NodeKey> InternalNode<K> {
             }
             if !is_stolen {
                 let right_sibling = parent_node.find_child_right_sibling(edge_idx);
-                if let Some(ref right_rc) = right_sibling {
-                    is_stolen = self.steal_from_right_sibling(
-                        right_rc.as_internal_node(),
-                        parent_rc.clone(),
-                        edge_idx,
-                    );
+                if let Some(ref right_latch_node) = right_sibling {
+                    let right_guard = right_latch_node.as_ref().write().unwrap();
+                    let right_node = right_guard.as_internal_node();
+                    is_stolen = self.steal_from_right_sibling(right_node, parent_node, edge_idx);
                 }
             }
             if !is_stolen {
-                self.merge_with_sibling(parent_rc.clone(), edge_idx);
+                self.merge_with_sibling(parent_node, edge_idx);
             }
         }
     }
@@ -586,29 +584,29 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn steal_from_right_leaf_sibling(
         &self,
         key_to_delete: &K,
-        right_sibling: Rc<Node<K>>,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
+        right_sibling: LatchNode<K>,
+        stack: &Vec<(usize, Direction, &InternalNode<K>)>,
     ) -> bool {
+        let right_write_guard = right_sibling.as_ref().write().unwrap();
+        let right_sibling = right_write_guard.as_leaf_node();
         if right_sibling.has_spare_key() {
-            let right_leaf_sibling = right_sibling.as_ref().as_leaf_node();
-            let stolen_range = right_leaf_sibling.steal_smallest_key();
+            let stolen_range = right_sibling.steal_smallest_key();
             let stolen_key = stolen_range.start_key.clone();
             self.insert_range(stolen_range);
 
             // Update any parent's split key. Since we are stealing from right sibling,
             // if the split key is the key to delete, it is now the stolen key from right sibling
-            for (iter_idx, (idx, direction, node)) in stack.iter().enumerate() {
+            for (iter_idx, (idx, direction, internal_node)) in stack.iter().enumerate() {
                 let key_idx = match direction {
                     Direction::Left => *idx,
                     Direction::Right => *idx - 1,
                 };
-                let internal_node = node.as_ref().as_internal_node();
 
                 if iter_idx == stack.len() - 1 {
                     // Update parent's split key. Since we are stealing from right sibling,
                     // the new split_key will be the right sibling's new smallest key
-                    node.as_ref()
-                        .update_key_at_index(key_idx, right_sibling.get_lower().unwrap());
+                    internal_node
+                        .update_key_at_index(key_idx, right_write_guard.get_lower().unwrap());
                 } else {
                     let mut keys = internal_node.keys.borrow_mut();
                     let key = &keys[key_idx];
@@ -625,12 +623,13 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn steal_from_left_leaf_sibling(
         &self,
         key_to_delete: &K,
-        left_sibling: Rc<Node<K>>,
+        left_sibling: LatchNode<K>,
         stack: &Vec<(usize, Direction, &InternalNode<K>)>,
     ) -> bool {
+        let left_write_guard = left_sibling.as_ref().write().unwrap();
+        let left_sibling = left_write_guard.as_leaf_node();
         if left_sibling.has_spare_key() {
-            let left_leaf_sibling = left_sibling.as_ref().as_leaf_node();
-            let stolen_range = left_leaf_sibling.steal_biggest_key();
+            let stolen_range = left_sibling.steal_biggest_key();
             let stolen_key = stolen_range.start_key.clone();
             self.insert_range(stolen_range);
 
@@ -652,13 +651,13 @@ impl<K: NodeKey> LeafNode<K> {
      *
      * We apply the same to the right node if there is no left node
      */
-    pub fn merge_node(&self, parent_rc: Rc<Node<K>>, edge_idx: usize) {
-        let internal_node = parent_rc.as_internal_node();
-        let left_sibling = internal_node.find_child_left_sibling(edge_idx);
+    pub fn merge_node(&self, parent_node: &InternalNode<K>, edge_idx: usize) {
+        let left_sibling = parent_node.find_child_left_sibling(edge_idx);
         match left_sibling {
-            Some(left_rc) => {
+            Some(left_latch_node) => {
+                let left_guard = left_latch_node.as_ref().write().unwrap();
                 // merge current node into left node
-                let left_node = left_rc.as_ref().as_leaf_node();
+                let left_node = left_guard.as_leaf_node();
                 left_node
                     .start_keys
                     .borrow_mut()
@@ -669,17 +668,17 @@ impl<K: NodeKey> LeafNode<K> {
                     .append(&mut self.end_keys.borrow_mut());
                 // edge_idx - 1 | split_key | edge_idx
                 // We want to remove edge_idx and split_key (will be edge_idx - 1 in coresponding keys vec)
-                let parent_node = parent_rc.as_ref().as_internal_node();
                 parent_node.edges.borrow_mut().remove(edge_idx);
                 parent_node.keys.borrow_mut().remove(edge_idx - 1);
                 *left_node.right_ptr.borrow_mut() = self.right_ptr.take();
             }
             None => {
-                let right_sibling = internal_node.find_child_right_sibling(edge_idx);
+                let right_sibling = parent_node.find_child_right_sibling(edge_idx);
                 match right_sibling {
-                    Some(right_rc) => {
+                    Some(right_latch_node) => {
+                        let right_guard = right_latch_node.as_ref().write().unwrap();
                         // merge right node into current node
-                        let right_node = right_rc.as_ref().as_leaf_node();
+                        let right_node = right_guard.as_leaf_node();
                         self.start_keys
                             .borrow_mut()
                             .append(&mut right_node.start_keys.borrow_mut());
@@ -689,7 +688,6 @@ impl<K: NodeKey> LeafNode<K> {
 
                         // edge_idx | split_key | edge_idx + 1
                         // We want to remove edge_idx + 1 and split_key (will be edge_idx in coresponding keys vec)
-                        let parent_node = parent_rc.as_ref().as_internal_node();
                         parent_node.edges.borrow_mut().remove(edge_idx + 1);
                         parent_node.keys.borrow_mut().remove(edge_idx);
                         *self.right_ptr.borrow_mut() = right_node.right_ptr.take();
@@ -741,8 +739,9 @@ impl<K: NodeKey> LeafNode<K> {
             None => {
                 // This means that the next biggest key is not in the same leaf node
                 let right_leaf_option = right_sibling_option.clone();
-                let right_leaf = right_leaf_option.unwrap();
-                return right_leaf.as_leaf_node().start_keys.borrow()[0].clone();
+                let right_latch_node = right_leaf_option.unwrap();
+                let right_read_guard = right_latch_node.as_ref().read().unwrap();
+                return right_read_guard.as_leaf_node().start_keys.borrow()[0].clone();
             }
         }
     }
@@ -773,9 +772,9 @@ impl<K: NodeKey> LeafNode<K> {
         if stack.len() == 0 {
             return false;
         }
-        let (edge_idx, _, internal_node) = stack[stack.len() - 1].clone();
-        let right_sibling_option = internal_node.find_child_right_sibling(edge_idx);
-        let left_sibling_option = internal_node.find_child_left_sibling(edge_idx);
+        let (edge_idx, _, parent_node) = stack[stack.len() - 1].clone();
+        let right_sibling_option = parent_node.find_child_right_sibling(edge_idx);
+        let left_sibling_option = parent_node.find_child_left_sibling(edge_idx);
         if !self.is_underflow() {
             self.update_ancestors_after_delete(&key_to_delete, &stack, &right_sibling_option);
             return false;
@@ -789,13 +788,13 @@ impl<K: NodeKey> LeafNode<K> {
         if !is_stolen {
             if let Some(right_sibling) = right_sibling_option {
                 is_stolen =
-                    self.steal_from_right_leaf_sibling(&key_to_delete, right_sibling, &stack);
+                    self.steal_from_right_leaf_sibling(&key_to_delete, right_sibling, stack);
             }
         }
 
         // Can't borrow from either siblings. In this case we merge
         if !is_stolen {
-            self.merge_node(parent_node.clone(), edge_idx);
+            self.merge_node(parent_node, edge_idx);
             return true;
         }
         return false;
@@ -816,7 +815,9 @@ pub struct Range<K: NodeKey> {
 impl<K: NodeKey> BTree<K> {
     pub fn new(capacity: u16) -> Self {
         BTree {
-            root: RefCell::new(Some(Rc::new(Node::Leaf(LeafNode::new(capacity))))),
+            root: RefCell::new(Some(Arc::new(RwLock::new(Node::Leaf(LeafNode::new(
+                capacity,
+            )))))),
             order: capacity,
         }
     }
