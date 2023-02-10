@@ -306,13 +306,12 @@ impl<K: NodeKey> InternalNode<K> {
     pub fn steal_from_left_sibling(
         &self,
         left_sibling: &InternalNode<K>,
-        parent_rc: Rc<Node<K>>,
+        parent_node: &InternalNode<K>,
         edge_idx: usize,
     ) -> bool {
         if !left_sibling.has_spare_key() {
             return false;
         }
-        let parent_node = parent_rc.as_internal_node();
         // this will be the new split key for the current node
         let parent_split_key = parent_node.keys.borrow()[edge_idx - 1].clone();
         let left_size = left_sibling.edges.borrow().len();
@@ -372,6 +371,10 @@ impl<K: NodeKey> InternalNode<K> {
         self.edges.borrow()[edge_idx + 1].borrow().clone()
     }
 
+    pub fn update_key_at_index(&self, idx: usize, new_key: K) {
+        self.keys.borrow_mut()[idx] = new_key;
+    }
+
     /**
      * We first try to merge with left sibling if there is one.
      * Otherwise we try to merge with the right node.
@@ -384,8 +387,9 @@ impl<K: NodeKey> InternalNode<K> {
     pub fn merge_with_sibling(&self, parent_rc: Rc<Node<K>>, edge_idx: usize) {
         let parent_node = parent_rc.as_internal_node();
         let left_sibling = parent_node.find_child_left_sibling(edge_idx);
-        if let Some(ref left_rc) = left_sibling {
-            let left_node = left_rc.as_internal_node();
+        if let Some(ref left_latch_node) = left_sibling {
+            let left_guard = left_latch_node.as_ref().write().unwrap();
+            let left_node = left_guard.as_internal_node();
             let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx - 1);
             let mut left_keys = left_node.keys.borrow_mut();
             left_keys.push(parent_split_key);
@@ -399,8 +403,9 @@ impl<K: NodeKey> InternalNode<K> {
             parent_node.edges.borrow_mut().remove(edge_idx);
         } else {
             let right_sibling = parent_node.find_child_right_sibling(edge_idx);
-            if let Some(right_rc) = right_sibling {
-                let right_node = right_rc.as_internal_node();
+            if let Some(right_latch_node) = right_sibling {
+                let right_guard = right_latch_node.as_ref().write().unwrap();
+                let right_node = right_guard.as_internal_node();
                 // we merge right node into the current node
                 let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx);
                 let mut current_keys = self.keys.borrow_mut();
@@ -420,17 +425,14 @@ impl<K: NodeKey> InternalNode<K> {
         self.keys.borrow().contains(key)
     }
 
-    pub fn deal_with_underflow(&self, parent_rc: Rc<Node<K>>, edge_idx: usize) {
+    pub fn deal_with_underflow(&self, parent_node: &InternalNode<K>, edge_idx: usize) {
         if self.is_underflow() {
-            let parent_node = parent_rc.as_internal_node();
             let left_sibling = parent_node.find_child_left_sibling(edge_idx);
             let mut is_stolen = false;
-            if let Some(ref left_rc) = left_sibling {
-                is_stolen = self.steal_from_left_sibling(
-                    left_rc.as_internal_node(),
-                    parent_rc.clone(),
-                    edge_idx,
-                );
+            if let Some(ref left_latch_node) = left_sibling {
+                let write_guard = left_latch_node.as_ref().write().unwrap();
+                let left_node = write_guard.as_internal_node();
+                is_stolen = self.steal_from_left_sibling(left_node, parent_node, edge_idx);
             }
             if !is_stolen {
                 let right_sibling = parent_node.find_child_right_sibling(edge_idx);
@@ -624,7 +626,7 @@ impl<K: NodeKey> LeafNode<K> {
         &self,
         key_to_delete: &K,
         left_sibling: Rc<Node<K>>,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
+        stack: &Vec<(usize, Direction, &InternalNode<K>)>,
     ) -> bool {
         if left_sibling.has_spare_key() {
             let left_leaf_sibling = left_sibling.as_ref().as_leaf_node();
@@ -635,9 +637,7 @@ impl<K: NodeKey> LeafNode<K> {
             let (idx, direction, parent_node) = stack[stack.len() - 1].clone();
             // Update parent's split key. Since we are stealing from left sibling,
             // the new split_key will be the stolen key
-            parent_node
-                .as_ref()
-                .update_key_at_index(idx - 1, stolen_key);
+            parent_node.update_key_at_index(idx - 1, stolen_key);
             return true;
         }
         false
@@ -705,18 +705,17 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn update_ancestors_after_delete(
         &self,
         key_to_delete: &K,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
-        right_sibling_option: &Option<Rc<Node<K>>>,
+        stack: &Vec<(usize, Direction, &InternalNode<K>)>,
+        right_sibling_option: &Option<LatchNode<K>>,
     ) -> () {
         let right_sibling = self.right_ptr.borrow();
         let next_largest_key = self.find_next_largest_key(key_to_delete, right_sibling_option);
         // if the leaf to delete is in the right subtree and the
         // current node is equal to the key to delete, then we update to the next biggest node
-        for (iter_idx, (idx, direction, node)) in stack.iter().enumerate() {
+        for (iter_idx, (idx, direction, internal_node)) in stack.iter().enumerate() {
             match direction {
                 Direction::Left => {}
                 Direction::Right => {
-                    let internal_node = node.as_internal_node();
                     let key_idx = *idx - 1;
                     let mut keys = internal_node.keys.borrow_mut();
                     if &keys[key_idx] == key_to_delete {
@@ -731,7 +730,7 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn find_next_largest_key(
         &self,
         key_to_delete: &K,
-        right_sibling_option: &Option<Rc<Node<K>>>,
+        right_sibling_option: &Option<LatchNode<K>>,
     ) -> K {
         let idx = self.find_next_larger_key(key_to_delete);
 
@@ -762,7 +761,7 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn delete_key(
         &self,
         key_to_delete: &K,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
+        stack: &Vec<(usize, Direction, &InternalNode<K>)>,
     ) -> bool {
         let is_deleted = self.remove_key(key_to_delete.clone());
 
@@ -774,8 +773,7 @@ impl<K: NodeKey> LeafNode<K> {
         if stack.len() == 0 {
             return false;
         }
-        let (edge_idx, _, parent_node) = stack[stack.len() - 1].clone();
-        let internal_node = parent_node.as_internal_node();
+        let (edge_idx, _, internal_node) = stack[stack.len() - 1].clone();
         let right_sibling_option = internal_node.find_child_right_sibling(edge_idx);
         let left_sibling_option = internal_node.find_child_left_sibling(edge_idx);
         if !self.is_underflow() {
@@ -831,7 +829,10 @@ impl<K: NodeKey> BTree<K> {
     pub fn find_leaf_to_delete(
         &self,
         key_to_delete: &K,
-    ) -> (Option<LatchNode<K>>, Vec<(usize, Direction, LatchNode<K>)>) {
+    ) -> (
+        Option<LatchNode<K>>,
+        Vec<(usize, Direction, &InternalNode<K>)>,
+    ) {
         let mut temp_node = self.root.borrow().clone();
 
         let mut next = None;
@@ -845,13 +846,13 @@ impl<K: NodeKey> BTree<K> {
                     Node::Internal(internal_node) => {
                         for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
                             if key_to_delete < k {
-                                stack.push((idx, Direction::Left, node.clone()));
+                                stack.push((idx, Direction::Left, internal_node));
                                 next = internal_node.edges.borrow()[idx].borrow().clone();
                                 break;
                             }
 
                             if idx == internal_node.keys.borrow().len() - 1 {
-                                stack.push((idx + 1, Direction::Right, node.clone()));
+                                stack.push((idx + 1, Direction::Right, internal_node));
                                 next = internal_node.edges.borrow()[idx + 1].borrow().clone();
                                 break;
                             }
@@ -1107,9 +1108,8 @@ impl<K: NodeKey> BTree<K> {
                     if i < 1 {
                         break;
                     }
-                    let (_, _, node) = &stack[i];
+                    let (_, _, internal_node) = &stack[i];
                     let (edge_idx, _, parent_node) = &stack[i - 1];
-                    let internal_node = node.as_internal_node();
                     internal_node.deal_with_underflow(parent_node.clone(), *edge_idx);
                     println!("dealing with underflow!!");
 
