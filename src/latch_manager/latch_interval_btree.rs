@@ -1,7 +1,9 @@
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::RefCell,
+    mem,
     rc::{Rc, Weak},
+    sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use self::Test::{print_node, print_tree};
@@ -12,9 +14,10 @@ pub trait NodeKey: std::fmt::Debug + Clone + Eq + PartialOrd + Ord {}
 
 impl NodeKey for i32 {}
 
-type NodeLink<K: NodeKey> = RefCell<Option<Rc<Node<K>>>>;
+type LatchNode<K: NodeKey> = Arc<RwLock<Node<K>>>;
+type NodeLink<K: NodeKey> = RefCell<Option<LatchNode<K>>>;
 // RefCell<Option<Rc<RBTNode<T>>>>
-type WeakNodeLink<K: NodeKey> = RefCell<Option<Weak<Node<K>>>>;
+type WeakNodeLink<K: NodeKey> = RefCell<Option<Weak<RwLock<Node<K>>>>>;
 // RefCell<Option<Weak<RBTNode<T>>>>,
 
 #[derive(Debug, Clone)]
@@ -29,7 +32,42 @@ pub enum Direction {
     Right,
 }
 
+#[derive(Debug, Clone)]
+pub enum LatchIntent {
+    DELETE,
+    INSERT,
+    SEARCH,
+}
+
 impl<K: NodeKey> Node<K> {
+    pub fn acquire_read_lock(&self) -> RwLockReadGuard<()> {
+        match self {
+            Node::Internal(internal_node) => internal_node.acquire_read_lock(),
+            Node::Leaf(leaf_node) => leaf_node.acquire_read_lock(),
+        }
+    }
+
+    pub fn acquire_write_lock(&self) -> RwLockWriteGuard<()> {
+        match self {
+            Node::Internal(internal_node) => internal_node.acquire_write_lock(),
+            Node::Leaf(leaf_node) => leaf_node.acquire_write_lock(),
+        }
+    }
+
+    /**
+     * A thread can release latch on a parent node if its child node
+     * considered safe. It is safe when:
+     * - the node won't split or merge when updated
+     * - not full (on insertion)
+     * - more than half full (on deletion)
+     */
+    pub fn is_safe_to_release_parent_latch(&self, intent: LatchIntent) -> bool {
+        match self {
+            Node::Internal(internal_node) => internal_node.is_safe_to_release_parent_latch(intent),
+            Node::Leaf(leaf_node) => leaf_node.is_safe_to_release_parent_latch(intent),
+        }
+    }
+
     pub fn as_internal_node(&self) -> &InternalNode<K> {
         match self {
             Node::Internal(ref node) => node,
@@ -136,6 +174,7 @@ pub struct InternalNode<K: NodeKey> {
     // than the key
     edges: RefCell<Vec<NodeLink<K>>>,
     order: u16,
+    rw_lock: Rc<RwLock<()>>,
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +184,7 @@ pub struct LeafNode<K: NodeKey> {
     left_ptr: WeakNodeLink<K>,
     right_ptr: WeakNodeLink<K>,
     order: u16,
+    rw_lock: Rc<RwLock<()>>,
 }
 
 // impl internal
@@ -154,6 +194,32 @@ impl<K: NodeKey> InternalNode<K> {
             keys: RefCell::new(Vec::new()),
             edges: RefCell::new(Vec::new()),
             order: capacity,
+            rw_lock: Rc::new(RwLock::new(())),
+        }
+    }
+
+    pub fn acquire_read_lock(&self) -> RwLockReadGuard<()> {
+        let lock = self.rw_lock.as_ref();
+        lock.read().unwrap()
+    }
+
+    pub fn acquire_write_lock(&self) -> RwLockWriteGuard<()> {
+        let lock = self.rw_lock.as_ref();
+        lock.write().unwrap()
+    }
+
+    /**
+     * A thread can release latch on a parent node if its child node
+     * considered safe. It is safe when:
+     * - the node won't split or merge when updated
+     * - not full (on insertion)
+     * - more than half full (on deletion)
+     */
+    pub fn is_safe_to_release_parent_latch(&self, intent: LatchIntent) -> bool {
+        match intent {
+            LatchIntent::DELETE => self.has_spare_key(),
+            LatchIntent::INSERT => self.keys.borrow().len() + 1 < usize::from(self.order),
+            LatchIntent::SEARCH => true,
         }
     }
 
@@ -167,7 +233,7 @@ impl<K: NodeKey> InternalNode<K> {
     // If the insert index of key K is n, then the corresponding
     // position for the node is n - 1. Note that n will never be 0
     // because insert_node gets called after a split
-    pub fn insert_node(&self, node: Rc<Node<K>>, insert_key: K) -> () {
+    pub fn insert_node(&self, node: LatchNode<K>, insert_key: K) -> () {
         // if key is greater than all elements, then the index is length of the keys (push)
         let mut insert_idx = self.keys.borrow().len();
         for (pos, k) in self.keys.borrow().iter().enumerate() {
@@ -240,13 +306,12 @@ impl<K: NodeKey> InternalNode<K> {
     pub fn steal_from_left_sibling(
         &self,
         left_sibling: &InternalNode<K>,
-        parent_rc: Rc<Node<K>>,
+        parent_node: &InternalNode<K>,
         edge_idx: usize,
     ) -> bool {
         if !left_sibling.has_spare_key() {
             return false;
         }
-        let parent_node = parent_rc.as_internal_node();
         // this will be the new split key for the current node
         let parent_split_key = parent_node.keys.borrow()[edge_idx - 1].clone();
         let left_size = left_sibling.edges.borrow().len();
@@ -289,7 +354,7 @@ impl<K: NodeKey> InternalNode<K> {
     /**
      * Find the left sibling provided the index of the corresponding edge in the parent's node
      */
-    pub fn find_child_left_sibling(&self, edge_idx: usize) -> Option<Rc<Node<K>>> {
+    pub fn find_child_left_sibling(&self, edge_idx: usize) -> Option<LatchNode<K>> {
         if edge_idx == 0 {
             return None;
         }
@@ -299,11 +364,15 @@ impl<K: NodeKey> InternalNode<K> {
     /**
      * Find the right sibling provided the index of the corresponding edge in the parent's node
      */
-    pub fn find_child_right_sibling(&self, edge_idx: usize) -> Option<Rc<Node<K>>> {
+    pub fn find_child_right_sibling(&self, edge_idx: usize) -> Option<LatchNode<K>> {
         if edge_idx == self.edges.borrow().len() - 1 {
             return None;
         }
         self.edges.borrow()[edge_idx + 1].borrow().clone()
+    }
+
+    pub fn update_key_at_index(&self, idx: usize, new_key: K) {
+        self.keys.borrow_mut()[idx] = new_key;
     }
 
     /**
@@ -318,8 +387,9 @@ impl<K: NodeKey> InternalNode<K> {
     pub fn merge_with_sibling(&self, parent_rc: Rc<Node<K>>, edge_idx: usize) {
         let parent_node = parent_rc.as_internal_node();
         let left_sibling = parent_node.find_child_left_sibling(edge_idx);
-        if let Some(ref left_rc) = left_sibling {
-            let left_node = left_rc.as_internal_node();
+        if let Some(ref left_latch_node) = left_sibling {
+            let left_guard = left_latch_node.as_ref().write().unwrap();
+            let left_node = left_guard.as_internal_node();
             let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx - 1);
             let mut left_keys = left_node.keys.borrow_mut();
             left_keys.push(parent_split_key);
@@ -333,8 +403,9 @@ impl<K: NodeKey> InternalNode<K> {
             parent_node.edges.borrow_mut().remove(edge_idx);
         } else {
             let right_sibling = parent_node.find_child_right_sibling(edge_idx);
-            if let Some(right_rc) = right_sibling {
-                let right_node = right_rc.as_internal_node();
+            if let Some(right_latch_node) = right_sibling {
+                let right_guard = right_latch_node.as_ref().write().unwrap();
+                let right_node = right_guard.as_internal_node();
                 // we merge right node into the current node
                 let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx);
                 let mut current_keys = self.keys.borrow_mut();
@@ -354,17 +425,14 @@ impl<K: NodeKey> InternalNode<K> {
         self.keys.borrow().contains(key)
     }
 
-    pub fn deal_with_underflow(&self, parent_rc: Rc<Node<K>>, edge_idx: usize) {
+    pub fn deal_with_underflow(&self, parent_node: &InternalNode<K>, edge_idx: usize) {
         if self.is_underflow() {
-            let parent_node = parent_rc.as_internal_node();
             let left_sibling = parent_node.find_child_left_sibling(edge_idx);
             let mut is_stolen = false;
-            if let Some(ref left_rc) = left_sibling {
-                is_stolen = self.steal_from_left_sibling(
-                    left_rc.as_internal_node(),
-                    parent_rc.clone(),
-                    edge_idx,
-                );
+            if let Some(ref left_latch_node) = left_sibling {
+                let write_guard = left_latch_node.as_ref().write().unwrap();
+                let left_node = write_guard.as_internal_node();
+                is_stolen = self.steal_from_left_sibling(left_node, parent_node, edge_idx);
             }
             if !is_stolen {
                 let right_sibling = parent_node.find_child_right_sibling(edge_idx);
@@ -392,6 +460,32 @@ impl<K: NodeKey> LeafNode<K> {
             left_ptr: RefCell::new(None),
             right_ptr: RefCell::new(None),
             order: capacity,
+            rw_lock: Rc::new(RwLock::new(())),
+        }
+    }
+
+    pub fn acquire_read_lock(&self) -> RwLockReadGuard<()> {
+        let lock = self.rw_lock.as_ref();
+        lock.read().unwrap()
+    }
+
+    pub fn acquire_write_lock(&self) -> RwLockWriteGuard<()> {
+        let lock = self.rw_lock.as_ref();
+        lock.write().unwrap()
+    }
+
+    /**
+     * A thread can release latch on a parent node if its child node
+     * considered safe. It is safe when:
+     * - the node won't split or merge when updated
+     * - not full (on insertion)
+     * - more than half full (on deletion)
+     */
+    pub fn is_safe_to_release_parent_latch(&self, intent: LatchIntent) -> bool {
+        match intent {
+            LatchIntent::DELETE => self.has_spare_key(),
+            LatchIntent::INSERT => self.start_keys.borrow().len() + 1 < usize::from(self.order),
+            LatchIntent::SEARCH => true,
         }
     }
 
@@ -532,7 +626,7 @@ impl<K: NodeKey> LeafNode<K> {
         &self,
         key_to_delete: &K,
         left_sibling: Rc<Node<K>>,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
+        stack: &Vec<(usize, Direction, &InternalNode<K>)>,
     ) -> bool {
         if left_sibling.has_spare_key() {
             let left_leaf_sibling = left_sibling.as_ref().as_leaf_node();
@@ -543,9 +637,7 @@ impl<K: NodeKey> LeafNode<K> {
             let (idx, direction, parent_node) = stack[stack.len() - 1].clone();
             // Update parent's split key. Since we are stealing from left sibling,
             // the new split_key will be the stolen key
-            parent_node
-                .as_ref()
-                .update_key_at_index(idx - 1, stolen_key);
+            parent_node.update_key_at_index(idx - 1, stolen_key);
             return true;
         }
         false
@@ -613,18 +705,17 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn update_ancestors_after_delete(
         &self,
         key_to_delete: &K,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
-        right_sibling_option: &Option<Rc<Node<K>>>,
+        stack: &Vec<(usize, Direction, &InternalNode<K>)>,
+        right_sibling_option: &Option<LatchNode<K>>,
     ) -> () {
         let right_sibling = self.right_ptr.borrow();
         let next_largest_key = self.find_next_largest_key(key_to_delete, right_sibling_option);
         // if the leaf to delete is in the right subtree and the
         // current node is equal to the key to delete, then we update to the next biggest node
-        for (iter_idx, (idx, direction, node)) in stack.iter().enumerate() {
+        for (iter_idx, (idx, direction, internal_node)) in stack.iter().enumerate() {
             match direction {
                 Direction::Left => {}
                 Direction::Right => {
-                    let internal_node = node.as_internal_node();
                     let key_idx = *idx - 1;
                     let mut keys = internal_node.keys.borrow_mut();
                     if &keys[key_idx] == key_to_delete {
@@ -639,7 +730,7 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn find_next_largest_key(
         &self,
         key_to_delete: &K,
-        right_sibling_option: &Option<Rc<Node<K>>>,
+        right_sibling_option: &Option<LatchNode<K>>,
     ) -> K {
         let idx = self.find_next_larger_key(key_to_delete);
 
@@ -670,7 +761,7 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn delete_key(
         &self,
         key_to_delete: &K,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
+        stack: &Vec<(usize, Direction, &InternalNode<K>)>,
     ) -> bool {
         let is_deleted = self.remove_key(key_to_delete.clone());
 
@@ -682,8 +773,7 @@ impl<K: NodeKey> LeafNode<K> {
         if stack.len() == 0 {
             return false;
         }
-        let (edge_idx, _, parent_node) = stack[stack.len() - 1].clone();
-        let internal_node = parent_node.as_internal_node();
+        let (edge_idx, _, internal_node) = stack[stack.len() - 1].clone();
         let right_sibling_option = internal_node.find_child_right_sibling(edge_idx);
         let left_sibling_option = internal_node.find_child_left_sibling(edge_idx);
         if !self.is_underflow() {
@@ -739,37 +829,41 @@ impl<K: NodeKey> BTree<K> {
     pub fn find_leaf_to_delete(
         &self,
         key_to_delete: &K,
-    ) -> (Option<Rc<Node<K>>>, Vec<(usize, Direction, Rc<Node<K>>)>) {
+    ) -> (
+        Option<LatchNode<K>>,
+        Vec<(usize, Direction, &InternalNode<K>)>,
+    ) {
         let mut temp_node = self.root.borrow().clone();
 
         let mut next = None;
         let mut stack = Vec::new();
         loop {
-            match temp_node {
-                Some(ref node) => match node.as_ref() {
+            if let Some(node) = temp_node {
+                let lock = node.as_ref();
+                let guard = lock.write().unwrap();
+
+                match &*guard {
                     Node::Internal(internal_node) => {
                         for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
                             if key_to_delete < k {
-                                stack.push((idx, Direction::Left, node.clone()));
+                                stack.push((idx, Direction::Left, internal_node));
                                 next = internal_node.edges.borrow()[idx].borrow().clone();
                                 break;
                             }
 
                             if idx == internal_node.keys.borrow().len() - 1 {
-                                stack.push((idx + 1, Direction::Right, node.clone()));
+                                stack.push((idx + 1, Direction::Right, internal_node));
                                 next = internal_node.edges.borrow()[idx + 1].borrow().clone();
                                 break;
                             }
                         }
                     }
-
                     Node::Leaf(_) => break,
-                },
-                None => panic!("should not be undefined"),
-            }
-            match next {
-                Some(ref v) => temp_node = next.clone(),
-                None => panic!("next is not provided"),
+                };
+                match next {
+                    Some(ref v) => temp_node = next.clone(),
+                    None => panic!("next is not provided"),
+                }
             }
         }
 
@@ -814,19 +908,38 @@ impl<K: NodeKey> BTree<K> {
         (None, stack)
     }
 
-    // determines which leaf node a new key should go into
-    // we assume there will at least always be one root.
+    // Determines which leaf node a new key should go into we assume there will at least always be one root.
+    // As it traverses down the nodes, acquire write locks. But if it's safe to release parent lock, it will.
     // Returns the leaf node to add and the stack of parent nodes
-    pub fn find_leaf_to_add(&self, key_to_add: &K) -> (Option<Rc<Node<K>>>, Vec<Rc<Node<K>>>) {
+    pub fn find_leaf_to_add<'a>(
+        &self,
+        key_to_add: &K,
+    ) -> (
+        Option<Rc<Node<K>>>,
+        Vec<(Rc<Node<K>>, Option<RwLockWriteGuard<()>>)>,
+    ) {
         let mut temp_node = self.root.borrow().clone();
 
         let mut next = None;
-        let mut stack = Vec::new();
+        let mut stack: Vec<(Rc<Node<K>>, Option<RwLockWriteGuard<()>>)> = Vec::new();
         loop {
-            match temp_node {
-                Some(ref node) => match node.as_ref() {
+            match &temp_node {
+                Some(ref node_rc) => match node_rc.as_ref() {
                     Node::Internal(internal_node) => {
-                        stack.push(node.clone());
+                        let acquired_lock = internal_node.acquire_write_lock();
+                        if internal_node.is_safe_to_release_parent_latch(LatchIntent::INSERT) {
+                            let len = stack.len();
+                            if len > 0 {
+                                let idx = len - 1;
+                                let parent_lock = mem::replace(&mut stack[idx].1, None);
+                                if let Some(write_lock) = parent_lock {
+                                    drop(write_lock)
+                                }
+                            }
+                        }
+                        stack.push((node_rc.clone(), Some(acquired_lock)));
+                        // stack.push((node_rc.clone(), None));
+
                         for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
                             if key_to_add < k {
                                 next = internal_node.edges.borrow()[idx].borrow().clone();
@@ -838,16 +951,15 @@ impl<K: NodeKey> BTree<K> {
                             }
                         }
                     }
-
                     Node::Leaf(_) => break,
                 },
                 None => panic!("should not be undefined"),
-            }
+            };
 
             match next {
                 Some(_) => temp_node = next.clone(),
                 None => panic!("next is not provided"),
-            }
+            };
         }
 
         (temp_node, stack)
@@ -878,7 +990,7 @@ impl<K: NodeKey> BTree<K> {
                     loop {
                         if parent_stack.len() - offset > 0 {
                             let idx = parent_stack.len() - 1 - offset;
-                            current_node = parent_stack[idx].clone();
+                            current_node = parent_stack[idx].0.clone();
                             // this is the node we want to insert the
                             let curr_parent = current_node.as_ref().as_internal_node();
                             curr_parent.insert_node(split_node.clone(), median.clone());
@@ -898,6 +1010,7 @@ impl<K: NodeKey> BTree<K> {
                                         RefCell::new(Some(split_node.clone())),
                                     ])),
                                     order: self.order,
+                                    rw_lock: Rc::new(RwLock::new(())),
                                 })));
                             break;
                         }
@@ -935,6 +1048,7 @@ impl<K: NodeKey> BTree<K> {
                     keys: RefCell::new(right_keys),
                     edges: RefCell::new(right_edges),
                     order: internal_node.order,
+                    rw_lock: Rc::new(RwLock::new(())),
                 };
                 (Rc::new(Node::Internal(new_right_node)), right_start)
             }
@@ -952,6 +1066,7 @@ impl<K: NodeKey> BTree<K> {
                     left_ptr: RefCell::new(Some(Rc::downgrade(&node))), // TODO: set the left_sibling to the current leaf node later
                     right_ptr: RefCell::new(right_sibling),
                     order: leaf_node.order,
+                    rw_lock: Rc::new(RwLock::new(())),
                 };
                 let right_rc = Rc::new(Node::Leaf(new_right_node));
                 leaf_node
@@ -982,7 +1097,9 @@ impl<K: NodeKey> BTree<K> {
     pub fn delete(&self, key_to_delete: K) -> () {
         let (node_to_delete, stack) = self.find_leaf_to_delete(&key_to_delete);
         if let Some(ref node_ref) = node_to_delete {
-            let leaf_node = node_ref.as_ref().as_leaf_node();
+            let leaf_guard = node_ref.as_ref().write().unwrap();
+
+            let leaf_node = leaf_guard.as_leaf_node();
             let did_leaf_merge = leaf_node.delete_key(&key_to_delete, &stack);
 
             if did_leaf_merge {
@@ -991,9 +1108,8 @@ impl<K: NodeKey> BTree<K> {
                     if i < 1 {
                         break;
                     }
-                    let (_, _, node) = &stack[i];
+                    let (_, _, internal_node) = &stack[i];
                     let (edge_idx, _, parent_node) = &stack[i - 1];
-                    let internal_node = node.as_internal_node();
                     internal_node.deal_with_underflow(parent_node.clone(), *edge_idx);
                     println!("dealing with underflow!!");
 
@@ -1013,7 +1129,7 @@ impl<K: NodeKey> BTree<K> {
 }
 
 mod Test {
-    use std::{borrow::Borrow, cell::RefCell, process::Child, rc::Rc};
+    use std::{borrow::Borrow, cell::RefCell, process::Child, rc::Rc, sync::RwLock};
 
     use super::{BTree, InternalNode, LeafNode, Node, NodeKey, NodeLink, WeakNodeLink};
 
@@ -1132,6 +1248,7 @@ mod Test {
                     keys: RefCell::new(internal_node.keys.clone()),
                     edges: RefCell::new(edges),
                     order,
+                    rw_lock: Rc::new(RwLock::new(())),
                 };
                 (Rc::new(Node::Internal(ret_node)), leaves)
             }
@@ -1142,6 +1259,7 @@ mod Test {
                     left_ptr: RefCell::new(None),
                     right_ptr: RefCell::new(None),
                     order: order,
+                    rw_lock: Rc::new(RwLock::new(())),
                 });
                 let leaf_rc = Rc::new(leaf);
                 (leaf_rc.clone(), Vec::from([leaf_rc.clone()]))
@@ -1463,7 +1581,7 @@ mod Test {
 
             let (leaf1, stack) = tree.find_leaf_to_add(&0);
             assert_eq!(stack.len(), 1);
-            assert_internal(stack[0].clone(), Vec::from([12, 15, 19]));
+            assert_internal(stack[0].0.clone(), Vec::from([12, 15, 19]));
 
             assert_leaf(leaf1.unwrap(), &Vec::from([11]));
 
@@ -1478,13 +1596,13 @@ mod Test {
     }
 
     mod split {
-        use std::{borrow::Borrow, cell::RefCell, rc::Rc};
+        use std::{borrow::Borrow, cell::RefCell, rc::Rc, sync::RwLock};
 
         use crate::latch_manager::latch_interval_btree::{
             BTree, LeafNode, Node,
             Test::{
-                assert_leaf_with_siblings, assert_node, get_all_leaf_nodes, get_all_leaves,
-                get_start_keys_from_weak_link, print_node,
+                assert_leaf_with_siblings, assert_node, assert_tree, get_all_leaf_nodes,
+                get_all_leaves, get_start_keys_from_weak_link, print_node,
             },
         };
 
@@ -1551,6 +1669,7 @@ mod Test {
                 left_ptr: RefCell::new(None),
                 right_ptr: RefCell::new(None),
                 order: 4,
+                rw_lock: Rc::new(RwLock::new(())),
             };
 
             let leaf_rc = Rc::new(Node::Leaf(leaf));
@@ -1560,6 +1679,7 @@ mod Test {
                 left_ptr: RefCell::new(Some(Rc::downgrade(&leaf_rc))),
                 right_ptr: RefCell::new(None),
                 order: 4,
+                rw_lock: Rc::new(RwLock::new(())),
             };
             let right_sibling_rc = Rc::new(Node::Leaf(right_sibling));
             match leaf_rc.as_ref() {
@@ -1731,7 +1851,7 @@ mod Test {
     }
 
     mod leaf_underflow {
-        use std::cell::RefCell;
+        use std::{cell::RefCell, rc::Rc, sync::RwLock};
 
         use crate::latch_manager::latch_interval_btree::LeafNode;
 
@@ -1743,6 +1863,7 @@ mod Test {
                 left_ptr: RefCell::new(None),
                 right_ptr: RefCell::new(None),
                 order: 4,
+                rw_lock: Rc::new(RwLock::new(())),
             };
             assert!(leaf.is_underflow());
         }
@@ -2068,7 +2189,7 @@ mod Test {
             };
 
             mod has_spare_keys {
-                use std::cell::RefCell;
+                use std::{cell::RefCell, rc::Rc, sync::RwLock};
 
                 use crate::latch_manager::latch_interval_btree::{
                     LeafNode,
@@ -2088,6 +2209,7 @@ mod Test {
                         left_ptr: RefCell::new(None),
                         right_ptr: RefCell::new(None),
                         order: 3,
+                        rw_lock: Rc::new(RwLock::new(())),
                     };
                     assert_eq!(leaf_node.has_spare_key(), true);
                 }
@@ -2100,6 +2222,7 @@ mod Test {
                         left_ptr: RefCell::new(None),
                         right_ptr: RefCell::new(None),
                         order: 3,
+                        rw_lock: Rc::new(RwLock::new(())),
                     };
                     assert_eq!(leaf_node.has_spare_key(), false);
                 }
@@ -2654,8 +2777,13 @@ mod Test {
 
     #[test]
     fn experiment() {
-        for idx in 0..5 {
-            println!("{}", idx);
-        }
+        let my_rwlock = RwLock::new(5);
+
+        let read1 = my_rwlock.read().unwrap(); // one .read() is fine
+        let read2 = my_rwlock.read().unwrap(); // two .read()s is also fine
+
+        println!("{:?}, {:?}", read1, read2);
+        drop(read1);
+        drop(read2);
     }
 }
