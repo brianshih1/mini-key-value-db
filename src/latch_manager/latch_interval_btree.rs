@@ -890,51 +890,53 @@ impl<K: NodeKey> BTree<K> {
         key_to_add: &K,
     ) -> (
         Option<LatchNode<K>>,
-        Vec<(Option<usize>, Option<RwLockWriteGuard<Node<K>>>)>,
+        Vec<(Option<usize>, Option<&RwLockWriteGuard<Node<K>>>)>,
     ) {
         let mut temp_node = self.root.borrow().clone();
 
         let mut next = None;
         let mut last_idx = None;
+        let mut last_guard = None;
 
-        let mut stack: Vec<(Option<usize>, Option<RwLockWriteGuard<Node<K>>>)> = Vec::new();
+        let mut stack: Vec<(Option<usize>, Option<&RwLockWriteGuard<Node<K>>>)> = Vec::new();
         loop {
-            match &temp_node {
-                Some(ref latch_node) => {
-                    let write_guard = latch_node.write().unwrap();
-                    match *write_guard {
-                        Node::Internal(internal_node) => {
-                            // if internal_node.is_safe_to_release_parent_latch(LatchIntent::INSERT) {
-                            //     let len = stack.len();
-                            //     if len > 0 {
-                            //         let idx = len - 1;
-                            //         let parent_lock = mem::replace(&mut stack[idx].1, None);
-                            //         if let Some(write_lock) = parent_lock {
-                            //             drop(write_lock)
-                            //         }
-                            //     }
-                            // }
-                            stack.push((last_idx, Some(write_guard)));
-                            // stack.push((node_rc.clone(), None));
+            if let Some(ref latch_node) = temp_node {
+                let write_guard = latch_node.write().unwrap();
+                match &*write_guard {
+                    Node::Internal(internal_node) => {
+                        // if internal_node.is_safe_to_release_parent_latch(LatchIntent::INSERT) {
+                        //     let len = stack.len();
+                        //     if len > 0 {
+                        //         let idx = len - 1;
+                        //         let parent_lock = mem::replace(&mut stack[idx].1, None);
+                        //         if let Some(write_lock) = parent_lock {
+                        //             drop(write_lock)
+                        //         }
+                        //     }
+                        // }
+                        // stack.push((node_rc.clone(), None));
 
-                            for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
-                                if key_to_add < k {
-                                    next = internal_node.edges.borrow()[idx].borrow().clone();
-                                    last_idx = Some(idx);
-                                    break;
-                                }
+                        for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
+                            if key_to_add < k {
+                                next = internal_node.edges.borrow()[idx].borrow().clone();
+                                last_idx = Some(idx);
+                                break;
+                            }
 
-                                if idx == internal_node.keys.borrow().len() - 1 {
-                                    next = internal_node.edges.borrow()[idx + 1].borrow().clone();
-                                    last_idx = Some(idx + 1);
-                                }
+                            if idx == internal_node.keys.borrow().len() - 1 {
+                                next = internal_node.edges.borrow()[idx + 1].borrow().clone();
+                                last_idx = Some(idx + 1);
                             }
                         }
-                        Node::Leaf(_) => break,
                     }
+                    Node::Leaf(_) => break,
                 }
-                None => panic!("should not be undefined"),
-            };
+                last_guard = Some(&write_guard);
+            } else {
+                panic!("")
+            }
+
+            stack.push((last_idx, last_guard));
 
             match next {
                 Some(_) => temp_node = next.clone(),
