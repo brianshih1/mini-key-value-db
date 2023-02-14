@@ -381,6 +381,32 @@ impl<K: NodeKey> InternalNode<K> {
             }
         }
     }
+
+    pub fn split(&self) -> (Rc<Node<K>>, K) {
+        //
+        // Suppose we have an internal node:
+        // a 0 b 5 c 10 d
+        // where numbers represents nodes and letters represent edges.
+        // After splitting, we get:
+        // left: a 0 b
+        // right: e 5 c 10 d
+        // The reason for this is that 5 will be pushed up and since
+        // node corresponding to b must be less than 5 it must be
+        // to the left of the mid key that gets pushed up
+        //
+        let mid_idx = self.keys.borrow().len() / 2;
+        let mut right_keys = self.keys.borrow_mut().split_off(mid_idx);
+        let mut right_edges = self.edges.borrow_mut().split_off(mid_idx + 1);
+        right_edges.insert(0, RefCell::new(None));
+        let right_start = right_keys.remove(0);
+        right_edges.remove(0);
+        let new_right_node = InternalNode {
+            keys: RefCell::new(right_keys),
+            edges: RefCell::new(right_edges),
+            order: self.order,
+        };
+        (Rc::new(Node::Internal(new_right_node)), right_start)
+    }
 }
 
 // impl leaf
@@ -710,6 +736,32 @@ impl<K: NodeKey> LeafNode<K> {
         }
         return false;
     }
+
+    /**
+     * Allocate a new leaf node and move half keys to the new node.
+     * Returns the new node and the smallest key in the new node.
+     */
+    pub fn split(&self, node: &Rc<Node<K>>) -> (Rc<Node<K>>, K) {
+        let mid = self.start_keys.borrow().len() / 2;
+        let right_start_keys = self.start_keys.borrow_mut().split_off(mid);
+
+        let right_end_keys = self.end_keys.borrow_mut().split_off(mid);
+        let right_sibling = self.right_ptr.borrow_mut().take();
+        let right_start = right_start_keys[0].clone();
+
+        let new_right_node = LeafNode {
+            start_keys: RefCell::new(right_start_keys),
+            end_keys: RefCell::new(right_end_keys),
+            left_ptr: RefCell::new(Some(Rc::downgrade(node))), // TODO: set the left_sibling to the current leaf node later
+            right_ptr: RefCell::new(right_sibling),
+            order: self.order,
+        };
+        let right_rc = Rc::new(Node::Leaf(new_right_node));
+        self.right_ptr
+            .borrow_mut()
+            .replace(Rc::downgrade(&right_rc));
+        (right_rc, right_start)
+    }
 }
 
 // Order of 3 means each node can only store 2 keys.
@@ -862,105 +914,86 @@ impl<K: NodeKey> BTree<K> {
      * - if parent is full, split it too. Keep repeating the process until a parent doesn't need to split
      * - if the root splits, create a new root with one key and two children
      */
-    pub fn insert(&self, range: Range<K>) -> () {
-        // TODO: We need the parent node
-        let (leaf, parent_stack) = self.find_leaf_to_add(&range.start_key);
-        let leaf = leaf.unwrap();
-        match leaf.as_ref() {
-            Node::Internal(_) => panic!("There must be at least one leaf node in the btree"),
-            Node::Leaf(leaf_node) => {
-                leaf_node.insert_range(range);
-                if !leaf_node.has_capacity() {
-                    let (mut split_node, mut median) = BTree::split_node(leaf.clone());
+    pub fn insert_helper(
+        &self,
+        parent_node: Option<&InternalNode<K>>,
+        node: Rc<Node<K>>,
+        range: &Range<K>,
+    ) -> () {
+        let key_to_add = &range.start_key;
 
-                    let mut offset = 0;
-                    let mut current_node = leaf.clone();
-                    loop {
-                        if parent_stack.len() - offset > 0 {
-                            let idx = parent_stack.len() - 1 - offset;
-                            current_node = parent_stack[idx].clone();
-                            // this is the node we want to insert the
-                            let curr_parent = current_node.as_ref().as_internal_node();
-                            curr_parent.insert_node(split_node.clone(), median.clone());
-                            if curr_parent.has_capacity() {
-                                break;
-                            }
-                            (split_node, median) = BTree::split_node(current_node.clone());
-                            offset = offset + 1;
-                        } else {
-                            // root needs to split. Create a new root with one key and 2 children
+        match node.as_ref() {
+            Node::Internal(internal_node) => {
+                let mut next = None;
+                for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
+                    if key_to_add < k {
+                        next = internal_node.edges.borrow()[idx].borrow().clone();
+                        break;
+                    }
+
+                    if idx == internal_node.keys.borrow().len() - 1 {
+                        next = internal_node.edges.borrow()[idx + 1].borrow().clone();
+                    }
+                }
+                let next_node = next.unwrap();
+                self.insert_helper(Some(internal_node), next_node.clone(), range);
+
+                if !internal_node.has_capacity() {
+                    let (split_node, median) = internal_node.split();
+                    match parent_node {
+                        Some(parent_node) => {
+                            parent_node.insert_node(split_node.clone(), median.clone());
+                        }
+                        None => {
+                            // TODO: This means the current node is the root node. In this case, we create a new root with one key and 2 children
                             self.root
                                 .borrow_mut()
                                 .replace(Rc::new(Node::Internal(InternalNode {
                                     keys: RefCell::new(Vec::from([median.clone()])),
                                     edges: RefCell::new(Vec::from([
-                                        RefCell::new(Some(current_node.clone())),
+                                        RefCell::new(Some(node.clone())),
                                         RefCell::new(Some(split_node.clone())),
                                     ])),
                                     order: self.order,
                                 })));
-                            break;
                         }
                     }
+                }
+            }
+            Node::Leaf(leaf_node) => {
+                leaf_node.insert_range(Range {
+                    start_key: range.start_key.clone(),
+                    end_key: range.end_key.clone(),
+                });
+                if !leaf_node.has_capacity() {
+                    let (split_node, median) = leaf_node.split(&node);
+
+                    match parent_node {
+                        Some(parent_node) => {
+                            parent_node.insert_node(split_node.clone(), median.clone());
+                        }
+                        None => {
+                            // This means the current node is the root node. In this case, we create a new root with one key and 2 children
+                            self.root
+                                .borrow_mut()
+                                .replace(Rc::new(Node::Internal(InternalNode {
+                                    keys: RefCell::new(Vec::from([median.clone()])),
+                                    edges: RefCell::new(Vec::from([
+                                        RefCell::new(Some(node.clone())),
+                                        RefCell::new(Some(split_node.clone())),
+                                    ])),
+                                    order: self.order,
+                                })));
+                        }
+                    };
                 }
             }
         }
     }
 
-    /**
-     * Allocate a new leaf node and move half keys to the new node.
-     * Returns the new node and the smallest key in the new node.
-     */
-    pub fn split_node(node: Rc<Node<K>>) -> (Rc<Node<K>>, K) {
-        match node.as_ref() {
-            Node::Internal(internal_node) => {
-                //
-                // Suppose we have an internal node:
-                // a 0 b 5 c 10 d
-                // where numbers represents nodes and letters represent edges.
-                // After splitting, we get:
-                // left: a 0 b
-                // right: e 5 c 10 d
-                // The reason for this is that 5 will be pushed up and since
-                // node corresponding to b must be less than 5 it must be
-                // to the left of the mid key that gets pushed up
-                //
-                let mid_idx = internal_node.keys.borrow().len() / 2;
-                let mut right_keys = internal_node.keys.borrow_mut().split_off(mid_idx);
-                let mut right_edges = internal_node.edges.borrow_mut().split_off(mid_idx + 1);
-                right_edges.insert(0, RefCell::new(None));
-                let right_start = right_keys.remove(0);
-                right_edges.remove(0);
-                let new_right_node = InternalNode {
-                    keys: RefCell::new(right_keys),
-                    edges: RefCell::new(right_edges),
-                    order: internal_node.order,
-                };
-                (Rc::new(Node::Internal(new_right_node)), right_start)
-            }
-            Node::Leaf(leaf_node) => {
-                let mid = leaf_node.start_keys.borrow().len() / 2;
-                let right_start_keys = leaf_node.start_keys.borrow_mut().split_off(mid);
-
-                let right_end_keys = leaf_node.end_keys.borrow_mut().split_off(mid);
-                let right_sibling = leaf_node.right_ptr.borrow_mut().take();
-                let right_start = right_start_keys[0].clone();
-
-                let new_right_node = LeafNode {
-                    start_keys: RefCell::new(right_start_keys),
-                    end_keys: RefCell::new(right_end_keys),
-                    left_ptr: RefCell::new(Some(Rc::downgrade(&node))), // TODO: set the left_sibling to the current leaf node later
-                    right_ptr: RefCell::new(right_sibling),
-                    order: leaf_node.order,
-                };
-                let right_rc = Rc::new(Node::Leaf(new_right_node));
-                leaf_node
-                    .right_ptr
-                    .borrow_mut()
-                    .replace(Rc::downgrade(&right_rc));
-                (right_rc, right_start)
-            }
-        }
+    pub fn insert(&self, range: Range<K>) -> () {
+        let node = self.root.borrow().clone().unwrap();
+        self.insert_helper(None, node, &range)
     }
 
     /**
@@ -1511,7 +1544,7 @@ mod Test {
                 ]),
             });
             let node = create_test_node(&test_node, 4);
-            let (split_node, median) = BTree::split_node(node.clone());
+            let (split_node, median) = node.as_internal_node().split();
             assert_eq!(median, 20);
 
             let split_test_node = TestNode::Internal(TestInternalNode {
@@ -1570,7 +1603,7 @@ mod Test {
                     .replace(Rc::downgrade(&right_sibling_rc)),
             };
 
-            let (split_node, right_start_key) = BTree::split_node(leaf_rc.clone());
+            let (split_node, right_start_key) = leaf_rc.clone().as_leaf_node().split(&leaf_rc);
             assert_eq!(right_start_key, 1);
 
             match split_node.as_ref() {
