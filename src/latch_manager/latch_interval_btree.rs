@@ -1,23 +1,19 @@
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::RefCell,
-    rc::{Rc, Weak},
+    rc::Rc,
+    sync::{Arc, RwLock, Weak},
 };
 
 use self::Test::{print_node, print_tree};
-
-struct Foo {}
 
 pub trait NodeKey: std::fmt::Debug + Clone + Eq + PartialOrd + Ord {}
 
 impl NodeKey for i32 {}
 
-type NodeLink<K: NodeKey> = RefCell<Option<Rc<Node<K>>>>;
-// RefCell<Option<Rc<RBTNode<T>>>>
-type WeakNodeLink<K: NodeKey> = RefCell<Option<Weak<Node<K>>>>;
-// RefCell<Option<Weak<RBTNode<T>>>>,
-
-type LatchNode<K> = Rc<Node<K>>;
+type NodeLink<K: NodeKey> = RefCell<Option<LatchNode<K>>>;
+type WeakNodeLink<K: NodeKey> = RefCell<Option<Weak<RwLock<Node<K>>>>>;
+type LatchNode<K: NodeKey> = Arc<RwLock<Node<K>>>;
 
 #[derive(Debug, Clone)]
 pub enum Node<K: NodeKey> {
@@ -209,8 +205,9 @@ impl<K: NodeKey> InternalNode<K> {
         let left_sibling = parent_node.find_child_left_sibling(edge_idx);
         let mut is_stolen = false;
         match left_sibling {
-            Some(left_rc) => {
-                let left_node = left_rc.as_internal_node();
+            Some(left_latch) => {
+                let left_guard = left_latch.write().unwrap();
+                let left_node = left_guard.as_internal_node();
                 is_stolen = self.steal_from_left_sibling(left_node, parent_node, edge_idx);
                 if is_stolen {
                     return true;
@@ -221,8 +218,9 @@ impl<K: NodeKey> InternalNode<K> {
         let right_sibling = parent_node.find_child_right_sibling(edge_idx);
         let mut is_stolen = false;
         match right_sibling {
-            Some(right_rc) => {
-                let right_node = right_rc.as_internal_node();
+            Some(right_latch) => {
+                let right_guard = right_latch.write().unwrap();
+                let right_node = right_guard.as_internal_node();
                 is_stolen = self.steal_from_right_sibling(right_node, parent_node, edge_idx);
                 if is_stolen {
                     return true;
@@ -292,7 +290,7 @@ impl<K: NodeKey> InternalNode<K> {
     /**
      * Find the left sibling provided the index of the corresponding edge in the parent's node
      */
-    pub fn find_child_left_sibling(&self, edge_idx: usize) -> Option<Rc<Node<K>>> {
+    pub fn find_child_left_sibling(&self, edge_idx: usize) -> Option<LatchNode<K>> {
         if edge_idx == 0 {
             return None;
         }
@@ -302,7 +300,7 @@ impl<K: NodeKey> InternalNode<K> {
     /**
      * Find the right sibling provided the index of the corresponding edge in the parent's node
      */
-    pub fn find_child_right_sibling(&self, edge_idx: usize) -> Option<Rc<Node<K>>> {
+    pub fn find_child_right_sibling(&self, edge_idx: usize) -> Option<LatchNode<K>> {
         if edge_idx == self.edges.borrow().len() - 1 {
             return None;
         }
@@ -320,8 +318,9 @@ impl<K: NodeKey> InternalNode<K> {
      */
     pub fn merge_with_sibling(&self, parent_node: &InternalNode<K>, edge_idx: usize) {
         let left_sibling = parent_node.find_child_left_sibling(edge_idx);
-        if let Some(ref left_rc) = left_sibling {
-            let left_node = left_rc.as_internal_node();
+        if let Some(ref left_latch) = left_sibling {
+            let left_guard = left_latch.write().unwrap();
+            let left_node = left_guard.as_internal_node();
             let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx - 1);
             let mut left_keys = left_node.keys.borrow_mut();
             left_keys.push(parent_split_key);
@@ -335,8 +334,9 @@ impl<K: NodeKey> InternalNode<K> {
             parent_node.edges.borrow_mut().remove(edge_idx);
         } else {
             let right_sibling = parent_node.find_child_right_sibling(edge_idx);
-            if let Some(right_rc) = right_sibling {
-                let right_node = right_rc.as_internal_node();
+            if let Some(right_latch) = right_sibling {
+                let right_guard = right_latch.write().unwrap();
+                let right_node = right_guard.as_internal_node();
                 // we merge right node into the current node
                 let parent_split_key = parent_node.keys.borrow_mut().remove(edge_idx);
                 let mut current_keys = self.keys.borrow_mut();
@@ -362,18 +362,20 @@ impl<K: NodeKey> InternalNode<K> {
             if self.is_underflow() {
                 let left_sibling = parent_node.find_child_left_sibling(edge_idx);
                 let mut is_stolen = false;
-                if let Some(ref left_rc) = left_sibling {
+                if let Some(ref left_latch) = left_sibling {
+                    let left_guard = left_latch.write().unwrap();
                     is_stolen = self.steal_from_left_sibling(
-                        left_rc.as_internal_node(),
+                        left_guard.as_internal_node(),
                         parent_node,
                         edge_idx,
                     );
                 }
                 if !is_stolen {
                     let right_sibling = parent_node.find_child_right_sibling(edge_idx);
-                    if let Some(ref right_rc) = right_sibling {
+                    if let Some(ref right_latch) = right_sibling {
+                        let right_guard = right_latch.write().unwrap();
                         is_stolen = self.steal_from_right_sibling(
-                            right_rc.as_internal_node(),
+                            right_guard.as_internal_node(),
                             parent_node,
                             edge_idx,
                         );
@@ -386,7 +388,7 @@ impl<K: NodeKey> InternalNode<K> {
         }
     }
 
-    pub fn split(&self) -> (Rc<Node<K>>, K) {
+    pub fn split(&self) -> (LatchNode<K>, K) {
         //
         // Suppose we have an internal node:
         // a 0 b 5 c 10 d
@@ -409,7 +411,10 @@ impl<K: NodeKey> InternalNode<K> {
             edges: RefCell::new(right_edges),
             order: self.order,
         };
-        (Rc::new(Node::Internal(new_right_node)), right_start)
+        (
+            Arc::new(RwLock::new(Node::Internal(new_right_node))),
+            right_start,
+        )
     }
 }
 
@@ -428,6 +433,15 @@ impl<K: NodeKey> LeafNode<K> {
     // order 4 means at most 3 keys per node
     pub fn has_capacity(&self) -> bool {
         self.start_keys.borrow().len() < usize::from(self.order)
+    }
+
+    pub fn get_lower(&self) -> Option<K> {
+        let keys = self.start_keys.borrow_mut();
+        if keys.len() == 0 {
+            None
+        } else {
+            Some(keys[0].clone())
+        }
     }
 
     /**
@@ -538,13 +552,14 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn steal_from_right_leaf_sibling(
         &self,
         key_to_delete: &K,
-        right_sibling: Rc<Node<K>>,
+        right_latch_node: LatchNode<K>,
         parent: &InternalNode<K>,
         edge_idx: usize,
         dir: Direction,
     ) -> (bool, Option<K>) {
-        if right_sibling.has_spare_key() {
-            let right_leaf_sibling = right_sibling.as_ref().as_leaf_node();
+        let right_guard = right_latch_node.write().unwrap();
+        let right_leaf_sibling = right_guard.as_leaf_node();
+        if right_leaf_sibling.has_spare_key() {
             let stolen_range = right_leaf_sibling.steal_smallest_key();
             let stolen_key = stolen_range.start_key.clone();
             self.insert_range(stolen_range);
@@ -555,7 +570,7 @@ impl<K: NodeKey> LeafNode<K> {
             };
             // Update parent's split key. Since we are stealing from right sibling,
             // the new split_key will be the right sibling's new smallest key
-            parent.update_key_at_index(key_idx, right_sibling.get_lower().unwrap());
+            parent.update_key_at_index(key_idx, right_leaf_sibling.get_lower().unwrap());
 
             return (true, Some(stolen_key.clone()));
         }
@@ -565,12 +580,13 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn steal_from_left_leaf_sibling(
         &self,
         key_to_delete: &K,
-        left_sibling: Rc<Node<K>>,
+        left_latch_node: LatchNode<K>,
         parent: &InternalNode<K>,
         edge_idx: usize,
     ) -> bool {
-        if left_sibling.has_spare_key() {
-            let left_leaf_sibling = left_sibling.as_ref().as_leaf_node();
+        let left_guard = left_latch_node.read().unwrap();
+        let left_leaf_sibling = left_guard.as_leaf_node();
+        if left_leaf_sibling.has_spare_key() {
             let stolen_range = left_leaf_sibling.steal_biggest_key();
             let stolen_key = stolen_range.start_key.clone();
             self.insert_range(stolen_range);
@@ -595,9 +611,10 @@ impl<K: NodeKey> LeafNode<K> {
     pub fn merge_node(&self, parent_node: &InternalNode<K>, edge_idx: usize) {
         let left_sibling = parent_node.find_child_left_sibling(edge_idx);
         match left_sibling {
-            Some(left_rc) => {
+            Some(left_latch) => {
+                let left_guard = left_latch.write().unwrap();
                 // merge current node into left node
-                let left_node = left_rc.as_ref().as_leaf_node();
+                let left_node = left_guard.as_leaf_node();
                 left_node
                     .start_keys
                     .borrow_mut()
@@ -615,9 +632,10 @@ impl<K: NodeKey> LeafNode<K> {
             None => {
                 let right_sibling = parent_node.find_child_right_sibling(edge_idx);
                 match right_sibling {
-                    Some(right_rc) => {
+                    Some(right_latch) => {
+                        let right_guard = right_latch.write().unwrap();
                         // merge right node into current node
-                        let right_node = right_rc.as_ref().as_leaf_node();
+                        let right_node = right_guard.as_leaf_node();
                         self.start_keys
                             .borrow_mut()
                             .append(&mut right_node.start_keys.borrow_mut());
@@ -639,36 +657,11 @@ impl<K: NodeKey> LeafNode<K> {
         }
     }
 
-    pub fn update_ancestors_after_delete(
-        &self,
-        key_to_delete: &K,
-        stack: &Vec<(usize, Direction, Rc<Node<K>>)>,
-        right_sibling_option: &Option<Rc<Node<K>>>,
-    ) -> () {
-        let right_sibling = self.right_ptr.borrow();
-        let next_largest_key = self.find_next_largest_key(key_to_delete, right_sibling_option);
-        // if the leaf to delete is in the right subtree and the
-        // current node is equal to the key to delete, then we update to the next biggest node
-        for (iter_idx, (idx, direction, node)) in stack.iter().enumerate() {
-            match direction {
-                Direction::Left => {}
-                Direction::Right => {
-                    let internal_node = node.as_internal_node();
-                    let key_idx = *idx - 1;
-                    let mut keys = internal_node.keys.borrow_mut();
-                    if &keys[key_idx] == key_to_delete {
-                        keys[key_idx] = next_largest_key.clone();
-                    }
-                }
-            }
-        }
-    }
-
     // given a leaf node and a key for index, and potentially it's right sibling, find the next largest key.
     pub fn find_next_largest_key(
         &self,
         key_to_delete: &K,
-        right_sibling_option: &Option<Rc<Node<K>>>,
+        right_sibling_option: &Option<LatchNode<K>>,
     ) -> K {
         let idx = self.find_next_larger_key(key_to_delete);
 
@@ -680,7 +673,8 @@ impl<K: NodeKey> LeafNode<K> {
                 // This means that the next biggest key is not in the same leaf node
                 let right_leaf_option = right_sibling_option.clone();
                 let right_leaf = right_leaf_option.unwrap();
-                return right_leaf.as_leaf_node().start_keys.borrow()[0].clone();
+                let right_guard = right_leaf.read().unwrap();
+                return right_guard.as_leaf_node().start_keys.borrow()[0].clone();
             }
         }
     }
@@ -764,7 +758,7 @@ impl<K: NodeKey> LeafNode<K> {
      * Allocate a new leaf node and move half keys to the new node.
      * Returns the new node and the smallest key in the new node.
      */
-    pub fn split(&self, node: &Rc<Node<K>>) -> (Rc<Node<K>>, K) {
+    pub fn split(&self, node: &LatchNode<K>) -> (LatchNode<K>, K) {
         let mid = self.start_keys.borrow().len() / 2;
         let right_start_keys = self.start_keys.borrow_mut().split_off(mid);
 
@@ -775,15 +769,15 @@ impl<K: NodeKey> LeafNode<K> {
         let new_right_node = LeafNode {
             start_keys: RefCell::new(right_start_keys),
             end_keys: RefCell::new(right_end_keys),
-            left_ptr: RefCell::new(Some(Rc::downgrade(node))), // TODO: set the left_sibling to the current leaf node later
+            left_ptr: RefCell::new(Some(Arc::downgrade(node))), // TODO: set the left_sibling to the current leaf node later
             right_ptr: RefCell::new(right_sibling),
             order: self.order,
         };
-        let right_rc = Rc::new(Node::Leaf(new_right_node));
+        let right_latch_node = Arc::new(RwLock::new(Node::Leaf(new_right_node)));
         self.right_ptr
             .borrow_mut()
-            .replace(Rc::downgrade(&right_rc));
-        (right_rc, right_start)
+            .replace(Arc::downgrade(&right_latch_node));
+        (right_latch_node, right_start)
     }
 }
 
@@ -801,131 +795,11 @@ pub struct Range<K: NodeKey> {
 impl<K: NodeKey> BTree<K> {
     pub fn new(capacity: u16) -> Self {
         BTree {
-            root: RefCell::new(Some(Rc::new(Node::Leaf(LeafNode::new(capacity))))),
+            root: RefCell::new(Some(Arc::new(RwLock::new(Node::Leaf(LeafNode::new(
+                capacity,
+            )))))),
             order: capacity,
         }
-    }
-
-    /**
-     * Returns the node to delete. In addition, it returns a stack of (index, parent_node). The index
-     * corresponds to the index of the parent_node. This is useful when we need to find the siblings
-     * of the nodes when borrowing / merging.
-     */
-    pub fn find_leaf_to_delete(
-        &self,
-        key_to_delete: &K,
-    ) -> (Option<Rc<Node<K>>>, Vec<(usize, Direction, Rc<Node<K>>)>) {
-        let mut temp_node = self.root.borrow().clone();
-
-        let mut next = None;
-        let mut stack = Vec::new();
-        loop {
-            match temp_node {
-                Some(ref node) => match node.as_ref() {
-                    Node::Internal(internal_node) => {
-                        for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
-                            if key_to_delete < k {
-                                stack.push((idx, Direction::Left, node.clone()));
-                                next = internal_node.edges.borrow()[idx].borrow().clone();
-                                break;
-                            }
-
-                            if idx == internal_node.keys.borrow().len() - 1 {
-                                stack.push((idx + 1, Direction::Right, node.clone()));
-                                next = internal_node.edges.borrow()[idx + 1].borrow().clone();
-                                break;
-                            }
-                        }
-                    }
-
-                    Node::Leaf(_) => break,
-                },
-                None => panic!("should not be undefined"),
-            }
-            match next {
-                Some(ref v) => temp_node = next.clone(),
-                None => panic!("next is not provided"),
-            }
-        }
-
-        (temp_node, stack)
-    }
-
-    pub fn find_internal_node(&self, search_key: &K) -> (Option<Rc<Node<K>>>, Vec<Rc<Node<K>>>) {
-        let mut temp_node = self.root.borrow().clone();
-
-        let mut next = None;
-        let mut stack = Vec::new();
-        loop {
-            match temp_node {
-                Some(ref node) => match node.as_ref() {
-                    Node::Internal(ref internal_node) => {
-                        if internal_node.contains_key(search_key) {
-                            return (temp_node.clone(), stack);
-                        }
-                        stack.push(node.clone());
-                        for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
-                            if search_key < k {
-                                next = internal_node.edges.borrow()[idx].borrow().clone();
-                                break;
-                            }
-
-                            if idx == internal_node.keys.borrow().len() - 1 {
-                                next = internal_node.edges.borrow()[idx + 1].borrow().clone();
-                            }
-                        }
-                    }
-
-                    Node::Leaf(_) => break,
-                },
-                None => panic!("should not be undefined"),
-            }
-
-            match next {
-                Some(_) => temp_node = next.clone(),
-                None => panic!("next is not provided"),
-            }
-        }
-        (None, stack)
-    }
-
-    // determines which leaf node a new key should go into
-    // we assume there will at least always be one root.
-    // Returns the leaf node to add and the stack of parent nodes
-    pub fn find_leaf_to_add(&self, key_to_add: &K) -> (Option<Rc<Node<K>>>, Vec<Rc<Node<K>>>) {
-        let mut temp_node = self.root.borrow().clone();
-
-        let mut next = None;
-        let mut stack = Vec::new();
-        loop {
-            match temp_node {
-                Some(ref node) => match node.as_ref() {
-                    Node::Internal(internal_node) => {
-                        stack.push(node.clone());
-                        for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
-                            if key_to_add < k {
-                                next = internal_node.edges.borrow()[idx].borrow().clone();
-                                break;
-                            }
-
-                            if idx == internal_node.keys.borrow().len() - 1 {
-                                next = internal_node.edges.borrow()[idx + 1].borrow().clone();
-                            }
-                        }
-                    }
-
-                    Node::Leaf(_) => break,
-                },
-                None => panic!("should not be undefined"),
-            }
-
-            match next {
-                Some(_) => temp_node = next.clone(),
-                None => panic!("next is not provided"),
-            }
-        }
-
-        (temp_node, stack)
     }
 
     /**
@@ -940,12 +814,12 @@ impl<K: NodeKey> BTree<K> {
     pub fn insert_helper(
         &self,
         parent_node: Option<&InternalNode<K>>,
-        node: Rc<Node<K>>,
+        node: LatchNode<K>,
         range: &Range<K>,
     ) -> () {
         let key_to_add = &range.start_key;
-
-        match node.as_ref() {
+        let write_guard = node.write().unwrap();
+        match &*write_guard {
             Node::Internal(internal_node) => {
                 let mut next = None;
                 for (idx, k) in internal_node.keys.borrow().iter().enumerate() {
@@ -971,14 +845,14 @@ impl<K: NodeKey> BTree<K> {
                             // TODO: This means the current node is the root node. In this case, we create a new root with one key and 2 children
                             self.root
                                 .borrow_mut()
-                                .replace(Rc::new(Node::Internal(InternalNode {
+                                .replace(Arc::new(RwLock::new(Node::Internal(InternalNode {
                                     keys: RefCell::new(Vec::from([median.clone()])),
                                     edges: RefCell::new(Vec::from([
                                         RefCell::new(Some(node.clone())),
                                         RefCell::new(Some(split_node.clone())),
                                     ])),
                                     order: self.order,
-                                })));
+                                }))));
                         }
                     }
                 }
@@ -999,14 +873,14 @@ impl<K: NodeKey> BTree<K> {
                             // This means the current node is the root node. In this case, we create a new root with one key and 2 children
                             self.root
                                 .borrow_mut()
-                                .replace(Rc::new(Node::Internal(InternalNode {
+                                .replace(Arc::new(RwLock::new(Node::Internal(InternalNode {
                                     keys: RefCell::new(Vec::from([median.clone()])),
                                     edges: RefCell::new(Vec::from([
                                         RefCell::new(Some(node.clone())),
                                         RefCell::new(Some(split_node.clone())),
                                     ])),
                                     order: self.order,
-                                })));
+                                }))));
                         }
                     };
                 }
@@ -1041,7 +915,8 @@ impl<K: NodeKey> BTree<K> {
         parent_info: Option<(&InternalNode<K>, usize, Direction)>,
         current_node: LatchNode<K>,
     ) -> Option<K> {
-        match current_node.as_ref() {
+        let write_guard = current_node.write().unwrap();
+        match &*write_guard {
             Node::Internal(internal_node) => {
                 let mut next_node_tuple = None;
                 let mut edge_idx_option = None;
@@ -1117,7 +992,8 @@ impl<K: NodeKey> BTree<K> {
     pub fn delete(&self, key_to_delete: K) -> () {
         let root_node = self.root.borrow().clone().unwrap();
         self.delete_helper(&key_to_delete, None, root_node.clone());
-        match root_node.as_ref() {
+        let root_guard = root_node.write().unwrap();
+        match &*root_guard {
             Node::Internal(ref internal_node) => {
                 if internal_node.keys.borrow().len() == 0 {
                     let new_root = internal_node.edges.borrow()[0].borrow().clone().unwrap();
@@ -1130,45 +1006,41 @@ impl<K: NodeKey> BTree<K> {
 }
 
 mod Test {
-    use std::{borrow::Borrow, cell::RefCell, process::Child, rc::Rc};
+    use std::{
+        borrow::Borrow,
+        cell::RefCell,
+        process::Child,
+        rc::Rc,
+        sync::{Arc, RwLock},
+    };
 
-    use super::{BTree, InternalNode, LeafNode, Node, NodeKey, NodeLink, WeakNodeLink};
+    use super::{BTree, InternalNode, LatchNode, LeafNode, Node, NodeKey, NodeLink, WeakNodeLink};
 
     pub fn find_node_and_parent_with_indices<K: NodeKey>(
         tree: &BTree<K>,
         indices: Vec<usize>,
-    ) -> (Rc<Node<K>>, Rc<Node<K>>, usize) {
-        let last_index = indices.last().unwrap().clone();
-        let (node, stack) = find_node_with_indices(tree, indices);
-        let last = stack.last().unwrap();
-        (node.unwrap(), last.clone(), last_index)
-    }
+    ) -> (LatchNode<K>, LatchNode<K>, usize) {
+        let mut temp = tree.root.borrow().clone().unwrap();
+        let mut parent = None;
 
-    pub fn find_node_with_indices<K: NodeKey>(
-        tree: &BTree<K>,
-        indices: Vec<usize>,
-    ) -> (Option<Rc<Node<K>>>, Vec<Rc<Node<K>>>) {
-        let mut temp_node = tree.root.borrow().clone();
-        let mut stack = Vec::new();
-        let mut next = None;
-        for idx in indices.iter() {
-            match temp_node {
-                Some(ref node) => match node.as_ref() {
-                    Node::Internal(internal_node) => {
-                        stack.push(node.clone());
-                        next = internal_node.edges.borrow()[*idx].borrow().clone();
-                    }
-
-                    Node::Leaf(_) => break,
-                },
-                None => panic!("should not be undefined"),
+        for (pos, node_idx) in indices.iter().enumerate() {
+            let cloned = temp.clone();
+            let read_guard = cloned.read().unwrap();
+            match &*read_guard {
+                Node::Internal(internal_node) => {
+                    parent = Some(temp.clone());
+                    temp = internal_node.edges.borrow()[*node_idx]
+                        .borrow()
+                        .clone()
+                        .unwrap();
+                }
+                Node::Leaf(_) => {}
             }
-            match next {
-                Some(_) => temp_node = next.clone(),
-                None => panic!("next is not provided"),
+            if pos + 1 == indices.len() {
+                return (temp.clone(), parent.unwrap(), node_idx.clone());
             }
         }
-        (temp_node, stack)
+        panic!("Reached end")
     }
 
     #[derive(Debug, Clone)]
@@ -1196,25 +1068,26 @@ mod Test {
         }
     }
 
-    pub fn create_test_node<K: NodeKey>(node: &TestNode<K>, order: u16) -> Rc<Node<K>> {
+    pub fn create_test_node<K: NodeKey>(node: &TestNode<K>, order: u16) -> LatchNode<K> {
         let (node, mut leaves) = create_tree_from_test_node_internal(node, order);
 
         for (idx, child) in leaves.iter().enumerate() {
-            match child.as_ref() {
+            let guard = child.write().unwrap();
+            match &*guard {
                 Node::Internal(_) => panic!("Node must be a leaf"),
                 Node::Leaf(leaf_node) => {
                     if idx > 0 {
                         leaf_node
                             .left_ptr
                             .borrow_mut()
-                            .replace(Rc::downgrade(&leaves[idx - 1].clone()));
+                            .replace(Arc::downgrade(&leaves[idx - 1].clone()));
                     }
 
                     if idx < leaves.len() - 1 {
                         leaf_node
                             .right_ptr
                             .borrow_mut()
-                            .replace(Rc::downgrade(&leaves[idx + 1].clone()));
+                            .replace(Arc::downgrade(&leaves[idx + 1].clone()));
                     }
                 }
             }
@@ -1226,7 +1099,7 @@ mod Test {
     pub fn create_tree_from_test_node_internal<K: NodeKey>(
         node: &TestNode<K>,
         order: u16,
-    ) -> (Rc<Node<K>>, Vec<Rc<Node<K>>>) {
+    ) -> (LatchNode<K>, Vec<LatchNode<K>>) {
         match node {
             TestNode::Internal(internal_node) => {
                 let mut leaves = Vec::new();
@@ -1250,7 +1123,7 @@ mod Test {
                     edges: RefCell::new(edges),
                     order,
                 };
-                (Rc::new(Node::Internal(ret_node)), leaves)
+                (Arc::new(RwLock::new(Node::Internal(ret_node))), leaves)
             }
             TestNode::Leaf(leaf_node) => {
                 let leaf = Node::Leaf(LeafNode {
@@ -1260,8 +1133,8 @@ mod Test {
                     right_ptr: RefCell::new(None),
                     order: order,
                 });
-                let leaf_rc = Rc::new(leaf);
-                (leaf_rc.clone(), Vec::from([leaf_rc.clone()]))
+                let leaf_latch = Arc::new(RwLock::new(leaf));
+                (leaf_latch.clone(), Vec::from([leaf_latch.clone()]))
             }
         }
     }
@@ -1274,7 +1147,7 @@ mod Test {
         print_tree_internal(&tree.root, 0);
     }
 
-    pub fn print_node_recursive<K: NodeKey>(node: Rc<Node<K>>) {
+    pub fn print_node_recursive<K: NodeKey>(node: LatchNode<K>) {
         let tree = BTree {
             root: RefCell::new(Some(node.clone())),
             order: 4,
@@ -1304,7 +1177,8 @@ mod Test {
         if let Some(ref rc) = edge {
             let upgraded_ref = rc.upgrade();
             let unwrapped = upgraded_ref.unwrap();
-            match unwrapped.as_ref() {
+            let guard = unwrapped.read().unwrap();
+            match &*guard {
                 Node::Internal(_) => {
                     panic!("Cannot get sibling from internal node");
                 }
@@ -1322,9 +1196,8 @@ mod Test {
         let edge = &*link.borrow();
         if let Some(ref rc) = edge {
             let upgraded_ref = rc.upgrade()?;
-
-            let unwrapped = upgraded_ref;
-            match unwrapped.as_ref() {
+            let guard = upgraded_ref.read().unwrap();
+            match &*guard {
                 Node::Internal(_) => {
                     panic!("Cannot get sibling from internal node");
                 }
@@ -1344,9 +1217,10 @@ mod Test {
 
     fn print_tree_internal<K: NodeKey>(link: &NodeLink<K>, depth: usize) {
         let edge = link.borrow().clone();
-        if let Some(ref rc) = edge {
-            let node = rc.as_ref();
-            match node {
+        if let Some(ref latch) = edge {
+            let node = latch.as_ref();
+            let guard = latch.read().unwrap();
+            match &*guard {
                 Node::Internal(ref node) => {
                     println!(
                         "{}Internal. Keys: {:?}",
@@ -1371,15 +1245,17 @@ mod Test {
         }
     }
 
-    fn assert_node_and_leaves_siblings<K: NodeKey>(node: Rc<Node<K>>, test_node: &TestNode<K>) {
+    fn assert_node_and_leaves_siblings<K: NodeKey>(node: LatchNode<K>, test_node: &TestNode<K>) {
         assert_node(node.clone(), test_node);
         let test_leaves = get_all_test_leaves(test_node);
         let leaves = get_all_leaf_nodes(node.clone());
         assert_eq!(test_leaves.len(), leaves.len());
         for (idx, current_test_node) in test_leaves.iter().enumerate() {
             let curr_node = leaves[idx].clone();
-            let left_sibling = &*curr_node.as_leaf_node().left_ptr.borrow();
-            let right_sibling = &*curr_node.as_leaf_node().right_ptr.borrow();
+            let guard = curr_node.read().unwrap();
+            let leaf_node = guard.as_leaf_node();
+            let left_sibling = leaf_node.left_ptr.borrow();
+            let right_sibling = leaf_node.right_ptr.borrow();
             if idx == 0 {
                 assert!(left_sibling.is_none());
             } else {
@@ -1401,12 +1277,11 @@ mod Test {
      * Given a node link and a test node structure, verify if if the node link
      * has the expected shape and properties
      */
-    fn assert_node<K: NodeKey>(node: Rc<Node<K>>, test_node: &TestNode<K>) {
+    fn assert_node<K: NodeKey>(node: LatchNode<K>, test_node: &TestNode<K>) {
         match test_node {
             TestNode::Internal(test_internal_node) => {
-                let node_rc = node.clone();
-                let node_ref = node_rc.as_ref();
-                let internal_node = node_ref.as_internal_node();
+                let guard = node.write().unwrap();
+                let internal_node = guard.as_internal_node();
                 assert_eq!(&*internal_node.keys.borrow(), &test_internal_node.keys);
                 for (idx, child) in internal_node.edges.borrow().iter().enumerate() {
                     let node = child.borrow();
@@ -1436,9 +1311,10 @@ mod Test {
         assert_node(root, test_node);
     }
 
-    fn get_all_leaves<K: NodeKey>(node: Rc<Node<K>>) -> Vec<Option<Rc<Node<K>>>> {
+    fn get_all_leaves<K: NodeKey>(node: LatchNode<K>) -> Vec<Option<LatchNode<K>>> {
         let mut leaves = Vec::new();
-        match node.as_ref() {
+        let guard = node.read().unwrap();
+        match &*guard {
             Node::Internal(internal_node) => {
                 for edge in internal_node.edges.borrow().iter() {
                     match &*edge.borrow() {
@@ -1458,13 +1334,14 @@ mod Test {
     }
 
     fn assert_leaf_with_siblings<K: NodeKey>(
-        node: Rc<Node<K>>,
+        node: LatchNode<K>,
         test_leaf: &TestLeafNode<K>,
         test_left_sibling: &Option<TestLeafNode<K>>,
         test_right_sibling: &Option<TestLeafNode<K>>,
     ) {
         assert_leaf(node.clone(), &test_leaf.keys);
-        let leaf_node = node.as_ref().as_leaf_node();
+        let guard = node.read().unwrap();
+        let leaf_node = guard.as_leaf_node();
         let left_sibling = &*leaf_node.left_ptr.borrow();
         match left_sibling {
             Some(left_node) => {
@@ -1492,9 +1369,10 @@ mod Test {
         };
     }
 
-    fn get_all_leaf_nodes<K: NodeKey>(node: Rc<Node<K>>) -> Vec<Rc<Node<K>>> {
+    fn get_all_leaf_nodes<K: NodeKey>(node: LatchNode<K>) -> Vec<LatchNode<K>> {
         let mut leaves = Vec::new();
-        match node.as_ref() {
+        let guard = node.read().unwrap();
+        match &*guard {
             Node::Internal(internal_node) => {
                 for edge in internal_node.edges.borrow().iter() {
                     if let Some(child) = &*edge.borrow() {
@@ -1528,8 +1406,9 @@ mod Test {
         leaves
     }
 
-    fn assert_leaf<K: NodeKey>(node: Rc<Node<K>>, start_keys: &Vec<K>) {
-        match &node.as_ref() {
+    fn assert_leaf<K: NodeKey>(node: LatchNode<K>, start_keys: &Vec<K>) {
+        let guard = node.read().unwrap();
+        match &*guard {
             Node::Internal(_) => panic!("not a leaf node"),
             Node::Leaf(leaf) => {
                 assert_eq!(&*leaf.start_keys.borrow(), start_keys)
@@ -1546,62 +1425,14 @@ mod Test {
         }
     }
 
-    mod search {
-        use std::{cell::RefCell, rc::Rc};
-
-        use crate::latch_manager::latch_interval_btree::{
-            BTree, InternalNode, LeafNode, Node,
-            Test::{
-                assert_internal, assert_leaf, create_test_node, create_test_tree, print_tree,
-                TestInternalNode, TestLeafNode, TestNode,
-            },
-        };
-
-        #[test]
-        fn one_level_deep() {
-            let test_node = TestNode::Internal(TestInternalNode {
-                keys: Vec::from([12, 15, 19]),
-                edges: Vec::from([
-                    Some(TestNode::Leaf(TestLeafNode {
-                        keys: Vec::from([11]),
-                    })),
-                    Some(TestNode::Leaf(TestLeafNode {
-                        keys: Vec::from([14]),
-                    })),
-                    Some(TestNode::Leaf(TestLeafNode {
-                        keys: Vec::from([18]),
-                    })),
-                    Some(TestNode::Leaf(TestLeafNode {
-                        keys: Vec::from([25]),
-                    })),
-                ]),
-            });
-            let tree = create_test_tree(&test_node, 4);
-
-            let (leaf1, stack) = tree.find_leaf_to_add(&0);
-            assert_eq!(stack.len(), 1);
-            assert_internal(stack[0].clone(), Vec::from([12, 15, 19]));
-
-            assert_leaf(leaf1.unwrap(), &Vec::from([11]));
-
-            let leaf2 = tree.find_leaf_to_add(&15).0.unwrap();
-            assert_leaf(leaf2, &Vec::from([18]));
-
-            let leaf4 = tree.find_leaf_to_add(&100).0.unwrap();
-            assert_leaf(leaf4, &Vec::from([25]));
-
-            print_tree(&tree);
-        }
-    }
-
     mod split {
         use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
         use crate::latch_manager::latch_interval_btree::{
             BTree, LeafNode, Node,
             Test::{
-                assert_leaf_with_siblings, assert_node, get_all_leaf_nodes, get_all_leaves,
-                get_start_keys_from_weak_link, print_node,
+                assert_leaf_with_siblings, assert_node, find_node_and_parent_with_indices,
+                get_all_leaf_nodes, get_all_leaves, get_start_keys_from_weak_link, print_node,
             },
         };
 
@@ -1628,7 +1459,8 @@ mod Test {
                 ]),
             });
             let node = create_test_node(&test_node, 4);
-            let (split_node, median) = node.as_internal_node().split();
+            let guard = node.write().unwrap();
+            let (split_node, median) = guard.as_internal_node().split();
             assert_eq!(median, 20);
 
             let split_test_node = TestNode::Internal(TestInternalNode {
@@ -1662,57 +1494,48 @@ mod Test {
 
         #[test]
         fn split_leaf() {
-            let leaf = LeafNode {
-                start_keys: RefCell::new(Vec::from([0, 1, 2])),
-                end_keys: RefCell::new(Vec::from([0, 1, 2])),
-                left_ptr: RefCell::new(None),
-                right_ptr: RefCell::new(None),
-                order: 4,
-            };
+            let test_node = TestNode::Internal(TestInternalNode {
+                keys: Vec::from([4]),
+                edges: Vec::from([
+                    Some(TestNode::Leaf(TestLeafNode {
+                        keys: Vec::from([0, 1, 2]),
+                    })),
+                    Some(TestNode::Leaf(TestLeafNode {
+                        keys: Vec::from([4, 5, 6]),
+                    })),
+                ]),
+            });
+            let tree = create_test_tree(&test_node, 4);
+            let (node_latch, parent_latch, edge_idx) =
+                find_node_and_parent_with_indices(&tree, Vec::from([0]));
+            let guard = node_latch.write().unwrap();
+            let leaf = guard.as_leaf_node();
+            let parent_guard = parent_latch.write().unwrap();
 
-            let leaf_rc = Rc::new(Node::Leaf(leaf));
-            let right_sibling = LeafNode {
-                start_keys: RefCell::new(Vec::from([4, 5, 6])),
-                end_keys: RefCell::new(Vec::from([0, 1, 2])),
-                left_ptr: RefCell::new(Some(Rc::downgrade(&leaf_rc))),
-                right_ptr: RefCell::new(None),
-                order: 4,
-            };
-            let right_sibling_rc = Rc::new(Node::Leaf(right_sibling));
-            match leaf_rc.as_ref() {
-                Node::Internal(_) => panic!("Leaf is somehow internal"),
-                Node::Leaf(leaf) => leaf
-                    .right_ptr
-                    .borrow_mut()
-                    .replace(Rc::downgrade(&right_sibling_rc)),
-            };
-
-            let (split_node, right_start_key) = leaf_rc.clone().as_leaf_node().split(&leaf_rc);
+            let (split_node, right_start_key) = leaf.split(&node_latch);
+            drop(guard);
+            drop(parent_guard);
             assert_eq!(right_start_key, 1);
 
-            match split_node.as_ref() {
-                Node::Internal(_) => panic!("Split node cannot be internal"),
-                Node::Leaf(leaf) => {
-                    assert_eq!(&*leaf.start_keys.borrow(), &Vec::from([1, 2]));
-                    assert_eq!(&*leaf.end_keys.borrow(), &Vec::from([1, 2]));
-                    let left_start_keys = get_start_keys_from_weak_link(&leaf.left_ptr);
-                    match left_start_keys.clone() {
-                        Some(left_start_keys) => {
-                            assert_eq!(left_start_keys, Vec::from([0]));
-                        }
-                        None => panic!("Left key has start keys"),
-                    }
-                    let right_start_keys = get_start_keys_from_weak_link(&leaf.right_ptr);
-                    match right_start_keys.clone() {
-                        Some(left_start_keys) => {
-                            assert_eq!(left_start_keys, Vec::from([4, 5, 6]));
-                        }
-                        None => panic!("Right key has start keys"),
-                    }
-                }
-            }
+            let split_guard = split_node.write().unwrap();
+            let split_leaf = split_guard.as_leaf_node();
 
-            print_node(split_node.clone());
+            assert_eq!(&*split_leaf.start_keys.borrow(), &Vec::from([1, 2]));
+            assert_eq!(&*split_leaf.end_keys.borrow(), &Vec::from([1, 2]));
+            let left_start_keys = get_start_keys_from_weak_link(&split_leaf.left_ptr);
+            match left_start_keys.clone() {
+                Some(left_start_keys) => {
+                    assert_eq!(left_start_keys, Vec::from([0]));
+                }
+                None => panic!("Left key has start keys"),
+            }
+            let right_start_keys = get_start_keys_from_weak_link(&split_leaf.right_ptr);
+            match right_start_keys.clone() {
+                Some(left_start_keys) => {
+                    assert_eq!(left_start_keys, Vec::from([4, 5, 6]));
+                }
+                None => panic!("Right key has start keys"),
+            }
         }
     }
 
@@ -2045,7 +1868,6 @@ mod Test {
                 assert_tree(&tree, &expected_tree);
             }
 
-            // hello
             #[test]
             fn internal_node_stealing_from_right_sibling_3_layers() {
                 let test_node = TestNode::Internal(TestInternalNode {
@@ -2131,50 +1953,6 @@ mod Test {
                     ]),
                 });
                 assert_tree(&tree, &expected_tree);
-            }
-        }
-
-        mod find_leaf_to_delete {
-            use crate::latch_manager::latch_interval_btree::Test::{
-                create_test_tree, TestInternalNode, TestLeafNode, TestNode,
-            };
-
-            #[test]
-            fn test_leaf() {
-                let test_node = TestNode::Internal(TestInternalNode {
-                    keys: Vec::from([15]),
-                    edges: Vec::from([
-                        Some(TestNode::Internal(TestInternalNode {
-                            keys: Vec::from([10]),
-                            edges: Vec::from([
-                                Some(TestNode::Leaf(TestLeafNode {
-                                    keys: Vec::from([5]),
-                                })),
-                                Some(TestNode::Leaf(TestLeafNode {
-                                    keys: Vec::from([10]),
-                                })),
-                            ]),
-                        })),
-                        Some(TestNode::Internal(TestInternalNode {
-                            keys: Vec::from([20]),
-                            edges: Vec::from([
-                                Some(TestNode::Leaf(TestLeafNode {
-                                    keys: Vec::from([15]),
-                                })),
-                                Some(TestNode::Leaf(TestLeafNode {
-                                    keys: Vec::from([20, 25]),
-                                })),
-                            ]),
-                        })),
-                    ]),
-                });
-                let tree = create_test_tree(&test_node, 3);
-                let (node, path) = tree.find_leaf_to_delete(&20);
-                let indices = path
-                    .iter()
-                    .map(|(idx, _, _)| idx.clone())
-                    .collect::<Vec<usize>>();
-                assert_eq!(indices, Vec::from([1, 1]));
             }
         }
 
@@ -2449,11 +2227,15 @@ mod Test {
                     ]),
                 });
                 let tree = create_test_tree(&test_node, 3);
-                let (node_rc, parent, edge_idx) =
+                let (node_latch, parent_latch, edge_idx) =
                     find_node_and_parent_with_indices(&tree, Vec::from([1]));
-                let temp = node_rc.as_internal_node();
-                let did_steal = temp.steal_from_sibling(parent.as_internal_node(), edge_idx);
+                let guard = node_latch.write().unwrap();
+                let temp = guard.as_internal_node();
+                let parent_guard = parent_latch.write().unwrap();
+                let did_steal = temp.steal_from_sibling(parent_guard.as_internal_node(), edge_idx);
                 println!("Did steal {}", did_steal);
+                drop(guard);
+                drop(parent_guard);
                 let expected_node = TestNode::Internal(TestInternalNode {
                     keys: Vec::from([15]),
                     edges: Vec::from([
@@ -2523,11 +2305,15 @@ mod Test {
                     ]),
                 });
                 let tree = create_test_tree(&test_node, 3);
-                let (node_rc, parent, edge_idx) =
+                let (node_latch, parent_latch, edge_idx) =
                     find_node_and_parent_with_indices(&tree, Vec::from([1]));
-                let temp = node_rc.as_internal_node();
-                let did_steal = temp.steal_from_sibling(parent.as_internal_node(), edge_idx);
+                let guard = node_latch.write().unwrap();
+                let temp = guard.as_internal_node();
+                let parent_guard = parent_latch.write().unwrap();
+                let did_steal = temp.steal_from_sibling(parent_guard.as_internal_node(), edge_idx);
                 println!("Did steal {}", did_steal);
+                drop(guard);
+                drop(parent_guard);
 
                 let expected_node = TestNode::Internal(TestInternalNode {
                     keys: Vec::from([20, 45]),
@@ -2575,8 +2361,8 @@ mod Test {
     mod merge {
         mod internal_node {
             use crate::latch_manager::latch_interval_btree::Test::{
-                assert_tree, create_test_tree, find_node_and_parent_with_indices,
-                find_node_with_indices, print_tree, TestInternalNode, TestLeafNode, TestNode,
+                assert_tree, create_test_tree, find_node_and_parent_with_indices, print_tree,
+                TestInternalNode, TestLeafNode, TestNode,
             };
 
             #[test]
@@ -2604,10 +2390,16 @@ mod Test {
                     ]),
                 });
                 let tree = create_test_tree(&test_node, 3);
-                let (node, parent, edge_idx) =
+                let (node_latch, parent_latch, edge_idx) =
                     find_node_and_parent_with_indices(&tree, Vec::from([1]));
-                let internal_node = node.as_internal_node();
-                internal_node.merge_with_sibling(parent.as_internal_node(), edge_idx);
+                let guard = node_latch.write().unwrap();
+                let internal_node = guard.as_internal_node();
+                let parent_guard = parent_latch.write().unwrap();
+                internal_node.merge_with_sibling(parent_guard.as_internal_node(), edge_idx);
+
+                drop(guard);
+                drop(parent_guard);
+
                 let expected_tree = TestNode::Internal(TestInternalNode {
                     keys: Vec::from([]),
                     edges: Vec::from([
@@ -2661,10 +2453,14 @@ mod Test {
                     ]),
                 });
                 let tree = create_test_tree(&test_node, 3);
-                let (node, parent, edge_idx) =
+                let (node_latch, parent_latch, edge_idx) =
                     find_node_and_parent_with_indices(&tree, Vec::from([0]));
-                let internal_node = node.as_internal_node();
-                internal_node.merge_with_sibling(parent.as_internal_node(), edge_idx);
+                let node_guard = node_latch.write().unwrap();
+                let internal_node = node_guard.as_internal_node();
+                let parent_guard = parent_latch.write().unwrap();
+                internal_node.merge_with_sibling(parent_guard.as_internal_node(), edge_idx);
+                drop(node_guard);
+                drop(parent_guard);
                 let expected_tree = TestNode::Internal(TestInternalNode {
                     keys: Vec::from([]),
                     edges: Vec::from([
@@ -2696,7 +2492,8 @@ mod Test {
 
         mod leaf {
             use crate::latch_manager::latch_interval_btree::Test::{
-                assert_tree, create_test_tree, print_tree, TestInternalNode, TestLeafNode, TestNode,
+                assert_tree, create_test_tree, find_node_and_parent_with_indices, print_tree,
+                TestInternalNode, TestLeafNode, TestNode,
             };
 
             #[test]
@@ -2716,11 +2513,15 @@ mod Test {
                     ]),
                 });
                 let tree = create_test_tree(&test_node, 3);
-                let (node, stack) = tree.find_leaf_to_delete(&16);
-                let unwrapped = node.unwrap();
-                let leaf = unwrapped.as_leaf_node();
-                let (edge_idx, dir, parent) = stack.last().unwrap();
-                leaf.merge_node(parent.as_internal_node(), *edge_idx);
+                let (leaf_latch, parent_latch, edge_idx) =
+                    find_node_and_parent_with_indices(&tree, Vec::from([1]));
+                let leaf_guard = leaf_latch.write().unwrap();
+                let leaf = leaf_guard.as_leaf_node();
+                let parent_guard = parent_latch.write().unwrap();
+
+                leaf.merge_node(parent_guard.as_internal_node(), edge_idx);
+                drop(leaf_guard);
+                drop(parent_guard);
                 print_tree(&tree);
 
                 let expected_node = TestNode::Internal(TestInternalNode {
@@ -2751,11 +2552,16 @@ mod Test {
                     ]),
                 });
                 let tree = create_test_tree(&test_node, 3);
-                let (node, stack) = tree.find_leaf_to_delete(&16);
-                let unwrapped = node.unwrap();
-                let leaf = unwrapped.as_leaf_node();
-                let (edge_idx, dir, parent) = stack.last().unwrap();
-                leaf.merge_node(parent.as_internal_node(), *edge_idx);
+
+                let (leaf_latch, parent_latch, edge_idx) =
+                    find_node_and_parent_with_indices(&tree, Vec::from([0]));
+                let leaf_guard = leaf_latch.write().unwrap();
+                let leaf = leaf_guard.as_leaf_node();
+                let parent_guard = parent_latch.write().unwrap();
+
+                leaf.merge_node(parent_guard.as_internal_node(), edge_idx);
+                drop(leaf_guard);
+                drop(parent_guard);
                 print_tree(&tree);
 
                 let expected_node = TestNode::Internal(TestInternalNode {
