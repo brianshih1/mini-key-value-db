@@ -719,6 +719,7 @@ impl<K: NodeKey> LeafNode<K> {
 
                     return Some(next_key);
                 }
+                let mut new_split_key = None;
                 let mut is_stolen = false;
                 // try to borrow left sibling for a key
                 if let Some(left_sibling) = left_sibling_option {
@@ -732,13 +733,15 @@ impl<K: NodeKey> LeafNode<K> {
                 // try to borrow right sibling for a key
                 if !is_stolen {
                     if let Some(right_sibling) = right_sibling_option {
-                        let (did_steal_right_sibling, b) = self.steal_from_right_leaf_sibling(
-                            &key_to_delete,
-                            right_sibling,
-                            parent_node,
-                            edge_idx,
-                            dir,
-                        );
+                        let (did_steal_right_sibling, right_stolen_key) = self
+                            .steal_from_right_leaf_sibling(
+                                &key_to_delete,
+                                right_sibling,
+                                parent_node,
+                                edge_idx,
+                                dir,
+                            );
+                        new_split_key = right_stolen_key;
                         is_stolen = did_steal_right_sibling;
                     }
                 }
@@ -748,14 +751,13 @@ impl<K: NodeKey> LeafNode<K> {
                     self.merge_node(parent_node, edge_idx);
                     return None;
                 }
+                new_split_key
             }
             None => {
                 // if there is no parent, then the leaf is the only element. We will allow root to underflow
                 return None;
             }
         }
-
-        return None;
     }
 
     /**
@@ -1114,7 +1116,16 @@ impl<K: NodeKey> BTree<K> {
      */
     pub fn delete(&self, key_to_delete: K) -> () {
         let root_node = self.root.borrow().clone().unwrap();
-        self.delete_helper(&key_to_delete, None, root_node);
+        self.delete_helper(&key_to_delete, None, root_node.clone());
+        match root_node.as_ref() {
+            Node::Internal(ref internal_node) => {
+                if internal_node.keys.borrow().len() == 0 {
+                    let new_root = internal_node.edges.borrow()[0].borrow().clone().unwrap();
+                    self.root.borrow_mut().replace(new_root);
+                }
+            }
+            Node::Leaf(_) => {}
+        }
     }
 }
 
