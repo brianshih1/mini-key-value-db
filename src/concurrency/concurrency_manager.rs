@@ -1,7 +1,11 @@
-struct ConcurrencyManager {}
+pub struct ConcurrencyManager {}
+
+pub struct Guard {}
 
 impl ConcurrencyManager {
-    fn sequence_req() -> () {}
+    pub fn sequence_req(&self) -> Guard {
+        todo!()
+    }
 
-    fn relesae_guard() -> () {}
+    pub fn release_guard(&self, guard: Guard) -> () {}
 }
