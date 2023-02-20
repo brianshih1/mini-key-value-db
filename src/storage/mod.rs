@@ -4,12 +4,12 @@ use serde::Serialize;
 
 use crate::hlc::timestamp::Timestamp;
 
-mod mvcc;
-mod mvcc_iterator;
-mod mvcc_key;
-mod mvcc_scanner;
-mod storage;
-mod txn;
+pub mod mvcc;
+pub mod mvcc_iterator;
+pub mod mvcc_key;
+pub mod mvcc_scanner;
+pub mod storage;
+pub mod txn;
 
 pub type Key = Vec<u8>;
 

@@ -5,11 +5,19 @@ use std::{
     sync::{Arc, RwLock, Weak},
 };
 
+use crate::storage::mvcc_key::MVCCKey;
+
 use self::Test::{print_node, print_tree};
+
+pub struct Range<K: NodeKey> {
+    pub start_key: K,
+    pub end_key: K,
+}
 
 pub trait NodeKey: std::fmt::Debug + Clone + Eq + PartialOrd + Ord {}
 
 impl NodeKey for i32 {}
+impl NodeKey for MVCCKey {}
 
 type NodeLink<K: NodeKey> = RefCell<Option<LatchNode<K>>>;
 type WeakNodeLink<K: NodeKey> = RefCell<Option<Weak<RwLock<Node<K>>>>>;
@@ -26,6 +34,8 @@ pub enum Direction {
     Left,
     Right,
 }
+
+type InsertResult = Result<(), bool>;
 
 impl<K: NodeKey> Node<K> {
     pub fn as_internal_node(&self) -> &InternalNode<K> {
@@ -447,7 +457,10 @@ impl<K: NodeKey> LeafNode<K> {
     /**
      * Just inserts, doesn't check for overflow and not responsible for splitting.
      */
-    pub fn insert_range(&self, range: Range<K>) {
+    pub fn insert_range(&self, range: Range<K>) -> InsertResult {
+        if self.start_keys.borrow().contains(&range.start_key) {
+            return Err(false);
+        }
         let mut insert_idx = self.start_keys.borrow().len();
         for (pos, k) in self.start_keys.borrow().iter().enumerate() {
             if &range.start_key < k {
@@ -459,6 +472,7 @@ impl<K: NodeKey> LeafNode<K> {
             .borrow_mut()
             .insert(insert_idx, range.start_key);
         self.end_keys.borrow_mut().insert(insert_idx, range.end_key);
+        return Ok(());
     }
 
     pub fn find_key_idx(&self, key: &K) -> Option<usize> {
@@ -787,11 +801,6 @@ pub struct BTree<K: NodeKey> {
     order: u16,
 }
 
-pub struct Range<K: NodeKey> {
-    start_key: K,
-    end_key: K,
-}
-
 impl<K: NodeKey> BTree<K> {
     pub fn new(capacity: u16) -> Self {
         BTree {
@@ -816,7 +825,7 @@ impl<K: NodeKey> BTree<K> {
         parent_node: Option<&InternalNode<K>>,
         node: LatchNode<K>,
         range: &Range<K>,
-    ) -> () {
+    ) -> InsertResult {
         let key_to_add = &range.start_key;
         let write_guard = node.write().unwrap();
         match &*write_guard {
@@ -833,62 +842,68 @@ impl<K: NodeKey> BTree<K> {
                     }
                 }
                 let next_node = next.unwrap();
-                self.insert_helper(Some(internal_node), next_node.clone(), range);
+                let res = self.insert_helper(Some(internal_node), next_node.clone(), range);
 
-                if !internal_node.has_capacity() {
-                    let (split_node, median) = internal_node.split();
-                    match parent_node {
-                        Some(parent_node) => {
-                            parent_node.insert_node(split_node.clone(), median.clone());
-                        }
-                        None => {
-                            // TODO: This means the current node is the root node. In this case, we create a new root with one key and 2 children
-                            self.root
-                                .borrow_mut()
-                                .replace(Arc::new(RwLock::new(Node::Internal(InternalNode {
-                                    keys: RefCell::new(Vec::from([median.clone()])),
-                                    edges: RefCell::new(Vec::from([
-                                        RefCell::new(Some(node.clone())),
-                                        RefCell::new(Some(split_node.clone())),
-                                    ])),
-                                    order: self.order,
-                                }))));
+                return res.and_then(|_| {
+                    if !internal_node.has_capacity() {
+                        let (split_node, median) = internal_node.split();
+                        match parent_node {
+                            Some(parent_node) => {
+                                parent_node.insert_node(split_node.clone(), median.clone());
+                            }
+                            None => {
+                                // TODO: This means the current node is the root node. In this case, we create a new root with one key and 2 children
+                                self.root.borrow_mut().replace(Arc::new(RwLock::new(
+                                    Node::Internal(InternalNode {
+                                        keys: RefCell::new(Vec::from([median.clone()])),
+                                        edges: RefCell::new(Vec::from([
+                                            RefCell::new(Some(node.clone())),
+                                            RefCell::new(Some(split_node.clone())),
+                                        ])),
+                                        order: self.order,
+                                    }),
+                                )));
+                            }
                         }
                     }
-                }
+                    return Ok(());
+                });
             }
             Node::Leaf(leaf_node) => {
-                leaf_node.insert_range(Range {
+                let res = leaf_node.insert_range(Range {
                     start_key: range.start_key.clone(),
                     end_key: range.end_key.clone(),
                 });
-                if !leaf_node.has_capacity() {
-                    let (split_node, median) = leaf_node.split(&node);
+                res.and_then(|_| {
+                    if !leaf_node.has_capacity() {
+                        let (split_node, median) = leaf_node.split(&node);
 
-                    match parent_node {
-                        Some(parent_node) => {
-                            parent_node.insert_node(split_node.clone(), median.clone());
-                        }
-                        None => {
-                            // This means the current node is the root node. In this case, we create a new root with one key and 2 children
-                            self.root
-                                .borrow_mut()
-                                .replace(Arc::new(RwLock::new(Node::Internal(InternalNode {
-                                    keys: RefCell::new(Vec::from([median.clone()])),
-                                    edges: RefCell::new(Vec::from([
-                                        RefCell::new(Some(node.clone())),
-                                        RefCell::new(Some(split_node.clone())),
-                                    ])),
-                                    order: self.order,
-                                }))));
-                        }
-                    };
-                }
+                        match parent_node {
+                            Some(parent_node) => {
+                                parent_node.insert_node(split_node.clone(), median.clone());
+                            }
+                            None => {
+                                // This means the current node is the root node. In this case, we create a new root with one key and 2 children
+                                self.root.borrow_mut().replace(Arc::new(RwLock::new(
+                                    Node::Internal(InternalNode {
+                                        keys: RefCell::new(Vec::from([median.clone()])),
+                                        edges: RefCell::new(Vec::from([
+                                            RefCell::new(Some(node.clone())),
+                                            RefCell::new(Some(split_node.clone())),
+                                        ])),
+                                        order: self.order,
+                                    }),
+                                )));
+                            }
+                        };
+                    }
+                    Ok(())
+                })
             }
         }
     }
 
-    pub fn insert(&self, range: Range<K>) -> () {
+    pub fn insert(&self, range: Range<K>) -> InsertResult {
         let node = self.root.borrow().clone().unwrap();
         self.insert_helper(None, node, &range)
     }
@@ -1581,18 +1596,21 @@ mod Test {
         #[test]
         fn insert_and_split_internal() {
             let tree = BTree::<i32>::new(3);
-            tree.insert(Range {
+            let res1 = tree.insert(Range {
                 start_key: 5,
                 end_key: 5,
             });
-            tree.insert(Range {
+            assert!(res1.is_ok());
+            let res2 = tree.insert(Range {
                 start_key: 10,
                 end_key: 10,
             });
-            tree.insert(Range {
+            assert!(res2.is_ok());
+            let res3 = tree.insert(Range {
                 start_key: 20,
                 end_key: 20,
             });
+            assert!(res3.is_ok());
 
             let test_node = TestNode::Internal(TestInternalNode {
                 keys: Vec::from([10]),
@@ -1611,10 +1629,12 @@ mod Test {
             assert_tree(&tree, &test_node);
 
             // here
-            tree.insert(Range {
+            let res4 = tree.insert(Range {
                 start_key: 15,
                 end_key: 15,
             });
+            assert!(res4.is_ok());
+
             print_tree(&tree);
             let test_node = TestNode::Internal(TestInternalNode {
                 keys: Vec::from([10, 15]),
@@ -1667,6 +1687,21 @@ mod Test {
             });
 
             assert_tree(&tree, &test_node);
+        }
+
+        #[test]
+        fn insert_duplicate() {
+            let tree = BTree::<i32>::new(3);
+            let res1 = tree.insert(Range {
+                start_key: 5,
+                end_key: 5,
+            });
+            assert!(res1.is_ok());
+            let res2 = tree.insert(Range {
+                start_key: 5,
+                end_key: 5,
+            });
+            assert!(res2.is_err());
         }
     }
 

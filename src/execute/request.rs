@@ -1,10 +1,20 @@
 use std::collections::HashMap;
 
+use crate::latch_manager::latch_interval_btree::{NodeKey, Range};
+
 pub enum Request {
     BeginTransaction(BeginTransactionRequest),
     EndTransaction(EndTransactionRequest),
     Get(GetRequest),
     Put(PutRequest),
+}
+
+// TODO: Does this need a timestamp in there?
+pub type SpanSet<K: NodeKey> = Vec<Range<K>>;
+
+pub struct SpansToAcquire<K: NodeKey> {
+    pub latch_spans: SpanSet<K>,
+    pub lock_spans: SpanSet<K>,
 }
 
 pub trait Command {
