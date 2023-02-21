@@ -12,6 +12,7 @@ pub enum Request {
 // TODO: Does this need a timestamp in there?
 pub type SpanSet<K: NodeKey> = Vec<Range<K>>;
 
+#[derive(Debug, Clone)]
 pub struct SpansToAcquire<K: NodeKey> {
     pub latch_spans: SpanSet<K>,
     pub lock_spans: SpanSet<K>,

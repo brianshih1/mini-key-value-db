@@ -9,6 +9,7 @@ use crate::storage::mvcc_key::MVCCKey;
 
 use self::Test::{print_node, print_tree};
 
+#[derive(Debug, Clone)]
 pub struct Range<K: NodeKey> {
     pub start_key: K,
     pub end_key: K,
