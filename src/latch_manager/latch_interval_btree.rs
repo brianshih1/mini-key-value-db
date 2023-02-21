@@ -328,10 +328,8 @@ impl<K: NodeKey> InternalNode<K> {
         if edge_idx == edges.len() - 1 {
             return None;
         }
-        self.edges.write().unwrap()[edge_idx + 1]
-            .read()
-            .unwrap()
-            .clone()
+        let x = edges[edge_idx + 1].read().unwrap().clone();
+        x
     }
 
     /**
