@@ -1,8 +1,17 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, default};
+
+use uuid::Uuid;
 
 use crate::{
+    hlc::timestamp::Timestamp,
     latch_manager::latch_interval_btree::{NodeKey, Range},
-    storage::{mvcc::KVStore, mvcc_key::MVCCKey, Key, Value},
+    storage::{
+        mvcc::{KVStore, MVCCGetParams},
+        mvcc_key::MVCCKey,
+        str_to_key,
+        txn::Transaction,
+        Key, Value,
+    },
     StorageResult,
 };
 
@@ -10,14 +19,27 @@ use crate::{
  * Request is the input to SequenceReq. The struct contains all the information necessary
  * to sequence a request (to provide concurrent isolation for storage)
  */
-pub struct Request {
-    request_header: RequestHeader,
+pub struct Request<'a> {
+    request_header: RequestHeader<'a>,
     request_union: RequestUnion,
+}
+
+pub struct ExecuteResult {
+    response: ResponseUnion,
+}
+
+pub enum ResponseUnion {
+    BeginTransaction(BeginTransactionResponse),
+    EndTransaction(EndTransactionResponse),
+    AbortTransaction(AbortTransactionResponse),
+    Get(GetResponse),
+    Put(PutResponse),
 }
 
 pub enum RequestUnion {
     BeginTransaction(BeginTransactionRequest),
     EndTransaction(EndTransactionRequest),
+    AbortTransaction(AbortTransactionRequest),
     Get(GetRequest),
     Put(PutRequest),
     // TODO: ConditionalPut
@@ -38,15 +60,29 @@ pub trait Command {
 
     fn collect_spans(&self) -> SpanSet<Key>;
 
-    fn execute(&self, writer: KVStore) -> StorageResult<()>;
+    fn execute(&self, header: RequestHeader, writer: KVStore) -> ExecuteResult;
 }
 
-pub struct RequestHeader {
+pub struct RequestHeader<'a> {
     // TODO: Timestamp
     // TODO: Transaction
+    /**
+     * The timestamp the request should evaluate at.
+     * Should be set to Txn.ReadTimestamp if Txn is non-nil
+     */
+    timestamp: Timestamp,
+    /**
+     * The optional transaction that sent the request.
+     * Non-transactional requests do not acquire locks
+     */
+    txn: Option<&'a Transaction>,
 }
 
-pub struct BeginTransactionRequest {}
+pub struct BeginTransactionRequest {
+    txn_id: Uuid,
+}
+
+pub struct BeginTransactionResponse {}
 
 impl Command for BeginTransactionRequest {
     fn is_read_only(&self) -> bool {
@@ -57,12 +93,39 @@ impl Command for BeginTransactionRequest {
         Vec::new()
     }
 
-    fn execute(&self, writer: KVStore) -> StorageResult<()> {
+    fn execute(&self, header: RequestHeader, mut writer: KVStore) -> ExecuteResult {
+        writer.create_pending_transaction_record(&self.txn_id);
+        ExecuteResult {
+            response: ResponseUnion::BeginTransaction(BeginTransactionResponse {}),
+        }
+    }
+}
+
+pub struct AbortTransactionRequest {}
+
+pub struct AbortTransactionResponse {}
+
+impl Command for AbortTransactionRequest {
+    fn is_read_only(&self) -> bool {
         todo!()
+    }
+
+    fn collect_spans(&self) -> SpanSet<Key> {
+        todo!()
+    }
+
+    fn execute(&self, header: RequestHeader, mut writer: KVStore) -> ExecuteResult {
+        let txn = header.txn.unwrap();
+        writer.abort_transaction(&txn.transaction_id);
+        ExecuteResult {
+            response: ResponseUnion::AbortTransaction(AbortTransactionResponse {}),
+        }
     }
 }
 
 pub struct EndTransactionRequest {}
+
+pub struct EndTransactionResponse {}
 
 impl Command for EndTransactionRequest {
     fn is_read_only(&self) -> bool {
@@ -73,14 +136,20 @@ impl Command for EndTransactionRequest {
         Vec::new()
     }
 
-    fn execute(&self, writer: KVStore) -> StorageResult<()> {
-        todo!()
+    fn execute(&self, header: RequestHeader, mut writer: KVStore) -> ExecuteResult {
+        let txn = header.txn.unwrap();
+        writer.commit_transaction(&txn.transaction_id);
+        ExecuteResult {
+            response: ResponseUnion::EndTransaction(EndTransactionResponse {}),
+        }
     }
 }
 
 pub struct GetRequest {
     key: Key,
 }
+
+pub struct GetResponse {}
 
 impl Command for GetRequest {
     fn is_read_only(&self) -> bool {
@@ -94,30 +163,51 @@ impl Command for GetRequest {
         }])
     }
 
-    fn execute(&self, writer: KVStore) -> StorageResult<()> {
-        todo!()
+    fn execute(&self, header: RequestHeader, writer: KVStore) -> ExecuteResult {
+        let result = writer.mvcc_get(
+            &self.key,
+            &header.timestamp,
+            MVCCGetParams {
+                transaction: header.txn,
+            },
+        );
+        ExecuteResult {
+            response: ResponseUnion::Get(GetResponse {}),
+        }
     }
 }
 
 pub struct PutRequest {
-    key: Key,
+    key: &'static str,
     value: Value,
 }
 
-impl Command for PutRequest {
+pub struct PutResponse {}
+
+impl<'a> Command for PutRequest {
     fn is_read_only(&self) -> bool {
         false
     }
 
     fn collect_spans(&self) -> SpanSet<Key> {
         Vec::from([Range {
-            start_key: self.key.clone(),
-            end_key: self.key.clone(),
+            start_key: str_to_key(self.key),
+            end_key: str_to_key(self.key),
         }])
     }
 
-    fn execute(&self, writer: KVStore) -> StorageResult<()> {
-        todo!()
+    fn execute(&self, header: RequestHeader, mut writer: KVStore) -> ExecuteResult {
+        writer
+            .mvcc_put(
+                self.key,
+                Some(header.timestamp.clone()),
+                header.txn.and_then(|txn| Some(txn)),
+                self.value.clone(),
+            ) // TODO: Remove clone
+            .and_then(|_| Ok(()));
+        ExecuteResult {
+            response: ResponseUnion::Put(PutResponse {}),
+        }
     }
 }
 
@@ -128,6 +218,7 @@ impl Command for RequestUnion {
             RequestUnion::EndTransaction(command) => command.is_read_only(),
             RequestUnion::Get(command) => command.is_read_only(),
             RequestUnion::Put(command) => command.is_read_only(),
+            RequestUnion::AbortTransaction(command) => command.is_read_only(),
         }
     }
 
@@ -137,10 +228,11 @@ impl Command for RequestUnion {
             RequestUnion::EndTransaction(command) => command.collect_spans(),
             RequestUnion::Get(command) => command.collect_spans(),
             RequestUnion::Put(command) => command.collect_spans(),
+            RequestUnion::AbortTransaction(command) => command.collect_spans(),
         }
     }
 
-    fn execute(&self, writer: KVStore) -> StorageResult<()> {
+    fn execute(&self, header: RequestHeader, writer: KVStore) -> ExecuteResult {
         todo!()
     }
 }

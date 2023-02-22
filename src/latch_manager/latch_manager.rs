@@ -10,7 +10,7 @@ pub struct LatchManager<K: NodeKey> {
 }
 
 impl<K: NodeKey> LatchManager<K> {
-    // TODO: We currently don't support key-range locks. We only support single point locks
+    // TODO: We currently don't support key-range locks. We only support single point
     fn acquire(&self, spans: Vec<Span<K>>) -> LatchGuard {
         todo!()
     }
