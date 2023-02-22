@@ -5,10 +5,11 @@ use std::{
     sync::{Arc, Mutex, RwLock, Weak},
 };
 
-use crate::storage::mvcc_key::MVCCKey;
+use crate::storage::{mvcc_key::MVCCKey, Key};
 
 use self::Test::{print_node, print_tree};
 
+#[derive(Debug, Clone)]
 pub struct Range<K: NodeKey> {
     pub start_key: K,
     pub end_key: K,
@@ -18,6 +19,7 @@ pub trait NodeKey: std::fmt::Debug + Clone + Eq + PartialOrd + Ord {}
 
 impl NodeKey for i32 {}
 impl NodeKey for MVCCKey {}
+impl NodeKey for Key {}
 
 type NodeLink<K: NodeKey> = RwLock<Option<LatchNode<K>>>;
 type WeakNodeLink<K: NodeKey> = RwLock<Option<Weak<RwLock<Node<K>>>>>;
@@ -476,6 +478,7 @@ impl<K: NodeKey> LeafNode<K> {
      */
     pub fn insert_range(&self, range: Range<K>) -> InsertResult {
         if self.start_keys.read().unwrap().contains(&range.start_key) {
+            println!("Key: {:?}", &range.start_key);
             return Err(false);
         }
         let mut insert_idx = self.start_keys.read().unwrap().len();
@@ -565,14 +568,6 @@ impl<K: NodeKey> LeafNode<K> {
         let start_key = self.start_keys.write().unwrap().remove(idx);
         let end_key = self.end_keys.write().unwrap().remove(idx);
         Range { start_key, end_key }
-    }
-
-    pub fn update_parent_after_steal(
-        isParent: bool,
-        parent: &InternalNode<K>,
-        edge_idx: usize,
-        dir: Direction,
-    ) {
     }
 
     /**

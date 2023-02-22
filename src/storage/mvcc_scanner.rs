@@ -12,7 +12,7 @@ use super::{
 pub struct MVCCScanner<'a> {
     it: MVCCIterator<'a>,
 
-    pub transaction: Option<Transaction>,
+    pub transaction: Option<&'a Transaction>,
 
     // TODO: lockTable
 
@@ -47,7 +47,7 @@ impl<'a> MVCCScanner<'a> {
         end_key: Option<Key>,
         timestamp: Timestamp,
         max_records_count: usize,
-        transaction: Option<Transaction>,
+        transaction: Option<&'a Transaction>,
     ) -> Self {
         MVCCScanner {
             it,
