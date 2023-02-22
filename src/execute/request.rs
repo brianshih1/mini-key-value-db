@@ -6,7 +6,7 @@ use crate::{
     hlc::timestamp::Timestamp,
     latch_manager::latch_interval_btree::{NodeKey, Range},
     storage::{
-        mvcc::{KVStore, MVCCGetParams},
+        mvcc::{KVStore, MVCCGetParams, WriteIntentError},
         mvcc_key::MVCCKey,
         str_to_key,
         txn::Transaction,
@@ -182,7 +182,10 @@ pub struct PutRequest {
     value: Value,
 }
 
-pub struct PutResponse {}
+pub enum PutResponse {
+    Success(),
+    WriteIntentError(WriteIntentError),
+}
 
 impl<'a> Command for PutRequest {
     fn is_read_only(&self) -> bool {
@@ -197,16 +200,18 @@ impl<'a> Command for PutRequest {
     }
 
     fn execute(&self, header: RequestHeader, mut writer: KVStore) -> ExecuteResult {
-        writer
-            .mvcc_put(
-                self.key,
-                Some(header.timestamp.clone()),
-                header.txn.and_then(|txn| Some(txn)),
-                self.value.clone(),
-            ) // TODO: Remove clone
-            .and_then(|_| Ok(()));
+        let res = writer.mvcc_put(
+            self.key,
+            Some(header.timestamp.clone()),
+            header.txn.and_then(|txn| Some(txn)),
+            self.value.clone(),
+        ); // TODO: Remove value.clone()
+
         ExecuteResult {
-            response: ResponseUnion::Put(PutResponse {}),
+            response: ResponseUnion::Put(match res {
+                Ok(_) => PutResponse::Success(),
+                Err(err) => PutResponse::WriteIntentError(err),
+            }),
         }
     }
 }
