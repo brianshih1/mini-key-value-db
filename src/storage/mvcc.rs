@@ -35,8 +35,8 @@ pub struct WriteIntentError {
 }
 
 pub struct MVCCGetResult {
-    value: Option<(MVCCKey, Value)>,
-    intent: Option<TransactionMetadata>,
+    pub value: Option<(MVCCKey, Value)>,
+    pub intent: Option<TransactionMetadata>,
 }
 
 pub struct MVCCScanResult {

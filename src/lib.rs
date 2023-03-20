@@ -1,4 +1,5 @@
 mod concurrency;
+mod db;
 mod execute;
 mod hlc;
 mod interval;

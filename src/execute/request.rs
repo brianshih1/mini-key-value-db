@@ -9,7 +9,7 @@ use crate::{
         mvcc::{KVStore, MVCCGetParams, WriteIntentError},
         mvcc_key::MVCCKey,
         str_to_key,
-        txn::Transaction,
+        txn::{Transaction, TransactionMetadata},
         Key, Value,
     },
     StorageResult,
@@ -60,7 +60,7 @@ pub trait Command {
 
     fn collect_spans(&self) -> SpanSet<Key>;
 
-    fn execute(&self, header: RequestHeader, writer: KVStore) -> ExecuteResult;
+    fn execute(&self, header: &RequestHeader, writer: &mut KVStore) -> ExecuteResult;
 }
 
 pub struct RequestHeader<'a> {
@@ -93,7 +93,7 @@ impl Command for BeginTransactionRequest {
         Vec::new()
     }
 
-    fn execute(&self, header: RequestHeader, mut writer: KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestHeader, mut writer: &mut KVStore) -> ExecuteResult {
         writer.create_pending_transaction_record(&self.txn_id);
         ExecuteResult {
             response: ResponseUnion::BeginTransaction(BeginTransactionResponse {}),
@@ -114,7 +114,7 @@ impl Command for AbortTransactionRequest {
         todo!()
     }
 
-    fn execute(&self, header: RequestHeader, mut writer: KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestHeader, mut writer: &mut KVStore) -> ExecuteResult {
         let txn = header.txn.unwrap();
         writer.abort_transaction(&txn.transaction_id);
         ExecuteResult {
@@ -136,7 +136,7 @@ impl Command for EndTransactionRequest {
         Vec::new()
     }
 
-    fn execute(&self, header: RequestHeader, mut writer: KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestHeader, mut writer: &mut KVStore) -> ExecuteResult {
         let txn = header.txn.unwrap();
         writer.commit_transaction(&txn.transaction_id);
         ExecuteResult {
@@ -149,7 +149,10 @@ pub struct GetRequest {
     key: Key,
 }
 
-pub struct GetResponse {}
+pub struct GetResponse {
+    pub value: Option<(MVCCKey, Value)>,
+    pub intent: Option<TransactionMetadata>,
+}
 
 impl Command for GetRequest {
     fn is_read_only(&self) -> bool {
@@ -163,7 +166,7 @@ impl Command for GetRequest {
         }])
     }
 
-    fn execute(&self, header: RequestHeader, writer: KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestHeader, writer: &mut KVStore) -> ExecuteResult {
         let result = writer.mvcc_get(
             &self.key,
             &header.timestamp,
@@ -171,8 +174,12 @@ impl Command for GetRequest {
                 transaction: header.txn,
             },
         );
+
         ExecuteResult {
-            response: ResponseUnion::Get(GetResponse {}),
+            response: ResponseUnion::Get(GetResponse {
+                value: result.value,
+                intent: result.intent,
+            }),
         }
     }
 }
@@ -199,7 +206,7 @@ impl<'a> Command for PutRequest {
         }])
     }
 
-    fn execute(&self, header: RequestHeader, mut writer: KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestHeader, mut writer: &mut KVStore) -> ExecuteResult {
         let res = writer.mvcc_put(
             self.key,
             Some(header.timestamp.clone()),
@@ -237,7 +244,13 @@ impl Command for RequestUnion {
         }
     }
 
-    fn execute(&self, header: RequestHeader, writer: KVStore) -> ExecuteResult {
-        todo!()
+    fn execute(&self, header: &RequestHeader, writer: &mut KVStore) -> ExecuteResult {
+        match self {
+            RequestUnion::BeginTransaction(command) => command.execute(header, writer),
+            RequestUnion::EndTransaction(command) => todo!(),
+            RequestUnion::AbortTransaction(command) => todo!(),
+            RequestUnion::Get(command) => todo!(),
+            RequestUnion::Put(command) => todo!(),
+        }
     }
 }
