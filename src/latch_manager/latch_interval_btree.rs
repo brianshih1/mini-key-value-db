@@ -2,7 +2,7 @@ use std::{
     borrow::{Borrow, BorrowMut},
     cell::RefCell,
     rc::Rc,
-    sync::{Arc, Mutex, RwLock, Weak},
+    sync::{mpsc::Sender, Arc, Mutex, RwLock, Weak},
 };
 
 use crate::storage::{mvcc_key::MVCCKey, Key};
@@ -151,12 +151,18 @@ pub struct InternalNode<K: NodeKey> {
 }
 
 #[derive(Debug)]
+struct LatchWaiters {
+    senders: Vec<Mutex<Sender<()>>>,
+}
+
+#[derive(Debug)]
 pub struct LeafNode<K: NodeKey> {
     start_keys: RwLock<Vec<K>>,
     end_keys: RwLock<Vec<K>>,
     left_ptr: WeakNodeLink<K>,
     right_ptr: WeakNodeLink<K>,
     order: u16,
+    waiters: LatchWaiters,
 }
 
 // impl internal
@@ -456,6 +462,9 @@ impl<K: NodeKey> LeafNode<K> {
             left_ptr: RwLock::new(None),
             right_ptr: RwLock::new(None),
             order: capacity,
+            waiters: LatchWaiters {
+                senders: Vec::new(),
+            },
         }
     }
 
@@ -808,6 +817,9 @@ impl<K: NodeKey> LeafNode<K> {
             left_ptr: RwLock::new(Some(Arc::downgrade(node))), // TODO: set the left_sibling to the current leaf node later
             right_ptr: RwLock::new(right_sibling),
             order: self.order,
+            waiters: LatchWaiters {
+                senders: Vec::new(),
+            },
         };
         let right_latch_node = Arc::new(RwLock::new(Node::Leaf(new_right_node)));
         self.right_ptr
@@ -1064,7 +1076,10 @@ mod Test {
         sync::{Arc, RwLock},
     };
 
-    use super::{BTree, InternalNode, LatchNode, LeafNode, Node, NodeKey, NodeLink, WeakNodeLink};
+    use super::{
+        BTree, InternalNode, LatchNode, LatchWaiters, LeafNode, Node, NodeKey, NodeLink,
+        WeakNodeLink,
+    };
 
     pub fn find_node_and_parent_with_indices<K: NodeKey>(
         tree: &BTree<K>,
@@ -1185,6 +1200,9 @@ mod Test {
                     left_ptr: RwLock::new(None),
                     right_ptr: RwLock::new(None),
                     order: order,
+                    waiters: LatchWaiters {
+                        senders: Vec::new(),
+                    },
                 });
                 let leaf_latch = Arc::new(RwLock::new(leaf));
                 (leaf_latch.clone(), Vec::from([leaf_latch.clone()]))
@@ -1749,7 +1767,7 @@ mod Test {
     mod leaf_underflow {
         use std::{cell::RefCell, sync::RwLock};
 
-        use crate::latch_manager::latch_interval_btree::LeafNode;
+        use crate::latch_manager::latch_interval_btree::{LatchWaiters, LeafNode};
 
         #[test]
         fn underflows() {
@@ -1759,6 +1777,9 @@ mod Test {
                 left_ptr: RwLock::new(None),
                 right_ptr: RwLock::new(None),
                 order: 4,
+                waiters: LatchWaiters {
+                    senders: Vec::new(),
+                },
             };
             assert!(leaf.is_underflow());
         }
@@ -2042,7 +2063,7 @@ mod Test {
                 use std::{cell::RefCell, sync::RwLock};
 
                 use crate::latch_manager::latch_interval_btree::{
-                    LeafNode,
+                    LatchWaiters, LeafNode,
                     Test::{
                         assert_tree, create_test_tree, TestInternalNode, TestLeafNode, TestNode,
                     },
@@ -2059,6 +2080,9 @@ mod Test {
                         left_ptr: RwLock::new(None),
                         right_ptr: RwLock::new(None),
                         order: 3,
+                        waiters: LatchWaiters {
+                            senders: Vec::new(),
+                        },
                     };
                     assert_eq!(leaf_node.has_spare_key(), true);
                 }
@@ -2071,6 +2095,9 @@ mod Test {
                         left_ptr: RwLock::new(None),
                         right_ptr: RwLock::new(None),
                         order: 3,
+                        waiters: LatchWaiters {
+                            senders: Vec::new(),
+                        },
                     };
                     assert_eq!(leaf_node.has_spare_key(), false);
                 }

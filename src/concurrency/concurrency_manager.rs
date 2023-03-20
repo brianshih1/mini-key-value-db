@@ -81,6 +81,11 @@ impl ConcurrencyManager {
 }
 
 mod Test {
+    use std::{
+        sync::mpsc::{self, Receiver, Sender},
+        thread,
+    };
+
     mod SequenceReq {
         use core::time;
         use std::{sync::Arc, thread};
@@ -144,5 +149,25 @@ mod Test {
             handle1.join().unwrap();
             handle2.join().unwrap();
         }
+    }
+
+    struct TestGuard {
+        sender: Sender<u32>,
+        receiver: Receiver<u32>,
+    }
+    #[test]
+    fn learn_channel() {
+        let (tx, rx) = mpsc::channel::<u32>();
+        let guard = TestGuard {
+            sender: tx,
+            receiver: rx,
+        };
+        let tx1 = mpsc::Sender::clone(&guard.sender);
+        thread::spawn(move || {
+            println!("sending!");
+            tx1.send(12).unwrap();
+        });
+        guard.receiver.recv().unwrap();
+        println!("foo");
     }
 }
