@@ -120,7 +120,7 @@ impl KVStore {
      * The intent will be written by txn.metadata.writeTimestamp. Reads are performed at txn.readTimestamp.
      */
     pub fn mvcc_put<T: Serialize>(
-        &mut self,
+        &self,
         key: &str,
         timestamp: Option<Timestamp>,
         txn: Option<&Transaction>,
@@ -209,7 +209,7 @@ impl KVStore {
         None
     }
 
-    pub fn create_pending_transaction_record(&mut self, transaction_id: &Uuid) -> () {
+    pub fn create_pending_transaction_record(&self, transaction_id: &Uuid) -> () {
         self.put_transaction_record(
             transaction_id,
             TransactionRecord {
@@ -223,13 +223,13 @@ impl KVStore {
     }
 
     // This can be used to create or overwrite transaction record.
-    pub fn put_transaction_record(&mut self, transaction_id: &Uuid, record: TransactionRecord) {
+    pub fn put_transaction_record(&self, transaction_id: &Uuid, record: TransactionRecord) {
         self.storage
             .put_transaction_record(&transaction_id, record)
             .unwrap();
     }
 
-    pub fn commit_transaction(&mut self, transaction_id: &Uuid) {
+    pub fn commit_transaction(&self, transaction_id: &Uuid) {
         self.put_transaction_record(
             transaction_id,
             TransactionRecord {
@@ -238,7 +238,7 @@ impl KVStore {
         )
     }
 
-    pub fn abort_transaction(&mut self, transaction_id: &Uuid) {
+    pub fn abort_transaction(&self, transaction_id: &Uuid) {
         // TODO: What else do we need to do here?
         self.put_transaction_record(
             transaction_id,
@@ -249,7 +249,7 @@ impl KVStore {
     }
 
     // Debugger method to help collect all MVCCKey-Value pairs
-    pub fn collect_all_mvcc_kvs(&mut self) -> Vec<MVCCKey> {
+    pub fn collect_all_mvcc_kvs(&self) -> Vec<MVCCKey> {
         let mut vec = Vec::new();
         let mut it = MVCCIterator::new(&self.storage, IterOptions { prefix: false });
         loop {
@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn create_pending_transaction_record() -> () {
-        let mut kv_store = KVStore::new("./tmp/data");
+        let kv_store = KVStore::new("./tmp/data");
         let transaction_id = Uuid::new_v4();
 
         kv_store.create_pending_transaction_record(&transaction_id);

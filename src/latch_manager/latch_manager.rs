@@ -3,6 +3,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use rand::Rng;
 use tokio::time::{self, Duration};
 
+use crate::execute::request::SpanSet;
+
 use super::{
     latch_interval_btree::{BTree, LatchKeyGuard, NodeKey, Range},
     spanset::Span,
@@ -13,17 +15,17 @@ pub struct LatchManager<K: NodeKey> {
 }
 
 pub struct LatchGuard<K: NodeKey> {
-    pub spans: Vec<Span<K>>,
+    pub spans: SpanSet<K>,
 }
 
 impl<K: NodeKey> LatchManager<K> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let tree = BTree::new(3);
         LatchManager { tree }
     }
 
     // We currently don't support key-range locks. We only support single point locks
-    async fn acquire(&self, spans: Vec<Span<K>>) -> LatchGuard<K> {
+    pub async fn acquire_and_wait(&self, spans: SpanSet<K>) -> LatchGuard<K> {
         // create a timer and repeat until success
         // loop through the spans, add them, wait until it's released
         loop {
@@ -80,7 +82,7 @@ impl<K: NodeKey> LatchManager<K> {
         }
     }
 
-    fn release(&self, guard: LatchGuard<K>) -> () {
+    pub fn release(&self, guard: LatchGuard<K>) -> () {
         for span in guard.spans.iter() {
             self.tree.delete(span.start_key.clone())
         }
@@ -93,18 +95,20 @@ mod Test {
 
         use tokio::time::{self, sleep, Duration};
 
-        use crate::latch_manager::{latch_manager::LatchManager, spanset::Span};
+        use crate::latch_manager::{
+            latch_interval_btree::Range, latch_manager::LatchManager, spanset::Span,
+        };
 
         #[tokio::test]
         async fn test_select() {
             let lm = Arc::new(LatchManager::<i32>::new());
             let guard = lm
-                .acquire(Vec::from([
-                    Span {
+                .acquire_and_wait(Vec::from([
+                    Range {
                         start_key: 12,
                         end_key: 12,
                     },
-                    Span {
+                    Range {
                         start_key: 18,
                         end_key: 18,
                     },
@@ -120,12 +124,12 @@ mod Test {
                 lm2.release(guard)
             });
 
-            lm.acquire(Vec::from([
-                Span {
+            lm.acquire_and_wait(Vec::from([
+                Range {
                     start_key: 12,
                     end_key: 12,
                 },
-                Span {
+                Range {
                     start_key: 18,
                     end_key: 18,
                 },

@@ -20,8 +20,8 @@ use crate::{
  * to sequence a request (to provide concurrent isolation for storage)
  */
 pub struct Request<'a> {
-    request_header: RequestHeader<'a>,
-    request_union: RequestUnion,
+    pub metadata: RequestMetadata<'a>,
+    pub request_union: RequestUnion,
 }
 
 pub struct ExecuteResult {
@@ -60,12 +60,11 @@ pub trait Command {
 
     fn collect_spans(&self) -> SpanSet<Key>;
 
-    fn execute(&self, header: &RequestHeader, writer: &mut KVStore) -> ExecuteResult;
+    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult;
 }
 
-pub struct RequestHeader<'a> {
-    // TODO: Timestamp
-    // TODO: Transaction
+// Similar to CRDB's RequestHeader
+pub struct RequestMetadata<'a> {
     /**
      * The timestamp the request should evaluate at.
      * Should be set to Txn.ReadTimestamp if Txn is non-nil
@@ -93,7 +92,7 @@ impl Command for BeginTransactionRequest {
         Vec::new()
     }
 
-    fn execute(&self, header: &RequestHeader, mut writer: &mut KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         writer.create_pending_transaction_record(&self.txn_id);
         ExecuteResult {
             response: ResponseUnion::BeginTransaction(BeginTransactionResponse {}),
@@ -114,7 +113,7 @@ impl Command for AbortTransactionRequest {
         todo!()
     }
 
-    fn execute(&self, header: &RequestHeader, mut writer: &mut KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
         let txn = header.txn.unwrap();
         writer.abort_transaction(&txn.transaction_id);
         ExecuteResult {
@@ -136,7 +135,7 @@ impl Command for EndTransactionRequest {
         Vec::new()
     }
 
-    fn execute(&self, header: &RequestHeader, mut writer: &mut KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
         let txn = header.txn.unwrap();
         writer.commit_transaction(&txn.transaction_id);
         ExecuteResult {
@@ -166,7 +165,7 @@ impl Command for GetRequest {
         }])
     }
 
-    fn execute(&self, header: &RequestHeader, writer: &mut KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let result = writer.mvcc_get(
             &self.key,
             &header.timestamp,
@@ -206,7 +205,7 @@ impl<'a> Command for PutRequest {
         }])
     }
 
-    fn execute(&self, header: &RequestHeader, mut writer: &mut KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
         let res = writer.mvcc_put(
             self.key,
             Some(header.timestamp.clone()),
@@ -244,7 +243,7 @@ impl Command for RequestUnion {
         }
     }
 
-    fn execute(&self, header: &RequestHeader, writer: &mut KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         match self {
             RequestUnion::BeginTransaction(command) => command.execute(header, writer),
             RequestUnion::EndTransaction(command) => todo!(),

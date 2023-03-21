@@ -80,7 +80,7 @@ impl Storage {
         MVCCIterator::new(&self, iter_options)
     }
 
-    pub fn put_raw_transaction_record(&mut self, key: &str, value: Vec<u8>) -> StorageResult<()> {
+    pub fn put_raw_transaction_record(&self, key: &str, value: Vec<u8>) -> StorageResult<()> {
         self.put_raw(TRANSACTION_RECORD_COLUMN_FAMILY, key, value)
     }
 
@@ -88,7 +88,7 @@ impl Storage {
         self.db.cf_handle(&cf_name).unwrap()
     }
 
-    fn put_raw(&mut self, cf_name: &str, key: &str, value: Vec<u8>) -> StorageResult<()> {
+    fn put_raw(&self, cf_name: &str, key: &str, value: Vec<u8>) -> StorageResult<()> {
         let cf = self.get_column_family(cf_name);
         self.db
             .put_cf(cf, key, value)
@@ -96,7 +96,7 @@ impl Storage {
     }
 
     pub fn put_serialized<T: Serialize>(
-        &mut self,
+        &self,
         cf_name: &str,
         key: &str,
         value: T,
@@ -109,7 +109,7 @@ impl Storage {
     }
 
     pub fn put_serialized_with_mvcc_key<T: Serialize>(
-        &mut self,
+        &self,
         key: &MVCCKey,
         value: T,
     ) -> StorageResult<()> {
@@ -117,7 +117,7 @@ impl Storage {
     }
 
     pub fn get_serialized_with_mvcc_key<T: DeserializeOwned>(
-        &mut self,
+        &self,
         key: &MVCCKey,
     ) -> StorageResult<Option<T>> {
         self.get_serialized(MVCC_COLUMN_FAMILY, &key.to_string())
@@ -129,7 +129,7 @@ impl Storage {
     }
 
     pub fn put_transaction_record(
-        &mut self,
+        &self,
         txn_id: &Uuid,
         txn_record: TransactionRecord,
     ) -> Result<(), StorageError> {
@@ -160,7 +160,7 @@ impl Storage {
     }
 
     pub fn get_preseek_iterator(
-        &mut self,
+        &self,
         cf_name: &str,
         prefix_name: &str,
     ) -> Result<DBIterator, StorageError> {
