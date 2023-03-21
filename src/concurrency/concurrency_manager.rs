@@ -5,6 +5,7 @@ use std::thread;
 use crate::latch_manager::latch_interval_btree::{BTree, Range};
 use crate::storage::Key;
 use crate::{execute::request::SpansToAcquire, latch_manager::latch_interval_btree::NodeKey};
+use tokio::sync;
 
 pub struct ConcurrencyManager {
     latch_tree: BTree<Key>,
@@ -32,15 +33,15 @@ impl ConcurrencyManager {
         let mut acquired_set: HashSet<usize> = HashSet::new();
         loop {
             for (pos, range) in spans_to_acquire.latch_spans.iter().enumerate() {
-                if !acquired_set.contains(&pos) {
-                    let did_insert = self.latch_tree.insert(Range {
-                        start_key: range.start_key.clone(),
-                        end_key: range.end_key.clone(),
-                    });
-                    if did_insert.is_ok() {
-                        acquired_set.insert(pos);
-                    }
-                }
+                // if !acquired_set.contains(&pos) {
+                //     let did_insert = self.latch_tree.insert(Range {
+                //         start_key: range.start_key.clone(),
+                //         end_key: range.end_key.clone(),
+                //     });
+                //     if did_insert.is_ok() {
+                //         acquired_set.insert(pos);
+                //     }
+                // }
             }
 
             if acquired_set.len() == total_latch_count {
@@ -81,9 +82,14 @@ impl ConcurrencyManager {
 }
 
 mod Test {
-    use std::{
-        sync::mpsc::{self, Receiver, Sender},
-        thread,
+    use std::thread;
+
+    use tokio::{
+        sync::{
+            mpsc::{self, channel, Receiver, Sender},
+            Mutex,
+        },
+        time::{self, Duration},
     };
 
     mod SequenceReq {
@@ -155,19 +161,42 @@ mod Test {
         sender: Sender<u32>,
         receiver: Receiver<u32>,
     }
-    #[test]
-    fn learn_channel() {
-        let (tx, rx) = mpsc::channel::<u32>();
-        let guard = TestGuard {
-            sender: tx,
-            receiver: rx,
-        };
-        let tx1 = mpsc::Sender::clone(&guard.sender);
-        thread::spawn(move || {
+    // #[test]
+    // fn learn_channel() {
+    //     let (tx, rx) = channel::<u32>(1);
+    //     let guard = TestGuard {
+    //         sender: tx,
+    //         receiver: rx,
+    //     };
+    //     let tx1 = mpsc::Sender::clone(&guard.sender);
+    //     thread::spawn(move || {
+    //         println!("sending!");
+    //         tx1.send(12).await;
+    //     });
+    //     guard.receiver.recv().unwrap();
+    //     println!("foo");
+    // }
+
+    #[tokio::test]
+    async fn test_select() {
+        let (tx, mut rx) = channel::<u32>(1);
+
+        let sleep = time::sleep(Duration::from_millis(1000));
+        tokio::pin!(sleep);
+
+        tokio::spawn(async move {
             println!("sending!");
-            tx1.send(12).unwrap();
+            tx.send(12).await.unwrap();
         });
-        guard.receiver.recv().unwrap();
-        println!("foo");
+
+        tokio::select! {
+            Some(ctrl) = rx.recv() => {
+                println!("Control is: {}", ctrl);
+            }
+            _ = &mut sleep, if !sleep.is_elapsed() => {
+                println!("operation timed out");
+            }
+
+        };
     }
 }

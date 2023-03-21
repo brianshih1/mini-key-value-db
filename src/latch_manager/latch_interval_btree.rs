@@ -2,7 +2,10 @@ use std::{
     borrow::{Borrow, BorrowMut},
     cell::RefCell,
     rc::Rc,
-    sync::{mpsc::Sender, Arc, Mutex, RwLock, Weak},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc, Mutex, RwLock, Weak,
+    },
 };
 
 use crate::storage::{mvcc_key::MVCCKey, Key};
@@ -37,7 +40,14 @@ pub enum Direction {
     Right,
 }
 
-type InsertResult = Result<(), bool>;
+type InsertResult = LatchGuard;
+
+pub struct LatchGuard {
+    pub receiver: Option<Receiver<()>>,
+    // whether or not the latch was acquired. If it's false, that means there
+    // was a conflicting latch and the acquirer needs to wait until the latch is released
+    pub latch_acquired: bool,
+}
 
 impl<K: NodeKey> Node<K> {
     pub fn as_internal_node(&self) -> &InternalNode<K> {
@@ -162,7 +172,7 @@ pub struct LeafNode<K: NodeKey> {
     left_ptr: WeakNodeLink<K>,
     right_ptr: WeakNodeLink<K>,
     order: u16,
-    waiters: LatchWaiters,
+    waiters: RwLock<Vec<RwLock<LatchWaiters>>>,
 }
 
 // impl internal
@@ -462,9 +472,9 @@ impl<K: NodeKey> LeafNode<K> {
             left_ptr: RwLock::new(None),
             right_ptr: RwLock::new(None),
             order: capacity,
-            waiters: LatchWaiters {
+            waiters: RwLock::new(Vec::from([RwLock::new(LatchWaiters {
                 senders: Vec::new(),
-            },
+            })])),
         }
     }
 
@@ -486,10 +496,25 @@ impl<K: NodeKey> LeafNode<K> {
      * Just inserts, doesn't check for overflow and not responsible for splitting.
      */
     pub fn insert_range(&self, range: Range<K>) -> InsertResult {
-        if self.start_keys.read().unwrap().contains(&range.start_key) {
+        let index = self
+            .start_keys
+            .read()
+            .unwrap()
+            .iter()
+            .position(|r| r == &range.start_key);
+
+        if let Some(index) = index {
             println!("Key: {:?}", &range.start_key);
-            return Err(false);
+            let waiters = self.waiters.write().unwrap();
+            let mut waiter = waiters[index].write().unwrap();
+            let (tx, rx) = mpsc::channel::<()>();
+            waiter.senders.push(Mutex::new(tx));
+            return LatchGuard {
+                receiver: Some(rx),
+                latch_acquired: false,
+            };
         }
+
         let mut insert_idx = self.start_keys.read().unwrap().len();
         for (pos, k) in self.start_keys.read().unwrap().iter().enumerate() {
             if &range.start_key < k {
@@ -497,6 +522,7 @@ impl<K: NodeKey> LeafNode<K> {
                 break;
             }
         }
+
         self.start_keys
             .write()
             .unwrap()
@@ -505,7 +531,10 @@ impl<K: NodeKey> LeafNode<K> {
             .write()
             .unwrap()
             .insert(insert_idx, range.end_key);
-        return Ok(());
+        return LatchGuard {
+            receiver: None,
+            latch_acquired: false,
+        };
     }
 
     pub fn find_key_idx(&self, key: &K) -> Option<usize> {
@@ -817,9 +846,9 @@ impl<K: NodeKey> LeafNode<K> {
             left_ptr: RwLock::new(Some(Arc::downgrade(node))), // TODO: set the left_sibling to the current leaf node later
             right_ptr: RwLock::new(right_sibling),
             order: self.order,
-            waiters: LatchWaiters {
+            waiters: RwLock::new(Vec::from([RwLock::new(LatchWaiters {
                 senders: Vec::new(),
-            },
+            })])),
         };
         let right_latch_node = Arc::new(RwLock::new(Node::Leaf(new_right_node)));
         self.right_ptr
@@ -881,7 +910,7 @@ impl<K: NodeKey> BTree<K> {
                 let next_node = next.unwrap();
                 let res = self.insert_helper(Some(internal_node), next_node.clone(), range);
 
-                return res.and_then(|_| {
+                if res.latch_acquired {
                     if !internal_node.has_capacity() {
                         let (split_node, median) = internal_node.split();
                         match parent_node {
@@ -903,15 +932,15 @@ impl<K: NodeKey> BTree<K> {
                             }
                         }
                     }
-                    return Ok(());
-                });
+                }
+                res
             }
             Node::Leaf(leaf_node) => {
                 let res = leaf_node.insert_range(Range {
                     start_key: range.start_key.clone(),
                     end_key: range.end_key.clone(),
                 });
-                res.and_then(|_| {
+                if res.latch_acquired {
                     if !leaf_node.has_capacity() {
                         let (split_node, median) = leaf_node.split(&node);
 
@@ -934,8 +963,8 @@ impl<K: NodeKey> BTree<K> {
                             }
                         };
                     }
-                    Ok(())
-                })
+                }
+                res
             }
         }
     }
@@ -1200,9 +1229,9 @@ mod Test {
                     left_ptr: RwLock::new(None),
                     right_ptr: RwLock::new(None),
                     order: order,
-                    waiters: LatchWaiters {
+                    waiters: RwLock::new(Vec::from([RwLock::new(LatchWaiters {
                         senders: Vec::new(),
-                    },
+                    })])),
                 });
                 let leaf_latch = Arc::new(RwLock::new(leaf));
                 (leaf_latch.clone(), Vec::from([leaf_latch.clone()]))
@@ -1659,17 +1688,18 @@ mod Test {
                 start_key: 5,
                 end_key: 5,
             });
-            assert!(res1.is_ok());
+
+            assert!(res1.latch_acquired);
             let res2 = tree.insert(Range {
                 start_key: 10,
                 end_key: 10,
             });
-            assert!(res2.is_ok());
+            assert!(res2.latch_acquired);
             let res3 = tree.insert(Range {
                 start_key: 20,
                 end_key: 20,
             });
-            assert!(res3.is_ok());
+            assert!(res3.latch_acquired);
 
             let test_node = TestNode::Internal(TestInternalNode {
                 keys: Vec::from([10]),
@@ -1692,7 +1722,7 @@ mod Test {
                 start_key: 15,
                 end_key: 15,
             });
-            assert!(res4.is_ok());
+            assert!(res4.latch_acquired);
 
             print_tree(&tree);
             let test_node = TestNode::Internal(TestInternalNode {
@@ -1755,12 +1785,12 @@ mod Test {
                 start_key: 5,
                 end_key: 5,
             });
-            assert!(res1.is_ok());
+            assert!(res1.latch_acquired);
             let res2 = tree.insert(Range {
                 start_key: 5,
                 end_key: 5,
             });
-            assert!(res2.is_err());
+            assert!(!res2.latch_acquired);
         }
     }
 
@@ -1777,9 +1807,9 @@ mod Test {
                 left_ptr: RwLock::new(None),
                 right_ptr: RwLock::new(None),
                 order: 4,
-                waiters: LatchWaiters {
+                waiters: RwLock::new(Vec::from([RwLock::new(LatchWaiters {
                     senders: Vec::new(),
-                },
+                })])),
             };
             assert!(leaf.is_underflow());
         }
@@ -2080,9 +2110,9 @@ mod Test {
                         left_ptr: RwLock::new(None),
                         right_ptr: RwLock::new(None),
                         order: 3,
-                        waiters: LatchWaiters {
+                        waiters: RwLock::new(Vec::from([RwLock::new(LatchWaiters {
                             senders: Vec::new(),
-                        },
+                        })])),
                     };
                     assert_eq!(leaf_node.has_spare_key(), true);
                 }
@@ -2095,9 +2125,9 @@ mod Test {
                         left_ptr: RwLock::new(None),
                         right_ptr: RwLock::new(None),
                         order: 3,
-                        waiters: LatchWaiters {
+                        waiters: RwLock::new(Vec::from([RwLock::new(LatchWaiters {
                             senders: Vec::new(),
-                        },
+                        })])),
                     };
                     assert_eq!(leaf_node.has_spare_key(), false);
                 }

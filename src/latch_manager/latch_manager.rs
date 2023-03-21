@@ -22,6 +22,8 @@ pub enum LatchWaitKind {
 impl<K: NodeKey> LatchManager<K> {
     // We currently don't support key-range locks. We only support single point locks
     fn acquire(&self, spans: Vec<Span<K>>) -> LatchGuard {
+        // create a timer and repeat until success
+        // loop through the spans, add them, wait until it's released
         todo!()
     }
 

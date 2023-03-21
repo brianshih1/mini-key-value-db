@@ -12,6 +12,7 @@ serde_json = "1.0"
 uuid = { version = "0.7", features = ["v4", "serde"] }
 protobuf = "3.2.0"
 protobuf-codegen = "3.2.0"
+tokio = { version = "1.26.0", features = ["full"] }
 
 [build-dependencies]
 protobuf = "3.2.0"
