@@ -2,10 +2,12 @@ use std::{
     borrow::{Borrow, BorrowMut},
     cell::RefCell,
     rc::Rc,
-    sync::{
-        mpsc::{self, Receiver, Sender},
-        Arc, Mutex, RwLock, Weak,
-    },
+    sync::{Arc, Mutex, RwLock, Weak},
+};
+
+use tokio::{
+    sync::mpsc::{self, channel, Receiver, Sender},
+    time::{self, Duration},
 };
 
 use crate::storage::{mvcc_key::MVCCKey, Key};
@@ -40,13 +42,13 @@ pub enum Direction {
     Right,
 }
 
-type InsertResult = LatchGuard;
+pub enum LatchKeyGuard {
+    Acquired,
+    NotAcquired(LatchGuardWait),
+}
 
-pub struct LatchGuard {
-    pub receiver: Option<Receiver<()>>,
-    // whether or not the latch was acquired. If it's false, that means there
-    // was a conflicting latch and the acquirer needs to wait until the latch is released
-    pub latch_acquired: bool,
+pub struct LatchGuardWait {
+    pub receiver: Receiver<()>,
 }
 
 impl<K: NodeKey> Node<K> {
@@ -495,24 +497,20 @@ impl<K: NodeKey> LeafNode<K> {
     /**
      * Just inserts, doesn't check for overflow and not responsible for splitting.
      */
-    pub fn insert_range(&self, range: Range<K>) -> InsertResult {
-        let index = self
-            .start_keys
-            .read()
+    pub fn insert_range(&self, range: Range<K>) -> LatchKeyGuard {
+        let read_guard = self.start_keys.read();
+        let index = read_guard
             .unwrap()
             .iter()
-            .position(|r| r == &range.start_key);
+            .position(|r| *r == range.start_key);
 
-        if let Some(index) = index {
+        if let Some(found_idx) = index {
             println!("Key: {:?}", &range.start_key);
             let waiters = self.waiters.write().unwrap();
-            let mut waiter = waiters[index].write().unwrap();
-            let (tx, rx) = mpsc::channel::<()>();
+            let mut waiter = waiters[found_idx].write().unwrap();
+            let (tx, rx) = mpsc::channel::<()>(1);
             waiter.senders.push(Mutex::new(tx));
-            return LatchGuard {
-                receiver: Some(rx),
-                latch_acquired: false,
-            };
+            return LatchKeyGuard::NotAcquired(LatchGuardWait { receiver: rx });
         }
 
         let mut insert_idx = self.start_keys.read().unwrap().len();
@@ -531,10 +529,7 @@ impl<K: NodeKey> LeafNode<K> {
             .write()
             .unwrap()
             .insert(insert_idx, range.end_key);
-        return LatchGuard {
-            receiver: None,
-            latch_acquired: false,
-        };
+        return LatchKeyGuard::Acquired;
     }
 
     pub fn find_key_idx(&self, key: &K) -> Option<usize> {
@@ -889,7 +884,7 @@ impl<K: NodeKey> BTree<K> {
         parent_node: Option<&InternalNode<K>>,
         node: LatchNode<K>,
         range: &Range<K>,
-    ) -> InsertResult {
+    ) -> LatchKeyGuard {
         let key_to_add = &range.start_key;
         let write_guard = node.write().unwrap();
         match &*write_guard {
@@ -910,7 +905,7 @@ impl<K: NodeKey> BTree<K> {
                 let next_node = next.unwrap();
                 let res = self.insert_helper(Some(internal_node), next_node.clone(), range);
 
-                if res.latch_acquired {
+                if let LatchKeyGuard::Acquired = res {
                     if !internal_node.has_capacity() {
                         let (split_node, median) = internal_node.split();
                         match parent_node {
@@ -940,7 +935,7 @@ impl<K: NodeKey> BTree<K> {
                     start_key: range.start_key.clone(),
                     end_key: range.end_key.clone(),
                 });
-                if res.latch_acquired {
+                if let LatchKeyGuard::Acquired = res {
                     if !leaf_node.has_capacity() {
                         let (split_node, median) = leaf_node.split(&node);
 
@@ -969,7 +964,7 @@ impl<K: NodeKey> BTree<K> {
         }
     }
 
-    pub fn insert(&self, range: Range<K>) -> InsertResult {
+    pub fn insert(&self, range: Range<K>) -> LatchKeyGuard {
         let node = self.root.write().unwrap().clone().unwrap();
         self.insert_helper(None, node, &range)
     }
@@ -1643,7 +1638,7 @@ mod Test {
     }
 
     mod insert {
-        use crate::latch_manager::latch_interval_btree::{BTree, Range};
+        use crate::latch_manager::latch_interval_btree::{BTree, LatchKeyGuard, Range};
 
         use super::{
             assert_node, assert_tree, print_tree, TestInternalNode, TestLeafNode, TestNode,
@@ -1689,17 +1684,17 @@ mod Test {
                 end_key: 5,
             });
 
-            assert!(res1.latch_acquired);
+            assert!(matches!(res1, LatchKeyGuard::Acquired));
             let res2 = tree.insert(Range {
                 start_key: 10,
                 end_key: 10,
             });
-            assert!(res2.latch_acquired);
+            assert!(matches!(res2, LatchKeyGuard::Acquired));
             let res3 = tree.insert(Range {
                 start_key: 20,
                 end_key: 20,
             });
-            assert!(res3.latch_acquired);
+            assert!(matches!(res3, LatchKeyGuard::Acquired));
 
             let test_node = TestNode::Internal(TestInternalNode {
                 keys: Vec::from([10]),
@@ -1722,7 +1717,8 @@ mod Test {
                 start_key: 15,
                 end_key: 15,
             });
-            assert!(res4.latch_acquired);
+
+            assert!(matches!(res4, LatchKeyGuard::Acquired));
 
             print_tree(&tree);
             let test_node = TestNode::Internal(TestInternalNode {
@@ -1785,12 +1781,12 @@ mod Test {
                 start_key: 5,
                 end_key: 5,
             });
-            assert!(res1.latch_acquired);
+            assert!(matches!(res1, LatchKeyGuard::Acquired));
             let res2 = tree.insert(Range {
                 start_key: 5,
                 end_key: 5,
             });
-            assert!(!res2.latch_acquired);
+            assert!(!matches!(res2, LatchKeyGuard::Acquired));
         }
     }
 

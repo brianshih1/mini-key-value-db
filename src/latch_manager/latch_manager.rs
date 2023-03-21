@@ -1,33 +1,136 @@
 use std::sync::mpsc::{Receiver, Sender};
 
+use rand::Rng;
+use tokio::time::{self, Duration};
+
 use super::{
-    latch_interval_btree::{BTree, NodeKey},
+    latch_interval_btree::{BTree, LatchKeyGuard, NodeKey, Range},
     spanset::Span,
 };
-
-pub struct LatchGuard {
-    sender: Sender<LatchWaitKind>,
-    reciever: Receiver<LatchWaitKind>,
-}
 
 pub struct LatchManager<K: NodeKey> {
     tree: BTree<K>,
 }
 
-pub enum LatchWaitKind {
-    DoneWaiting,
-    Error,
+pub struct LatchGuard<K: NodeKey> {
+    pub spans: Vec<Span<K>>,
 }
 
 impl<K: NodeKey> LatchManager<K> {
-    // We currently don't support key-range locks. We only support single point locks
-    fn acquire(&self, spans: Vec<Span<K>>) -> LatchGuard {
-        // create a timer and repeat until success
-        // loop through the spans, add them, wait until it's released
-        todo!()
+    fn new() -> Self {
+        let tree = BTree::new(3);
+        LatchManager { tree }
     }
 
-    fn release(&self, guard: LatchGuard) -> () {
-        todo!()
+    // We currently don't support key-range locks. We only support single point locks
+    async fn acquire(&self, spans: Vec<Span<K>>) -> LatchGuard<K> {
+        // create a timer and repeat until success
+        // loop through the spans, add them, wait until it's released
+        loop {
+            let mut did_timeout = false;
+            let mut acquired_indices = Vec::new();
+            'outer: for (idx, span) in spans.iter().enumerate() {
+                let mut did_acquire = false;
+                loop {
+                    let lg = self.tree.insert(Range {
+                        start_key: span.start_key.clone(),
+                        end_key: span.end_key.clone(),
+                    });
+
+                    let mut rng = rand::thread_rng();
+                    let duration: u64 = rng.gen_range(50..150);
+                    let sleep = time::sleep(Duration::from_millis(duration));
+                    tokio::pin!(sleep);
+
+                    if let LatchKeyGuard::NotAcquired(mut wait_guard) = lg {
+                        tokio::select! {
+                            Some(_) = wait_guard.receiver.recv() => {
+                                println!("retry acquire lock")
+                            }
+                            _ = &mut sleep, if !sleep.is_elapsed() => {
+                                println!("operation timed out. Releasing and retrying");
+                                did_timeout = true;
+                                break;
+                            }
+
+                        };
+                    } else {
+                        did_acquire = true;
+                        acquired_indices.push(idx);
+                    }
+                    if did_acquire {
+                        break;
+                    }
+                }
+                if did_timeout {
+                    // if there is a timeout, then it is likely related to a deadlock.
+                    // We release all acquired latches then retry.
+                    // TODO: what if we keep running into deadlocks?
+                    for acquired_idx in acquired_indices.iter() {
+                        let span = spans.get(*acquired_idx).unwrap();
+                        self.tree.delete(span.start_key.clone())
+                    }
+                    break 'outer;
+                }
+            }
+            if acquired_indices.len() == spans.len() {
+                println!("Finished acquiring");
+                return LatchGuard { spans };
+            }
+        }
+    }
+
+    fn release(&self, guard: LatchGuard<K>) -> () {
+        for span in guard.spans.iter() {
+            self.tree.delete(span.start_key.clone())
+        }
+    }
+}
+
+mod Test {
+    mod Acquire {
+        use std::sync::Arc;
+
+        use tokio::time::{self, sleep, Duration};
+
+        use crate::latch_manager::{latch_manager::LatchManager, spanset::Span};
+
+        #[tokio::test]
+        async fn test_select() {
+            let lm = Arc::new(LatchManager::<i32>::new());
+            let guard = lm
+                .acquire(Vec::from([
+                    Span {
+                        start_key: 12,
+                        end_key: 12,
+                    },
+                    Span {
+                        start_key: 18,
+                        end_key: 18,
+                    },
+                ]))
+                .await;
+
+            let lm2 = Arc::clone(&lm);
+
+            tokio::spawn(async move {
+                println!("sleeping!");
+                sleep(Duration::from_millis(100)).await;
+                println!("releasing!");
+                lm2.release(guard)
+            });
+
+            lm.acquire(Vec::from([
+                Span {
+                    start_key: 12,
+                    end_key: 12,
+                },
+                Span {
+                    start_key: 18,
+                    end_key: 18,
+                },
+            ]))
+            .await;
+        }
     }
 }
