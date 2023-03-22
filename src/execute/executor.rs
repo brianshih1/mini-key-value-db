@@ -1,50 +1,69 @@
 use std::{borrow::BorrowMut, sync::Arc};
 
 use crate::{
-    concurrency::concurrency_manager::ConcurrencyManager,
+    concurrency::concurrency_manager::{ConcurrencyManager, Guard},
     storage::{mvcc::KVStore, mvcc_key::MVCCKey},
+    timestamp_oracle::oracle::TimestampOracle,
 };
 
-use super::request::{Command, Request, RequestMetadata, RequestUnion, SpansToAcquire};
+use super::request::{
+    Command, ExecuteError, ExecuteResult, Request, RequestMetadata, RequestUnion, SpansToAcquire,
+};
 
-struct Executor {
+struct Executor<'a> {
     concr_manager: ConcurrencyManager,
-    writer: Arc<KVStore>,
+    writer: KVStore,
+    timestamp_oracle: &'a mut TimestampOracle,
 }
 
-impl Executor {
-    pub fn execute_request_with_concurrency_retries(&self, request: Request) {
-        let request_union = &request.request_union;
-        let spans = request_union.collect_spans();
-        let spans_to_acquire = SpansToAcquire {
-            latch_spans: spans.clone(),
-            lock_spans: spans.clone(),
-        };
-        let guard = self.concr_manager.sequence_req(spans_to_acquire);
-        // // TODO: Collect spans
-        if request_union.is_read_only() {
-            self.execute_read_only_request(&request);
-        } else {
-            self.execute_read_write_request(&request);
+impl Executor<'_> {
+    pub async fn execute_request_with_concurrency_retries(&self, request: Request<'_>) {
+        loop {
+            let request_union = &request.request_union;
+            let spans = request_union.collect_spans();
+            let spans_to_acquire = SpansToAcquire {
+                latch_spans: spans.clone(),
+                lock_spans: spans.clone(),
+            };
+            let guard = self.concr_manager.sequence_req(spans_to_acquire).await;
+
+            let result = if request_union.is_read_only() {
+                self.execute_read_only_request(&request, &guard)
+            } else {
+                self.execute_read_write_request(&request, &guard)
+            };
+
+            if let Some(err) = result.error {
+                match err {
+                    ExecuteError::WriteIntentError(_) => {
+                        // TODO: When do we call finish_req in this case?
+                        self.handle_write_intent_error();
+                    }
+                }
+            } else {
+                // release latches and dequeue request from lockTable
+                self.concr_manager.finish_req(guard);
+            }
         }
-        self.finish_request();
     }
 
-    pub fn finish_request(&self) {}
+    pub fn handle_write_intent_error(&self) {}
 
-    pub fn execute_read_write_request(&self, request: &Request) -> () {
+    pub fn execute_read_write_request(&self, request: &Request, guard: &Guard) -> ExecuteResult {
         // TODO: applyTimestampCache - we need to make sure we bump the
         // txn.writeTimestsamp before we lay any intents
-        // request
-        //     .request_union
-        //     .execute(&request.metadata, self.writer);
-        todo!()
+        request
+            .request_union
+            .execute(&request.metadata, &self.writer)
     }
 
-    pub fn execute_read_only_request(&self, request: &Request) -> () {
-        // request
-        //     .request_union
-        //     .execute(&request.metadata, &mut self.writer);
-        todo!()
+    pub fn execute_read_only_request(&self, request: &Request, guard: &Guard) -> ExecuteResult {
+        let result = request
+            .request_union
+            .execute(&request.metadata, &self.writer);
+
+        // TODO: Should we still update the cache if it failed?
+        self.timestamp_oracle.update_cache(request);
+        result
     }
 }

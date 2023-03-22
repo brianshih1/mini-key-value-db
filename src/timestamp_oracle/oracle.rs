@@ -1,10 +1,12 @@
-use std::fmt;
+use std::{fmt, sync::RwLock};
 
 use uuid::Uuid;
 
 use crate::{
+    execute::request::{Command, Request},
     hlc::timestamp::Timestamp,
     interval::interval_tree::IntervalTree,
+    latch_manager::latch_interval_btree::Range,
     llrb::llrb::{NodeKey, NodeValue},
     storage::{Key, Value},
 };
@@ -21,14 +23,33 @@ impl NodeValue for OracleValue {}
 
 // Inspired by CockroachDB's https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/tscache/cache.go#L31
 // which corresponds to the oracle described in Yabandeh's A Critique of Snapshot Isolation
-struct TimestampOracle {
-    interval_tree: IntervalTree<Key, OracleValue>,
+pub struct TimestampOracle {
+    interval_tree: RwLock<IntervalTree<Key, OracleValue>>,
 }
 
 impl TimestampOracle {
     pub fn new() -> Self {
         let interval_tree = IntervalTree::<Key, OracleValue>::new();
-        TimestampOracle { interval_tree }
+        TimestampOracle {
+            interval_tree: RwLock::new(interval_tree),
+        }
+    }
+
+    pub fn update_cache(&self, request: &Request) {
+        let txn_id = request
+            .metadata
+            .txn
+            .and_then(|txn| Some(txn.transaction_id));
+        let timestamp = request.metadata.timestamp;
+        // TODO: We already executed this earlier in execute_request_with_concurrency_retries,
+        // we should be able to avoid calling collect_spans twice
+        let spans = request.request_union.collect_spans();
+        for span in spans.iter() {
+            let Range { start_key, end_key } = span;
+
+            // TODO: Remove this clone
+            self.add(timestamp, start_key.clone(), end_key.clone(), txn_id)
+        }
     }
 
     /**
@@ -37,8 +58,9 @@ impl TimestampOracle {
      *
      * Start and end are both inclusive
      */
-    pub fn add(&mut self, timestamp: Timestamp, start: Key, end: Key, txn_id: Option<Uuid>) -> () {
-        self.interval_tree.insert(
+    pub fn add(&self, timestamp: Timestamp, start: Key, end: Key, txn_id: Option<Uuid>) -> () {
+        let mut g = self.interval_tree.write().unwrap();
+        g.insert(
             start,
             end,
             OracleValue {
@@ -58,11 +80,12 @@ impl TimestampOracle {
      * Start and end are both inclusive
      */
     pub fn get_max_timestamp(
-        &mut self,
+        &self,
         start: crate::storage::Key,
         end: crate::storage::Key,
     ) -> Option<(Timestamp, Option<Uuid>)> {
-        let overlaps = self.interval_tree.get_overlap(start, end);
+        let g = self.interval_tree.read().unwrap();
+        let overlaps = g.get_overlap(start, end);
         let mut max: Option<(Timestamp, Option<Uuid>)> = None;
         for range_value in overlaps.iter() {
             match max {

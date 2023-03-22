@@ -19,6 +19,8 @@ impl LockTable {
      * It's also responsible for pushing transaction if it times out
      */
     pub fn wait_for(&self, guard: LockTableGuard) {}
+
+    pub fn dequeue(&self) {}
 }
 
 impl LockTableGuard {

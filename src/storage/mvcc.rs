@@ -31,7 +31,7 @@ pub struct MVCCGetParams<'a> {
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 pub struct WriteIntentError {
-    pub intents: Vec<(Key, TransactionMetadata)>,
+    pub intent: (Key, TransactionMetadata),
 }
 
 pub struct MVCCGetResult {
@@ -138,7 +138,7 @@ impl KVStore {
                         match transaction_record.status {
                             TransactionStatus::PENDING => {
                                 return Err(WriteIntentError {
-                                    intents: Vec::from([(str_to_key(key), intent.clone())]),
+                                    intent: (str_to_key(key), intent.clone()),
                                 })
                             }
                             TransactionStatus::COMMITTED => todo!(),

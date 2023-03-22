@@ -26,10 +26,6 @@ impl ConcurrencyManager {
         }
     }
 
-    // TODO: Instead of looping, can we have a hashmap where
-    // key is duplicate keys and we add a lock guard or something for that key
-    // and we wait on that to be released. When delete, we have a callback that
-    // removes it
     pub async fn sequence_req(&self, spans_to_acquire: SpansToAcquire) -> Guard {
         loop {
             let latch_guard = self
@@ -40,12 +36,20 @@ impl ConcurrencyManager {
             if lock_guard.should_wait() {
                 self.latch_manager.release(latch_guard);
                 self.lock_table.wait_for(lock_guard);
+                // restart the loop to re-acquire latches and rescan the lockTable
+                continue;
+            } else {
+                return Guard { latch_guard };
             }
         }
     }
 
-    pub fn release_guard(&self, guard: Guard) -> () {
-        todo!()
+    /**
+     * Release latches and dequeues the request from any lock tables.
+     */
+    pub fn finish_req(&self, guard: Guard) -> () {
+        self.latch_manager.release(guard.latch_guard);
+        self.lock_table.dequeue();
     }
 }
 

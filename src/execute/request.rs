@@ -25,7 +25,16 @@ pub struct Request<'a> {
 }
 
 pub struct ExecuteResult {
-    response: ResponseUnion,
+    pub response: ResponseUnion,
+    pub error: Option<ExecuteError>,
+}
+
+pub enum ExecuteError {
+    WriteIntentError(WriteIntentErrorData),
+}
+
+pub struct WriteIntentErrorData {
+    intent: TransactionMetadata,
 }
 
 pub enum ResponseUnion {
@@ -69,12 +78,12 @@ pub struct RequestMetadata<'a> {
      * The timestamp the request should evaluate at.
      * Should be set to Txn.ReadTimestamp if Txn is non-nil
      */
-    timestamp: Timestamp,
+    pub timestamp: Timestamp,
     /**
      * The optional transaction that sent the request.
      * Non-transactional requests do not acquire locks
      */
-    txn: Option<&'a Transaction>,
+    pub txn: Option<&'a Transaction>,
 }
 
 pub struct BeginTransactionRequest {
@@ -96,6 +105,7 @@ impl Command for BeginTransactionRequest {
         writer.create_pending_transaction_record(&self.txn_id);
         ExecuteResult {
             response: ResponseUnion::BeginTransaction(BeginTransactionResponse {}),
+            error: None,
         }
     }
 }
@@ -118,6 +128,7 @@ impl Command for AbortTransactionRequest {
         writer.abort_transaction(&txn.transaction_id);
         ExecuteResult {
             response: ResponseUnion::AbortTransaction(AbortTransactionResponse {}),
+            error: None,
         }
     }
 }
@@ -140,6 +151,7 @@ impl Command for EndTransactionRequest {
         writer.commit_transaction(&txn.transaction_id);
         ExecuteResult {
             response: ResponseUnion::EndTransaction(EndTransactionResponse {}),
+            error: None,
         }
     }
 }
@@ -174,11 +186,18 @@ impl Command for GetRequest {
             },
         );
 
+        let error = result.intent.and_then(|intent| {
+            Some(ExecuteError::WriteIntentError(WriteIntentErrorData {
+                intent: intent.clone(), // TODO: Remove this clone
+            }))
+        });
+
         ExecuteResult {
             response: ResponseUnion::Get(GetResponse {
                 value: result.value,
                 intent: result.intent,
             }),
+            error,
         }
     }
 }
@@ -188,10 +207,7 @@ pub struct PutRequest {
     value: Value,
 }
 
-pub enum PutResponse {
-    Success(),
-    WriteIntentError(WriteIntentError),
-}
+pub struct PutResponse {}
 
 impl<'a> Command for PutRequest {
     fn is_read_only(&self) -> bool {
@@ -205,19 +221,23 @@ impl<'a> Command for PutRequest {
         }])
     }
 
-    fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let res = writer.mvcc_put(
             self.key,
             Some(header.timestamp.clone()),
             header.txn.and_then(|txn| Some(txn)),
             self.value.clone(),
         ); // TODO: Remove value.clone()
+        let error = match res {
+            Ok(_) => None,
+            Err(err) => Some(ExecuteError::WriteIntentError(WriteIntentErrorData {
+                intent: err.intent.1,
+            })),
+        };
 
         ExecuteResult {
-            response: ResponseUnion::Put(match res {
-                Ok(_) => PutResponse::Success(),
-                Err(err) => PutResponse::WriteIntentError(err),
-            }),
+            response: ResponseUnion::Put(PutResponse {}),
+            error,
         }
     }
 }
