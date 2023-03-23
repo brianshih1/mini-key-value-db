@@ -1,17 +1,13 @@
-use std::{borrow::BorrowMut, sync::Arc};
-
 use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard},
-    storage::{mvcc::KVStore, mvcc_key::MVCCKey},
+    storage::mvcc::KVStore,
     timestamp_oracle::oracle::TimestampOracle,
 };
 
-use super::request::{
-    Command, ExecuteError, ExecuteResult, Request, RequestMetadata, RequestUnion, SpansToAcquire,
-};
+use super::request::{Command, ExecuteError, ExecuteResult, Request, SpansToAcquire};
 
 struct Executor<'a> {
-    concr_manager: ConcurrencyManager,
+    concr_manager: ConcurrencyManager<'a>,
     writer: KVStore,
     timestamp_oracle: &'a mut TimestampOracle,
 }

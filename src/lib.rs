@@ -1,11 +1,11 @@
-mod concurrency;
-mod db;
-mod execute;
+pub mod concurrency;
+pub mod db;
+pub mod execute;
 mod hlc;
 mod interval;
 mod latch_manager;
 mod llrb;
-mod lock_table;
+pub mod lock_table;
 mod storage;
 mod timestamp_oracle;
 

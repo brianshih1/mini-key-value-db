@@ -9,16 +9,16 @@ use crate::storage::Key;
 use crate::{execute::request::SpansToAcquire, latch_manager::latch_interval_btree::NodeKey};
 use tokio::sync;
 
-pub struct ConcurrencyManager {
+pub struct ConcurrencyManager<'a> {
     latch_manager: LatchManager<Key>,
-    pub lock_table: LockTable,
+    pub lock_table: LockTable<'a>,
 }
 
 pub struct Guard {
     latch_guard: LatchGuard<Key>,
 }
 
-impl ConcurrencyManager {
+impl ConcurrencyManager<'_> {
     pub fn new() -> Self {
         ConcurrencyManager {
             latch_manager: LatchManager::new(),
