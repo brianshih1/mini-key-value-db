@@ -9,7 +9,7 @@ use crate::{
         mvcc::{KVStore, MVCCGetParams, WriteIntentError},
         mvcc_key::MVCCKey,
         str_to_key,
-        txn::{Transaction, TransactionMetadata},
+        txn::{Txn, TxnMetadata},
         Key, Value,
     },
     StorageResult,
@@ -34,7 +34,7 @@ pub enum ExecuteError {
 }
 
 pub struct WriteIntentErrorData {
-    intent: TransactionMetadata,
+    intent: TxnMetadata,
 }
 
 pub enum ResponseUnion {
@@ -80,10 +80,10 @@ pub struct RequestMetadata<'a> {
      */
     pub timestamp: Timestamp,
     /**
-     * The optional transaction that sent the request.
-     * Non-transactional requests do not acquire locks
+     * For now, assume every request is part of a transaction.
+     * In the future, we can support non-transactional reads.
      */
-    pub txn: Option<&'a Transaction>,
+    pub txn: &'a Txn,
 }
 
 pub struct BeginTransactionRequest {
@@ -102,7 +102,8 @@ impl Command for BeginTransactionRequest {
     }
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
-        writer.create_pending_transaction_record(&self.txn_id);
+        let write_timestamp = header.txn.metadata.write_timestamp.clone();
+        writer.create_pending_transaction_record(&self.txn_id, write_timestamp);
         ExecuteResult {
             response: ResponseUnion::BeginTransaction(BeginTransactionResponse {}),
             error: None,
@@ -124,8 +125,9 @@ impl Command for AbortTransactionRequest {
     }
 
     fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
-        let txn = header.txn.unwrap();
-        writer.abort_transaction(&txn.transaction_id);
+        let txn = header.txn;
+        let write_timestamp = header.txn.metadata.write_timestamp.clone();
+        writer.abort_transaction(&txn.txn_id, write_timestamp);
         ExecuteResult {
             response: ResponseUnion::AbortTransaction(AbortTransactionResponse {}),
             error: None,
@@ -147,8 +149,10 @@ impl Command for EndTransactionRequest {
     }
 
     fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
-        let txn = header.txn.unwrap();
-        writer.commit_transaction(&txn.transaction_id);
+        let txn = header.txn;
+        let write_timestamp = header.txn.metadata.write_timestamp.clone();
+
+        writer.commit_transaction(&txn.txn_id, write_timestamp.clone());
         ExecuteResult {
             response: ResponseUnion::EndTransaction(EndTransactionResponse {}),
             error: None,
@@ -162,7 +166,7 @@ pub struct GetRequest {
 
 pub struct GetResponse {
     pub value: Option<(MVCCKey, Value)>,
-    pub intent: Option<TransactionMetadata>,
+    pub intent: Option<TxnMetadata>,
 }
 
 impl Command for GetRequest {
@@ -182,7 +186,7 @@ impl Command for GetRequest {
             &self.key,
             &header.timestamp,
             MVCCGetParams {
-                transaction: header.txn,
+                transaction: Some(header.txn),
             },
         );
 
@@ -225,7 +229,7 @@ impl<'a> Command for PutRequest {
         let res = writer.mvcc_put(
             self.key,
             Some(header.timestamp.clone()),
-            header.txn.and_then(|txn| Some(txn)),
+            Some(header.txn),
             self.value.clone(),
         ); // TODO: Remove value.clone()
         let error = match res {

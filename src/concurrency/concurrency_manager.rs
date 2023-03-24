@@ -2,6 +2,7 @@ use core::time;
 use std::collections::HashSet;
 use std::thread;
 
+use crate::execute::request::{Command, Request};
 use crate::latch_manager::latch_interval_btree::{BTree, Range};
 use crate::latch_manager::latch_manager::{LatchGuard, LatchManager};
 use crate::lock_table::lock_table::LockTable;
@@ -9,16 +10,16 @@ use crate::storage::Key;
 use crate::{execute::request::SpansToAcquire, latch_manager::latch_interval_btree::NodeKey};
 use tokio::sync;
 
-pub struct ConcurrencyManager<'a> {
+pub struct ConcurrencyManager {
     latch_manager: LatchManager<Key>,
-    pub lock_table: LockTable<'a>,
+    pub lock_table: LockTable,
 }
 
 pub struct Guard {
     latch_guard: LatchGuard<Key>,
 }
 
-impl ConcurrencyManager<'_> {
+impl ConcurrencyManager {
     pub fn new() -> Self {
         ConcurrencyManager {
             latch_manager: LatchManager::new(),
@@ -26,14 +27,15 @@ impl ConcurrencyManager<'_> {
         }
     }
 
-    pub async fn sequence_req(&self, spans_to_acquire: SpansToAcquire) -> Guard {
+    pub async fn sequence_req(&self, request: &Request<'_>) -> Guard {
+        let spans_to_acquire = request.request_union.collect_spans();
         loop {
             let latch_guard = self
                 .latch_manager
-                .acquire_and_wait(spans_to_acquire.latch_spans.clone())
+                .acquire_and_wait(spans_to_acquire.clone())
                 .await;
-            let lock_guard = self.lock_table.scan_and_enqueue();
-            if lock_guard.should_wait() {
+            let (should_wait, lock_guard) = self.lock_table.scan_and_enqueue(request, None);
+            if should_wait {
                 self.latch_manager.release(latch_guard);
                 self.lock_table.wait_for(lock_guard);
                 // restart the loop to re-acquire latches and rescan the lockTable

@@ -36,10 +36,7 @@ impl TimestampOracle {
     }
 
     pub fn update_cache(&self, request: &Request) {
-        let txn_id = request
-            .metadata
-            .txn
-            .and_then(|txn| Some(txn.transaction_id));
+        let txn_id = Some(request.metadata.txn.txn_id);
         let timestamp = request.metadata.timestamp;
         // TODO: We already executed this earlier in execute_request_with_concurrency_retries,
         // we should be able to avoid calling collect_spans twice

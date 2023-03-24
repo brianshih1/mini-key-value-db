@@ -1,3 +1,5 @@
+use std::sync::RwLock;
+
 use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard},
     storage::mvcc::KVStore,
@@ -6,13 +8,13 @@ use crate::{
 
 use super::request::{Command, ExecuteError, ExecuteResult, Request, SpansToAcquire};
 
-struct Executor<'a> {
-    concr_manager: ConcurrencyManager<'a>,
+struct Executor {
+    concr_manager: ConcurrencyManager,
     writer: KVStore,
-    timestamp_oracle: &'a mut TimestampOracle,
+    timestamp_oracle: RwLock<TimestampOracle>,
 }
 
-impl Executor<'_> {
+impl Executor {
     pub async fn execute_request_with_concurrency_retries(&self, request: Request<'_>) {
         loop {
             let request_union = &request.request_union;
@@ -21,7 +23,7 @@ impl Executor<'_> {
                 latch_spans: spans.clone(),
                 lock_spans: spans.clone(),
             };
-            let guard = self.concr_manager.sequence_req(spans_to_acquire).await;
+            let guard = self.concr_manager.sequence_req(&request).await;
 
             let result = if request_union.is_read_only() {
                 self.execute_read_only_request(&request, &guard)
@@ -59,7 +61,8 @@ impl Executor<'_> {
             .execute(&request.metadata, &self.writer);
 
         // TODO: Should we still update the cache if it failed?
-        self.timestamp_oracle.update_cache(request);
+        let oracle_guard = self.timestamp_oracle.write().unwrap();
+        oracle_guard.update_cache(request);
         result
     }
 }

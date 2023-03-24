@@ -10,9 +10,7 @@ use super::{
     serialized_to_value,
     storage::Storage,
     str_to_key,
-    txn::{
-        Transaction, TransactionMetadata, TransactionRecord, TransactionStatus, UncommittedValue,
-    },
+    txn::{TransactionStatus, Txn, TxnMetadata, TxnRecord, UncommittedValue},
     Key, Value,
 };
 
@@ -22,26 +20,26 @@ pub struct KVStore {
 
 pub struct MVCCScanParams<'a> {
     max_result_count: usize,
-    transaction: Option<&'a Transaction>,
+    transaction: Option<&'a Txn>,
 }
 
 pub struct MVCCGetParams<'a> {
-    pub transaction: Option<&'a Transaction>,
+    pub transaction: Option<&'a Txn>,
 }
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 pub struct WriteIntentError {
-    pub intent: (Key, TransactionMetadata),
+    pub intent: (Key, TxnMetadata),
 }
 
 pub struct MVCCGetResult {
     pub value: Option<(MVCCKey, Value)>,
-    pub intent: Option<TransactionMetadata>,
+    pub intent: Option<TxnMetadata>,
 }
 
 pub struct MVCCScanResult {
     results: Vec<(MVCCKey, Value)>,
-    intents: Vec<(Key, TransactionMetadata)>,
+    intents: Vec<(Key, TxnMetadata)>,
 }
 
 impl KVStore {
@@ -123,7 +121,7 @@ impl KVStore {
         &self,
         key: &str,
         timestamp: Option<Timestamp>,
-        txn: Option<&Transaction>,
+        txn: Option<&Txn>,
         value: T,
     ) -> Result<MVCCKey, WriteIntentError> {
         let intent = self.mvcc_get_uncommited_value(&str_to_key(key));
@@ -133,7 +131,7 @@ impl KVStore {
                 Some(put_txn) => {
                     // this means we're overwriting our own transaction
                     // TODO: epoch - transaction retries
-                    if intent.transaction_id == put_txn.transaction_id {
+                    if intent.txn_id == put_txn.txn_id {
                     } else {
                         match transaction_record.status {
                             TransactionStatus::PENDING => {
@@ -169,8 +167,8 @@ impl KVStore {
                     &create_intent_key(&str_to_key(key)),
                     UncommittedValue {
                         value: serialized_to_value(value), // is this correct?
-                        txn_metadata: TransactionMetadata {
-                            transaction_id: transaction.transaction_id,
+                        txn_metadata: TxnMetadata {
+                            txn_id: transaction.txn_id,
                             write_timestamp: write_timestamp.to_owned(),
                         },
                     },
@@ -185,10 +183,7 @@ impl KVStore {
         Ok(version_key)
     }
 
-    pub fn mvcc_get_uncommited_value(
-        &self,
-        key: &Key,
-    ) -> Option<(TransactionMetadata, TransactionRecord)> {
+    pub fn mvcc_get_uncommited_value(&self, key: &Key) -> Option<(TxnMetadata, TxnRecord)> {
         let options = IterOptions { prefix: true };
         let mut it = self.storage.new_mvcc_iterator(options);
         let intent_key = create_intent_key(key);
@@ -201,7 +196,7 @@ impl KVStore {
                 let metadata = it
                     .current_value_serialized::<UncommittedValue>()
                     .txn_metadata;
-                let transaction_id = metadata.transaction_id;
+                let transaction_id = metadata.txn_id;
                 let transaction_record = self.get_transaction_record(&transaction_id).unwrap();
                 return Some((metadata, transaction_record));
             }
@@ -209,41 +204,54 @@ impl KVStore {
         None
     }
 
-    pub fn create_pending_transaction_record(&self, transaction_id: &Uuid) -> () {
-        self.put_transaction_record(
-            transaction_id,
-            TransactionRecord {
-                status: TransactionStatus::PENDING,
+    pub fn create_pending_transaction_record(
+        &self,
+        txn_id: &Uuid,
+        write_timestamp: Timestamp,
+    ) -> () {
+        let record = TxnRecord {
+            status: TransactionStatus::PENDING,
+            metadata: TxnMetadata {
+                txn_id: txn_id.clone(),
+                write_timestamp: write_timestamp.clone(),
             },
-        )
+        };
+        self.put_transaction_record(txn_id, &record)
     }
 
-    pub fn get_transaction_record(&self, transaction_id: &Uuid) -> Option<TransactionRecord> {
+    pub fn get_transaction_record(&self, transaction_id: &Uuid) -> Option<TxnRecord> {
         self.storage.get_transaction_record(transaction_id)
     }
 
     // This can be used to create or overwrite transaction record.
-    pub fn put_transaction_record(&self, transaction_id: &Uuid, record: TransactionRecord) {
+    pub fn put_transaction_record(&self, transaction_id: &Uuid, record: &TxnRecord) {
         self.storage
             .put_transaction_record(&transaction_id, record)
             .unwrap();
     }
 
-    pub fn commit_transaction(&self, transaction_id: &Uuid) {
-        self.put_transaction_record(
-            transaction_id,
-            TransactionRecord {
-                status: TransactionStatus::COMMITTED,
+    pub fn commit_transaction(&self, transaction_id: &Uuid, write_timestamp: Timestamp) {
+        let record = TxnRecord {
+            status: TransactionStatus::COMMITTED,
+            metadata: TxnMetadata {
+                txn_id: transaction_id.clone(),
+                write_timestamp: write_timestamp.clone(), // TODO: Remove the clone
             },
-        )
+        };
+        self.put_transaction_record(transaction_id, &record)
     }
 
-    pub fn abort_transaction(&self, transaction_id: &Uuid) {
+    // TODO: Do we really need a write_timestamp here?
+    pub fn abort_transaction(&self, transaction_id: &Uuid, write_timestamp: Timestamp) {
         // TODO: What else do we need to do here?
         self.put_transaction_record(
             transaction_id,
-            TransactionRecord {
+            &TxnRecord {
                 status: TransactionStatus::ABORTED,
+                metadata: TxnMetadata {
+                    txn_id: transaction_id.clone(),
+                    write_timestamp: write_timestamp,
+                },
             },
         )
     }
@@ -273,7 +281,10 @@ impl KVStore {
 mod tests {
     use uuid::Uuid;
 
-    use crate::storage::txn::{TransactionRecord, TransactionStatus};
+    use crate::{
+        hlc::timestamp::Timestamp,
+        storage::txn::{TransactionStatus, TxnMetadata, TxnRecord},
+    };
 
     use super::KVStore;
 
@@ -281,13 +292,20 @@ mod tests {
     fn create_pending_transaction_record() -> () {
         let kv_store = KVStore::new("./tmp/data");
         let transaction_id = Uuid::new_v4();
-
-        kv_store.create_pending_transaction_record(&transaction_id);
+        let write_timestamp = Timestamp {
+            wall_time: 0,
+            logical_time: 0,
+        };
+        kv_store.create_pending_transaction_record(&transaction_id, write_timestamp.clone());
         let transaction_record = kv_store.get_transaction_record(&transaction_id).unwrap();
         assert_eq!(
             transaction_record,
-            TransactionRecord {
-                status: TransactionStatus::PENDING
+            TxnRecord {
+                status: TransactionStatus::PENDING,
+                metadata: TxnMetadata {
+                    txn_id: transaction_id.clone(),
+                    write_timestamp
+                }
             }
         )
     }
@@ -301,7 +319,7 @@ mod tests {
                 mvcc::KVStore,
                 mvcc_iterator::IterOptions,
                 mvcc_key::MVCCKey,
-                txn::{Transaction, TransactionMetadata},
+                txn::{Txn, TxnMetadata},
             },
             WRITE_INTENT_ERROR,
         };
@@ -316,7 +334,7 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Transaction::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
+            let transaction = Txn::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
             kv_store
                 .mvcc_put(key, None, Some(&transaction), 12)
                 .unwrap();
@@ -338,9 +356,9 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Transaction::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
+            let transaction = Txn::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
 
-            kv_store.create_pending_transaction_record(&txn1_id);
+            kv_store.create_pending_transaction_record(&txn1_id, timestamp.to_owned());
             let current_keys = kv_store.collect_all_mvcc_kvs();
 
             kv_store
@@ -349,7 +367,7 @@ mod tests {
 
             let txn2_id = Uuid::new_v4();
 
-            let second_transaction = Transaction::new(
+            let second_transaction = Txn::new(
                 txn2_id,
                 Timestamp {
                     wall_time: 12,
@@ -375,7 +393,7 @@ mod tests {
                 mvcc::{KVStore, MVCCGetParams},
                 mvcc_key::MVCCKey,
                 serialized_to_value, str_to_key,
-                txn::{Transaction, TransactionMetadata},
+                txn::{Txn, TxnMetadata},
                 Value,
             },
         };
@@ -439,9 +457,9 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Transaction::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
+            let transaction = Txn::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
 
-            kv_store.create_pending_transaction_record(&txn1_id);
+            kv_store.create_pending_transaction_record(&txn1_id, timestamp.clone());
 
             kv_store
                 .mvcc_put(key, None, Some(&transaction), 12)
@@ -454,8 +472,8 @@ mod tests {
             );
             assert_eq!(
                 res.intent,
-                Some(TransactionMetadata {
-                    transaction_id: txn1_id,
+                Some(TxnMetadata {
+                    txn_id: txn1_id,
                     write_timestamp: timestamp
                 })
             )

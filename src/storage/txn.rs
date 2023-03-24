@@ -6,21 +6,21 @@ use crate::hlc::timestamp::Timestamp;
 use super::Value;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TransactionMetadata {
-    pub transaction_id: Uuid,
+pub struct TxnMetadata {
+    pub txn_id: Uuid,
     pub write_timestamp: Timestamp,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UncommittedValue {
     pub value: Value,
-    pub txn_metadata: TransactionMetadata,
+    pub txn_metadata: TxnMetadata,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Transaction {
-    pub transaction_id: Uuid,
-    pub metadata: TransactionMetadata,
+pub struct Txn {
+    pub txn_id: Uuid,
+    pub metadata: TxnMetadata,
     // All reads are performed on this read_timestamp
     // Writes are performed on metadata.write_timestamp.
     // If the write runs into timestamp oracle, then the write timestamp will be bumped.
@@ -28,16 +28,16 @@ pub struct Transaction {
     // TODO: locks, etc
 }
 
-impl Transaction {
+impl Txn {
     pub fn new(
         transaction_id: Uuid,
         read_timestamp: Timestamp,
         write_timestamp: Timestamp,
     ) -> Self {
-        Transaction {
-            transaction_id: transaction_id,
-            metadata: TransactionMetadata {
-                transaction_id: transaction_id.to_owned(),
+        Txn {
+            txn_id: transaction_id,
+            metadata: TxnMetadata {
+                txn_id: transaction_id.to_owned(),
                 write_timestamp: write_timestamp,
             },
             read_timestamp: read_timestamp,
@@ -47,8 +47,9 @@ impl Transaction {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
 // What's stored in the database
-pub struct TransactionRecord {
+pub struct TxnRecord {
     pub status: TransactionStatus,
+    pub metadata: TxnMetadata,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]

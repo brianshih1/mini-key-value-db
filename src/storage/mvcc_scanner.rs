@@ -5,14 +5,14 @@ use crate::hlc::timestamp::Timestamp;
 use super::{
     mvcc_iterator::MVCCIterator,
     mvcc_key::{create_intent_key, MVCCKey},
-    txn::{Transaction, TransactionMetadata, UncommittedValue},
+    txn::{Txn, TxnMetadata, UncommittedValue},
     Key, Value,
 };
 
 pub struct MVCCScanner<'a> {
     it: MVCCIterator<'a>,
 
-    pub transaction: Option<&'a Transaction>,
+    pub transaction: Option<&'a Txn>,
 
     // TODO: lockTable
 
@@ -25,7 +25,7 @@ pub struct MVCCScanner<'a> {
     // Timestamp that MVCCScan/MVCCGet was called
     pub timestamp: Timestamp,
 
-    pub found_intents: Vec<(Key, TransactionMetadata)>,
+    pub found_intents: Vec<(Key, TxnMetadata)>,
 
     // max number of tuples to add to the results
     pub max_records_count: usize,
@@ -47,7 +47,7 @@ impl<'a> MVCCScanner<'a> {
         end_key: Option<Key>,
         timestamp: Timestamp,
         max_records_count: usize,
-        transaction: Option<&'a Transaction>,
+        transaction: Option<&'a Txn>,
     ) -> Self {
         MVCCScanner {
             it,
@@ -109,7 +109,7 @@ impl<'a> MVCCScanner<'a> {
             let current_value = self.it.current_value_serialized::<UncommittedValue>();
 
             if let Some(scanner_transaction) = self.transaction {
-                if current_value.txn_metadata.transaction_id == scanner_transaction.transaction_id {
+                if current_value.txn_metadata.txn_id == scanner_transaction.txn_id {
                     // TODO: Resolve based on epoch
                 } else {
                     self.found_intents
@@ -199,7 +199,7 @@ mod tests {
                 mvcc_key::MVCCKey,
                 mvcc_scanner::MVCCScanner,
                 storage::Storage,
-                txn::Transaction,
+                txn::Txn,
             },
         };
 
@@ -254,7 +254,7 @@ mod tests {
             let mut kv_store = KVStore::new("./tmp/data");
             let timestamp = Timestamp::new(12, 0);
             let txn_id = Uuid::new_v4();
-            let transaction = Transaction::new(txn_id, timestamp.to_owned(), timestamp.to_owned());
+            let transaction = Txn::new(txn_id, timestamp.to_owned(), timestamp.to_owned());
             let key = "foo";
             kv_store
                 .mvcc_put(key, Some(timestamp), Some(&transaction), 12)
@@ -370,7 +370,7 @@ mod tests {
                 mvcc_key::MVCCKey,
                 mvcc_scanner::MVCCScanner,
                 serialized_to_value, str_to_key,
-                txn::Transaction,
+                txn::Txn,
             },
         };
 
@@ -444,7 +444,7 @@ mod tests {
             let mut kv_store = KVStore::new("./tmp/data");
             let txn_id = Uuid::new_v4();
             let transaction_timestamp = Timestamp::new(12, 0);
-            let transaction = Transaction::new(
+            let transaction = Txn::new(
                 txn_id,
                 transaction_timestamp.to_owned(),
                 transaction_timestamp.to_owned(),

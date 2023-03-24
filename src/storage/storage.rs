@@ -9,7 +9,7 @@ use crate::{StorageError, StorageResult};
 use super::{
     mvcc_iterator::{IterOptions, MVCCIterator},
     mvcc_key::{decode_mvcc_key, encode_mvcc_key, MVCCKey},
-    txn::TransactionRecord,
+    txn::TxnRecord,
     Value,
 };
 
@@ -99,9 +99,9 @@ impl Storage {
         &self,
         cf_name: &str,
         key: &str,
-        value: T,
+        value: &T,
     ) -> StorageResult<()> {
-        let str_res = serde_json::to_string(&value);
+        let str_res = serde_json::to_string(value);
         match str_res {
             Ok(serialized) => self.put_raw(cf_name, &key, serialized.into_bytes()),
             Err(err) => Err(StorageError::new("put_error".to_owned(), err.to_string())),
@@ -113,7 +113,7 @@ impl Storage {
         key: &MVCCKey,
         value: T,
     ) -> StorageResult<()> {
-        self.put_serialized(MVCC_COLUMN_FAMILY, &key.to_string(), value)
+        self.put_serialized(MVCC_COLUMN_FAMILY, &key.to_string(), &value)
     }
 
     pub fn get_serialized_with_mvcc_key<T: DeserializeOwned>(
@@ -123,7 +123,7 @@ impl Storage {
         self.get_serialized(MVCC_COLUMN_FAMILY, &key.to_string())
     }
 
-    pub fn get_transaction_record(&self, txn_id: &Uuid) -> Option<TransactionRecord> {
+    pub fn get_transaction_record(&self, txn_id: &Uuid) -> Option<TxnRecord> {
         self.get_serialized(TRANSACTION_RECORD_COLUMN_FAMILY, &txn_id.to_string())
             .unwrap()
     }
@@ -131,7 +131,7 @@ impl Storage {
     pub fn put_transaction_record(
         &self,
         txn_id: &Uuid,
-        txn_record: TransactionRecord,
+        txn_record: &TxnRecord,
     ) -> Result<(), StorageError> {
         self.put_serialized(
             TRANSACTION_RECORD_COLUMN_FAMILY,
