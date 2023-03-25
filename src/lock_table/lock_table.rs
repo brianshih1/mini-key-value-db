@@ -1,13 +1,18 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
+};
+
+use tokio::{
+    sync::mpsc::{channel, Receiver, Sender},
+    time::{self, Duration},
 };
 
 use crate::{
     execute::request::{Command, Request},
     latch_manager::latch_interval_btree::Range,
     storage::{
-        txn::{Txn, TxnMetadata},
+        txn::{Txn, TxnIntent, TxnMetadata},
         Key,
     },
 };
@@ -18,10 +23,15 @@ pub struct LockTableGuard {
     pub should_wait: bool,
 
     pub txn: RwLock<Txn>,
+
+    pub sender: Arc<Sender<()>>,
+
+    pub receiver: Mutex<Receiver<()>>,
 }
 
 pub struct LockTable {
-    pub locks: HashMap<Key, Arc<RwLock<LockState>>>,
+    // TODO: Use a concurent btree instead of a hash map
+    pub locks: RwLock<HashMap<Key, Arc<RwLock<LockState>>>>,
 }
 
 pub type LockTableGuardLink = Arc<RwLock<LockTableGuard>>;
@@ -43,7 +53,17 @@ pub struct LockState {
 
 impl LockTable {
     pub fn new() -> Self {
-        todo!()
+        LockTable {
+            locks: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /**
+     * Add a discovered lock to lockTable and add the guard to the waitingQueue
+     */
+    pub fn add_discovered_lock(&self, guard: LockTableGuardLink, intent: TxnIntent) {
+        let locks = self.locks.write().unwrap();
+        // if locks.contains_key(k) {}
     }
 
     /**
@@ -66,21 +86,28 @@ impl LockTable {
 
         let lock_guard = match guard {
             Some(guard) => guard,
-            None => Arc::new(RwLock::new(LockTableGuard {
-                should_wait: false,
-                txn: RwLock::new(txn.clone()),
-            })),
+            None => {
+                let (tx, rx) = channel::<()>(1);
+                Arc::new(RwLock::new(LockTableGuard {
+                    should_wait: false,
+                    txn: RwLock::new(txn.clone()),
+                    sender: Arc::new(tx),
+                    receiver: Mutex::new(rx),
+                }))
+            }
         };
         for span in spans.iter() {
-            // let lock = self.locks.get(&span.start_key);
-            // if let Some(lock_state) = lock {
-            //     let write_lock_state = lock_state.write().unwrap();
-            //     let should_wait =
-            //         write_lock_state.try_active_wait(&mut lock_guard, is_read_only, span);
-            //     if should_wait {
-            //         return lock_guard;
-            //     }
-            // }
+            let locks = self.locks.read().unwrap();
+            let lock = locks.get(&span.start_key);
+            if let Some(lock_state) = lock {
+                let write_lock_state = lock_state.write().unwrap();
+                let should_wait =
+                    write_lock_state.try_active_wait(lock_guard.clone(), is_read_only);
+                if should_wait {
+                    lock_guard.as_ref().write().unwrap().should_wait = true;
+                    return (true, lock_guard);
+                }
+            }
         }
         lock_guard.as_ref().write().unwrap().should_wait = false;
         (false, lock_guard)
@@ -93,7 +120,24 @@ impl LockTable {
      *
      * It's also responsible for pushing transaction if it times out
      */
-    pub fn wait_for(&self, guard: LockTableGuardLink) {}
+    pub async fn wait_for(&self, guard: LockTableGuardLink) {
+        let lg = guard.as_ref().read().unwrap();
+        let mut rx = lg.receiver.lock().unwrap();
+
+        let sleep = time::sleep(Duration::from_millis(1000));
+        tokio::pin!(sleep);
+        tokio::select! {
+            Some(_) = rx.recv() => {
+                println!("finished waiting for lock!");
+                return;
+            }
+            _ = &mut sleep, if !sleep.is_elapsed() => {
+                println!("operation timed out");
+                // TODO: PushTransactions
+            }
+
+        };
+    }
 
     /**
      * Dequeue removes the request from its lock wait-queues. It needs
@@ -101,6 +145,15 @@ impl LockTable {
      * or not. The method does not release any locks.
      */
     pub fn dequeue(&self) {}
+
+    /**
+     * This function tells the lockTable that an existing lock was updated/released (e.g. the transaction
+     * has committed / aborted).
+     *
+     * This function sets the lock_holder as null and calls is_lock_free to free the readers / next writer or start
+     * garbage collection.
+     */
+    pub fn update_locks(&self) {}
 }
 
 impl<'a> LockState {
@@ -109,6 +162,9 @@ impl<'a> LockState {
      * It releases all waiting_readers since readers don't need to wait anymore.
      * If there are no queued writers, return true. Otherwise, the first queued writer gets the
      * reservation.
+     *
+     * This function should be called whenever the holder is set to null (i.e. the holder is finalized - committed/aborted)
+     * or the reservation is set to null (dequeud - doneRequest). In other words, the next waiter's turn is up.
      */
     pub fn is_lock_free() -> bool {
         todo!()
@@ -118,12 +174,7 @@ impl<'a> LockState {
      * try_active_wait returns whether a request's span needs to wait for a lock.
      * If yes, queue the request to the lock's queued_writers (or read_waiters if it's a read)
      */
-    pub fn try_active_wait<'b>(
-        &self,
-        guard: LockTableGuardLink,
-        is_read_only: bool,
-        span: &Range<Vec<u8>>,
-    ) -> bool {
+    pub fn try_active_wait<'b>(&self, guard: LockTableGuardLink, is_read_only: bool) -> bool {
         let guard_ref = guard.as_ref();
         let mut lg = guard_ref.write().unwrap();
         let lg_txn = lg.txn.read().unwrap();
@@ -170,6 +221,32 @@ impl LockTableGuard {
      * and wait until the lock is reserved by the transcation or it timed out
      */
     pub fn should_wait(&self) -> bool {
-        todo!()
+        self.should_wait
+    }
+
+    pub fn done_waiting_at_lock(&self) {}
+}
+
+mod test {
+    mod lock_table {
+        mod scan_and_enqueue {}
+
+        mod wait_for {}
+
+        mod dequeue {}
+
+        mod update_locks {}
+    }
+
+    mod lock_state {
+        mod is_lock_free {}
+
+        mod try_active_wait {}
+    }
+
+    mod lock_table_guard {
+        mod should_wait {}
+
+        mod done_waiting_at_lock {}
     }
 }

@@ -10,7 +10,7 @@ use super::{
     serialized_to_value,
     storage::Storage,
     str_to_key,
-    txn::{TransactionStatus, Txn, TxnMetadata, TxnRecord, UncommittedValue},
+    txn::{TransactionStatus, Txn, TxnIntent, TxnMetadata, TxnRecord, UncommittedValue},
     Key, Value,
 };
 
@@ -29,17 +29,17 @@ pub struct MVCCGetParams<'a> {
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 pub struct WriteIntentError {
-    pub intent: (Key, TxnMetadata),
+    pub intent: TxnIntent,
 }
 
 pub struct MVCCGetResult {
     pub value: Option<(MVCCKey, Value)>,
-    pub intent: Option<TxnMetadata>,
+    pub intent: Option<TxnIntent>,
 }
 
 pub struct MVCCScanResult {
     results: Vec<(MVCCKey, Value)>,
-    intents: Vec<(Key, TxnMetadata)>,
+    intents: Vec<TxnIntent>,
 }
 
 impl KVStore {
@@ -75,7 +75,7 @@ impl KVStore {
                 None
             },
             intent: if intents.len() > 0 {
-                Some(intents.first().unwrap().1)
+                Some(intents.first().unwrap().clone())
             } else {
                 None
             },
@@ -127,16 +127,19 @@ impl KVStore {
         let intent = self.mvcc_get_uncommited_value(&str_to_key(key));
 
         match intent {
-            Some((intent, transaction_record)) => match &txn {
+            Some((metadata, transaction_record)) => match &txn {
                 Some(put_txn) => {
                     // this means we're overwriting our own transaction
                     // TODO: epoch - transaction retries
-                    if intent.txn_id == put_txn.txn_id {
+                    if metadata.txn_id == put_txn.txn_id {
                     } else {
                         match transaction_record.status {
                             TransactionStatus::PENDING => {
                                 return Err(WriteIntentError {
-                                    intent: (str_to_key(key), intent.clone()),
+                                    intent: TxnIntent {
+                                        txn_meta: metadata,
+                                        key: str_to_key(key),
+                                    },
                                 })
                             }
                             TransactionStatus::COMMITTED => todo!(),
@@ -393,7 +396,7 @@ mod tests {
                 mvcc::{KVStore, MVCCGetParams},
                 mvcc_key::MVCCKey,
                 serialized_to_value, str_to_key,
-                txn::{Txn, TxnMetadata},
+                txn::{Txn, TxnIntent, TxnMetadata},
                 Value,
             },
         };
@@ -470,11 +473,15 @@ mod tests {
                 &timestamp.advance_by(2),
                 MVCCGetParams { transaction: None },
             );
+
             assert_eq!(
                 res.intent,
-                Some(TxnMetadata {
-                    txn_id: txn1_id,
-                    write_timestamp: timestamp
+                Some(TxnIntent {
+                    txn_meta: TxnMetadata {
+                        txn_id: txn1_id,
+                        write_timestamp: timestamp,
+                    },
+                    key: str_to_key(key),
                 })
             )
         }

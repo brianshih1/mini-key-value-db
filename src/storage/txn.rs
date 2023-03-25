@@ -3,12 +3,18 @@ use uuid::Uuid;
 
 use crate::hlc::timestamp::Timestamp;
 
-use super::Value;
+use super::{Key, Value};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TxnMetadata {
     pub txn_id: Uuid,
     pub write_timestamp: Timestamp,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TxnIntent {
+    pub txn_meta: TxnMetadata,
+    pub key: Key,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

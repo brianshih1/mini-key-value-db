@@ -5,7 +5,7 @@ use crate::hlc::timestamp::Timestamp;
 use super::{
     mvcc_iterator::MVCCIterator,
     mvcc_key::{create_intent_key, MVCCKey},
-    txn::{Txn, TxnMetadata, UncommittedValue},
+    txn::{Txn, TxnIntent, TxnMetadata, UncommittedValue},
     Key, Value,
 };
 
@@ -25,7 +25,7 @@ pub struct MVCCScanner<'a> {
     // Timestamp that MVCCScan/MVCCGet was called
     pub timestamp: Timestamp,
 
-    pub found_intents: Vec<(Key, TxnMetadata)>,
+    pub found_intents: Vec<TxnIntent>,
 
     // max number of tuples to add to the results
     pub max_records_count: usize,
@@ -112,12 +112,16 @@ impl<'a> MVCCScanner<'a> {
                 if current_value.txn_metadata.txn_id == scanner_transaction.txn_id {
                     // TODO: Resolve based on epoch
                 } else {
-                    self.found_intents
-                        .push((current_key.key, current_value.txn_metadata));
+                    self.found_intents.push(TxnIntent {
+                        txn_meta: current_value.txn_metadata,
+                        key: current_key.key.clone(),
+                    });
                 }
             } else {
-                self.found_intents
-                    .push((current_key.key, current_value.txn_metadata));
+                self.found_intents.push(TxnIntent {
+                    txn_meta: current_value.txn_metadata,
+                    key: current_key.key.clone(),
+                });
             }
 
             return false;
@@ -199,7 +203,8 @@ mod tests {
                 mvcc_key::MVCCKey,
                 mvcc_scanner::MVCCScanner,
                 storage::Storage,
-                txn::Txn,
+                str_to_key,
+                txn::{Txn, TxnIntent},
             },
         };
 
@@ -278,7 +283,10 @@ mod tests {
             assert_eq!(scanner.found_intents.len(), 1);
             assert_eq!(
                 scanner.found_intents[0],
-                (key.as_bytes().to_vec(), transaction.metadata.to_owned())
+                TxnIntent {
+                    txn_meta: transaction.metadata,
+                    key: str_to_key(key)
+                }
             );
         }
     }
@@ -370,7 +378,7 @@ mod tests {
                 mvcc_key::MVCCKey,
                 mvcc_scanner::MVCCScanner,
                 serialized_to_value, str_to_key,
-                txn::Txn,
+                txn::{Txn, TxnIntent},
             },
         };
 
@@ -490,8 +498,18 @@ mod tests {
             scanner.scan();
             assert_eq!(scanner.found_intents.len(), 2);
             let mut vec = Vec::new();
-            vec.push((str_to_key(key1), transaction.metadata));
-            vec.push((str_to_key(key2), transaction.metadata));
+            TxnIntent {
+                txn_meta: transaction.metadata,
+                key: str_to_key(key1),
+            };
+            vec.push(TxnIntent {
+                txn_meta: transaction.metadata,
+                key: str_to_key(key1),
+            });
+            vec.push(TxnIntent {
+                txn_meta: transaction.metadata,
+                key: str_to_key(key2),
+            });
             assert_eq!(scanner.found_intents, vec);
         }
     }

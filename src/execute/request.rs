@@ -9,7 +9,7 @@ use crate::{
         mvcc::{KVStore, MVCCGetParams, WriteIntentError},
         mvcc_key::MVCCKey,
         str_to_key,
-        txn::{Txn, TxnMetadata},
+        txn::{Txn, TxnIntent, TxnMetadata},
         Key, Value,
     },
     StorageResult,
@@ -34,7 +34,7 @@ pub enum ExecuteError {
 }
 
 pub struct WriteIntentErrorData {
-    intent: TxnMetadata,
+    intent: TxnIntent,
 }
 
 pub enum ResponseUnion {
@@ -166,7 +166,7 @@ pub struct GetRequest {
 
 pub struct GetResponse {
     pub value: Option<(MVCCKey, Value)>,
-    pub intent: Option<TxnMetadata>,
+    pub intent: Option<TxnIntent>,
 }
 
 impl Command for GetRequest {
@@ -190,7 +190,8 @@ impl Command for GetRequest {
             },
         );
 
-        let error = result.intent.and_then(|intent| {
+        // TODO: Remove clone
+        let error = result.intent.clone().and_then(|intent| {
             Some(ExecuteError::WriteIntentError(WriteIntentErrorData {
                 intent: intent.clone(), // TODO: Remove this clone
             }))
@@ -199,7 +200,7 @@ impl Command for GetRequest {
         ExecuteResult {
             response: ResponseUnion::Get(GetResponse {
                 value: result.value,
-                intent: result.intent,
+                intent: result.intent.clone(),
             }),
             error,
         }
@@ -235,7 +236,7 @@ impl<'a> Command for PutRequest {
         let error = match res {
             Ok(_) => None,
             Err(err) => Some(ExecuteError::WriteIntentError(WriteIntentErrorData {
-                intent: err.intent.1,
+                intent: err.intent,
             })),
         };
 
