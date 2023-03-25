@@ -39,11 +39,8 @@ impl PartialOrd for MVCCKey {
 }
 
 impl MVCCKey {
-    pub fn new(key: &str, timestamp: Timestamp) -> Self {
-        MVCCKey {
-            key: key.as_bytes().to_vec(),
-            timestamp,
-        }
+    pub fn new(key: Key, timestamp: Timestamp) -> Self {
+        MVCCKey { key, timestamp }
     }
 
     pub fn is_intent_key(&self) -> bool {
@@ -156,13 +153,16 @@ mod tests {
     }
 
     mod order {
-        use crate::{hlc::timestamp::Timestamp, storage::mvcc_key::MVCCKey};
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{mvcc_key::MVCCKey, str_to_key},
+        };
 
         #[test]
         fn compare_intent_key() {
             let key = "foo";
-            let first = MVCCKey::new(key, Timestamp::intent_timestamp());
-            let second = MVCCKey::new(key, Timestamp::new(3, 3));
+            let first = MVCCKey::new(str_to_key(key), Timestamp::intent_timestamp());
+            let second = MVCCKey::new(str_to_key(key), Timestamp::new(3, 3));
             assert!(first > second);
             assert!(first >= second);
             assert!(second <= first);
@@ -171,8 +171,8 @@ mod tests {
         #[test]
         fn same_key() {
             let key = "foo";
-            let first = MVCCKey::new(key, Timestamp::intent_timestamp());
-            let second = MVCCKey::new(key, Timestamp::intent_timestamp());
+            let first = MVCCKey::new(str_to_key(key), Timestamp::intent_timestamp());
+            let second = MVCCKey::new(str_to_key(key), Timestamp::intent_timestamp());
             assert!(first >= second);
             assert!(second <= first);
         }

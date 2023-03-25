@@ -15,7 +15,7 @@ struct Executor {
 }
 
 impl Executor {
-    pub async fn execute_request_with_concurrency_retries(&self, request: Request<'_>) {
+    pub async fn execute_request_with_concurrency_retries(&self, request: Request) {
         loop {
             let request_union = &request.request_union;
             let spans = request_union.collect_spans();

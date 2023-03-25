@@ -215,7 +215,7 @@ mod tests {
             let mut storage = Storage::new_cleaned("./tmp/test");
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
-                key,
+                str_to_key(key),
                 Timestamp {
                     logical_time: 1,
                     wall_time: 1,
@@ -226,7 +226,7 @@ mod tests {
                 .unwrap();
 
             let mvcc_key_2 = MVCCKey::new(
-                key,
+                str_to_key(key),
                 Timestamp {
                     logical_time: 2,
                     wall_time: 2,
@@ -262,7 +262,7 @@ mod tests {
             let transaction = Txn::new(txn_id, timestamp.to_owned(), timestamp.to_owned());
             let key = "foo";
             kv_store
-                .mvcc_put(key, Some(timestamp), Some(&transaction), 12)
+                .mvcc_put(str_to_key(key), Some(timestamp), Some(&transaction), 12)
                 .unwrap();
 
             let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
@@ -300,6 +300,7 @@ mod tests {
                 mvcc_iterator::{IterOptions, MVCCIterator},
                 mvcc_key::MVCCKey,
                 mvcc_scanner::MVCCScanner,
+                str_to_key,
             },
         };
 
@@ -310,16 +311,16 @@ mod tests {
             let first_key_timestamp1 = Timestamp::new(2, 3);
             let first_key_timestamp2 = Timestamp::new(3, 0);
             kv_store
-                .mvcc_put(first_key, Some(first_key_timestamp1), None, 12)
+                .mvcc_put(str_to_key(first_key), Some(first_key_timestamp1), None, 12)
                 .unwrap();
             kv_store
-                .mvcc_put(first_key, Some(first_key_timestamp2), None, 13)
+                .mvcc_put(str_to_key(first_key), Some(first_key_timestamp2), None, 13)
                 .unwrap();
 
             let second_key = "banana";
             let second_key_timestamp = Timestamp::new(2, 3);
             kv_store
-                .mvcc_put(second_key, Some(second_key_timestamp), None, 13)
+                .mvcc_put(str_to_key(second_key), Some(second_key_timestamp), None, 13)
                 .unwrap();
 
             let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
@@ -392,27 +393,27 @@ mod tests {
             let first_key_timestamp1 = scan_timestamp.decrement_by(2);
             let first_key_timestamp2 = scan_timestamp.advance_by(3);
             kv_store
-                .mvcc_put(key1, Some(first_key_timestamp1), None, 12)
+                .mvcc_put(str_to_key(key1), Some(first_key_timestamp1), None, 12)
                 .unwrap();
 
             kv_store
-                .mvcc_put(key1, Some(first_key_timestamp2), None, 13)
+                .mvcc_put(str_to_key(key1), Some(first_key_timestamp2), None, 13)
                 .unwrap();
 
             let key2 = "banana";
             let second_key_timestamp1 = scan_timestamp.decrement_by(1);
             let second_key_timestamp2 = scan_timestamp.advance_by(10);
             kv_store
-                .mvcc_put(key2, Some(second_key_timestamp1), None, 12)
+                .mvcc_put(str_to_key(key2), Some(second_key_timestamp1), None, 12)
                 .unwrap();
             kv_store
-                .mvcc_put(key2, Some(second_key_timestamp2), None, 13)
+                .mvcc_put(str_to_key(key2), Some(second_key_timestamp2), None, 13)
                 .unwrap();
 
             let key3 = "cherry";
             let third_key_timestamp = scan_timestamp.decrement_by(10);
             kv_store
-                .mvcc_put(key3, Some(third_key_timestamp), None, 12)
+                .mvcc_put(str_to_key(key3), Some(third_key_timestamp), None, 12)
                 .unwrap();
 
             let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
@@ -459,13 +460,18 @@ mod tests {
             );
             let key1 = "apple";
             kv_store
-                .mvcc_put(key1, Some(transaction_timestamp), Some(&transaction), 12)
+                .mvcc_put(
+                    str_to_key(key1),
+                    Some(transaction_timestamp),
+                    Some(&transaction),
+                    12,
+                )
                 .unwrap();
 
             let key2 = "banana";
             kv_store
                 .mvcc_put(
-                    key2,
+                    str_to_key(key2),
                     Some(transaction_timestamp),
                     Some(&transaction),
                     "world",
@@ -475,7 +481,7 @@ mod tests {
             let key3 = "cherry";
             kv_store
                 .mvcc_put(
-                    key3,
+                    str_to_key(key3),
                     Some(transaction_timestamp),
                     Some(&transaction),
                     "hello",

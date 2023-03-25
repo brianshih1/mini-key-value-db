@@ -19,8 +19,8 @@ use crate::{
  * Request is the input to SequenceReq. The struct contains all the information necessary
  * to sequence a request (to provide concurrent isolation for storage)
  */
-pub struct Request<'a> {
-    pub metadata: RequestMetadata<'a>,
+pub struct Request {
+    pub metadata: RequestMetadata,
     pub request_union: RequestUnion,
 }
 
@@ -73,7 +73,7 @@ pub trait Command {
 }
 
 // Similar to CRDB's RequestHeader
-pub struct RequestMetadata<'a> {
+pub struct RequestMetadata {
     /**
      * The timestamp the request should evaluate at.
      * Should be set to Txn.ReadTimestamp if Txn is non-nil
@@ -83,7 +83,7 @@ pub struct RequestMetadata<'a> {
      * For now, assume every request is part of a transaction.
      * In the future, we can support non-transactional reads.
      */
-    pub txn: &'a Txn,
+    pub txn: Txn,
 }
 
 pub struct BeginTransactionRequest {
@@ -102,7 +102,7 @@ impl Command for BeginTransactionRequest {
     }
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
-        let write_timestamp = header.txn.metadata.write_timestamp.clone();
+        let write_timestamp = header.txn.metadata.write_timestamp;
         writer.create_pending_transaction_record(&self.txn_id, write_timestamp);
         ExecuteResult {
             response: ResponseUnion::BeginTransaction(BeginTransactionResponse {}),
@@ -126,7 +126,7 @@ impl Command for AbortTransactionRequest {
 
     fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
         let txn = header.txn;
-        let write_timestamp = header.txn.metadata.write_timestamp.clone();
+        let write_timestamp = header.txn.metadata.write_timestamp;
         writer.abort_transaction(&txn.txn_id, write_timestamp);
         ExecuteResult {
             response: ResponseUnion::AbortTransaction(AbortTransactionResponse {}),
@@ -150,9 +150,9 @@ impl Command for EndTransactionRequest {
 
     fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
         let txn = header.txn;
-        let write_timestamp = header.txn.metadata.write_timestamp.clone();
+        let write_timestamp = header.txn.metadata.write_timestamp;
 
-        writer.commit_transaction(&txn.txn_id, write_timestamp.clone());
+        writer.commit_transaction(&txn.txn_id, write_timestamp);
         ExecuteResult {
             response: ResponseUnion::EndTransaction(EndTransactionResponse {}),
             error: None,
@@ -186,7 +186,7 @@ impl Command for GetRequest {
             &self.key,
             &header.timestamp,
             MVCCGetParams {
-                transaction: Some(header.txn),
+                transaction: Some(&header.txn),
             },
         );
 
@@ -208,8 +208,8 @@ impl Command for GetRequest {
 }
 
 pub struct PutRequest {
-    key: &'static str,
-    value: Value,
+    pub key: Key,
+    pub value: Value,
 }
 
 pub struct PutResponse {}
@@ -221,16 +221,16 @@ impl<'a> Command for PutRequest {
 
     fn collect_spans(&self) -> SpanSet<Key> {
         Vec::from([Range {
-            start_key: str_to_key(self.key),
-            end_key: str_to_key(self.key),
+            start_key: self.key.clone(),
+            end_key: self.key.clone(),
         }])
     }
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let res = writer.mvcc_put(
-            self.key,
-            Some(header.timestamp.clone()),
-            Some(header.txn),
+            self.key.clone(),
+            Some(header.timestamp),
+            Some(&header.txn),
             self.value.clone(),
         ); // TODO: Remove value.clone()
         let error = match res {

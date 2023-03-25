@@ -198,7 +198,10 @@ impl Storage {
 mod Test {
     use serde::{Deserialize, Serialize};
 
-    use crate::{hlc::timestamp::Timestamp, storage::mvcc_key::MVCCKey};
+    use crate::{
+        hlc::timestamp::Timestamp,
+        storage::{mvcc_key::MVCCKey, str_to_key},
+    };
 
     use super::Storage;
 
@@ -211,7 +214,7 @@ mod Test {
     fn put_mvcc() {
         let mut storage = Storage::new_cleaned("./tmp/foo");
         let mvcc_key = MVCCKey::new(
-            "hello",
+            str_to_key("hello"),
             Timestamp {
                 logical_time: 12,
                 wall_time: 12,
@@ -230,14 +233,16 @@ mod Test {
 
         use crate::{
             hlc::timestamp::Timestamp,
-            storage::{mvcc_iterator::MVCCIterator, mvcc_key::MVCCKey, storage::Storage},
+            storage::{
+                mvcc_iterator::MVCCIterator, mvcc_key::MVCCKey, storage::Storage, str_to_key,
+            },
         };
 
         #[test]
         fn check_order_no_intent() {
             let mut storage = Storage::new_cleaned("./tmp/foo");
-            let first_mvcc_key = MVCCKey::new("a", Timestamp::new(1, 0));
-            let second_mvcc_key = MVCCKey::new("a", Timestamp::new(2, 0));
+            let first_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(1, 0));
+            let second_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(2, 0));
 
             storage
                 .put_serialized_with_mvcc_key(&second_mvcc_key, 13)
@@ -260,7 +265,7 @@ mod Test {
             let mut storage = Storage::new_cleaned("./tmp/foobars");
             let key = "a";
             let intent_key = MVCCKey::create_intent_key_with_str(key);
-            let non_intent_key = MVCCKey::new(key, Timestamp::new(2, 0));
+            let non_intent_key = MVCCKey::new(str_to_key(key), Timestamp::new(2, 0));
             storage
                 .put_serialized_with_mvcc_key(&intent_key, 12)
                 .unwrap();
@@ -294,8 +299,8 @@ mod Test {
 
         #[test]
         fn different_key() {
-            let first_mvcc_key = MVCCKey::new("a", Timestamp::new(12, 12));
-            let second_mvcc_key = MVCCKey::new("b", Timestamp::new(12, 12));
+            let first_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(12, 12));
+            let second_mvcc_key = MVCCKey::new(str_to_key("b"), Timestamp::new(12, 12));
             let ordering = Storage::compare(
                 &encode_mvcc_key(&first_mvcc_key),
                 &encode_mvcc_key(&second_mvcc_key),
@@ -305,8 +310,8 @@ mod Test {
 
         #[test]
         fn same_key() {
-            let first_mvcc_key = MVCCKey::new("a", Timestamp::new(10, 12));
-            let second_mvcc_key = MVCCKey::new("a", Timestamp::new(12, 12));
+            let first_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(10, 12));
+            let second_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(12, 12));
             let ordering = Storage::compare(
                 &encode_mvcc_key(&first_mvcc_key),
                 &encode_mvcc_key(&second_mvcc_key),
@@ -317,7 +322,7 @@ mod Test {
         #[test]
         fn intent_key() {
             let intent_key = MVCCKey::create_intent_key_with_str("a");
-            let second_mvcc_key = MVCCKey::new("a", Timestamp::new(12, 12));
+            let second_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(12, 12));
             let ordering = Storage::compare(
                 &encode_mvcc_key(&intent_key),
                 &encode_mvcc_key(&second_mvcc_key),

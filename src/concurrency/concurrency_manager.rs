@@ -27,7 +27,7 @@ impl ConcurrencyManager {
         }
     }
 
-    pub async fn sequence_req(&self, request: &Request<'_>) -> Guard {
+    pub async fn sequence_req(&self, request: &Request) -> Guard {
         let spans_to_acquire = request.request_union.collect_spans();
         loop {
             let latch_guard = self

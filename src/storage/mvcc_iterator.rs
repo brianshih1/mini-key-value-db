@@ -169,7 +169,7 @@ mod tests {
     fn test_current_key_and_current_value() {
         let mut storage = Storage::new_cleaned("./tmp/testt");
         let mvcc_key = MVCCKey::new(
-            "hello",
+            str_to_key("hello"),
             Timestamp {
                 logical_time: 12,
                 wall_time: 12,
@@ -195,7 +195,7 @@ mod tests {
         let key = "hello";
 
         let mvcc_key_2 = MVCCKey::new(
-            &key,
+            str_to_key(key),
             Timestamp {
                 logical_time: 2,
                 wall_time: 2,
@@ -205,7 +205,7 @@ mod tests {
         let key_2_value = 12;
 
         let mvcc_key_12 = MVCCKey::new(
-            &key,
+            str_to_key(key),
             Timestamp {
                 logical_time: 12,
                 wall_time: 12,
@@ -213,7 +213,7 @@ mod tests {
         );
         let key_12_value = 15;
 
-        let intent_key = MVCCKey::new(&key, get_intent_timestamp());
+        let intent_key = MVCCKey::new(str_to_key(key), get_intent_timestamp());
         let intent_value = 10;
         storage
             .put_serialized_with_mvcc_key(&mvcc_key_12.to_owned(), key_12_value)
@@ -258,6 +258,7 @@ mod tests {
                 mvcc_iterator::{IterOptions, MVCCIterator},
                 mvcc_key::MVCCKey,
                 storage::Storage,
+                str_to_key,
             },
         };
 
@@ -266,7 +267,7 @@ mod tests {
             let mut storage = Storage::new_cleaned("./tmp/testt");
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
-                key,
+                str_to_key(key),
                 Timestamp {
                     logical_time: 1,
                     wall_time: 1,
@@ -277,7 +278,7 @@ mod tests {
                 .unwrap();
 
             let mvcc_key_6 = MVCCKey::new(
-                key,
+                str_to_key(key),
                 Timestamp {
                     wall_time: 6,
                     logical_time: 6,
@@ -288,7 +289,7 @@ mod tests {
                 .unwrap();
 
             let mvcc_key_4 = MVCCKey::new(
-                key,
+                str_to_key(key),
                 Timestamp {
                     wall_time: 4,
                     logical_time: 4,
@@ -301,7 +302,7 @@ mod tests {
             let mut iterator = MVCCIterator::new(&storage, IterOptions { prefix: true });
 
             let key5 = MVCCKey::new(
-                key,
+                str_to_key(key),
                 Timestamp {
                     wall_time: 5,
                     logical_time: 5,
@@ -317,7 +318,7 @@ mod tests {
             let storage = Storage::new_cleaned("./tmp/testt");
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
-                key,
+                str_to_key(key),
                 Timestamp {
                     logical_time: 1,
                     wall_time: 1,

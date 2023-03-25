@@ -119,12 +119,12 @@ impl KVStore {
      */
     pub fn mvcc_put<T: Serialize>(
         &self,
-        key: &str,
+        key: Key,
         timestamp: Option<Timestamp>,
         txn: Option<&Txn>,
         value: T,
     ) -> Result<MVCCKey, WriteIntentError> {
-        let intent = self.mvcc_get_uncommited_value(&str_to_key(key));
+        let intent = self.mvcc_get_uncommited_value(&key);
 
         match intent {
             Some((metadata, transaction_record)) => match &txn {
@@ -138,7 +138,7 @@ impl KVStore {
                                 return Err(WriteIntentError {
                                     intent: TxnIntent {
                                         txn_meta: metadata,
-                                        key: str_to_key(key),
+                                        key,
                                     },
                                 })
                             }
@@ -162,12 +162,12 @@ impl KVStore {
             None => (timestamp.unwrap().to_owned(), timestamp.unwrap().to_owned()),
         };
 
-        let version_key = MVCCKey::new(key, write_timestamp.to_owned());
+        let version_key = MVCCKey::new(key.clone(), write_timestamp.to_owned());
 
         if let Some(transaction) = txn {
             self.storage
                 .put_serialized_with_mvcc_key(
-                    &create_intent_key(&str_to_key(key)),
+                    &create_intent_key(&key),
                     UncommittedValue {
                         value: serialized_to_value(value), // is this correct?
                         txn_metadata: TxnMetadata {
@@ -216,7 +216,7 @@ impl KVStore {
             status: TransactionStatus::PENDING,
             metadata: TxnMetadata {
                 txn_id: txn_id.clone(),
-                write_timestamp: write_timestamp.clone(),
+                write_timestamp: write_timestamp,
             },
         };
         self.put_transaction_record(txn_id, &record)
@@ -238,7 +238,7 @@ impl KVStore {
             status: TransactionStatus::COMMITTED,
             metadata: TxnMetadata {
                 txn_id: transaction_id.clone(),
-                write_timestamp: write_timestamp.clone(), // TODO: Remove the clone
+                write_timestamp: write_timestamp,
             },
         };
         self.put_transaction_record(transaction_id, &record)
@@ -299,7 +299,7 @@ mod tests {
             wall_time: 0,
             logical_time: 0,
         };
-        kv_store.create_pending_transaction_record(&transaction_id, write_timestamp.clone());
+        kv_store.create_pending_transaction_record(&transaction_id, write_timestamp);
         let transaction_record = kv_store.get_transaction_record(&transaction_id).unwrap();
         assert_eq!(
             transaction_record,
@@ -322,6 +322,7 @@ mod tests {
                 mvcc::KVStore,
                 mvcc_iterator::IterOptions,
                 mvcc_key::MVCCKey,
+                str_to_key,
                 txn::{Txn, TxnMetadata},
             },
             WRITE_INTENT_ERROR,
@@ -339,7 +340,7 @@ mod tests {
             };
             let transaction = Txn::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
             kv_store
-                .mvcc_put(key, None, Some(&transaction), 12)
+                .mvcc_put(str_to_key(key), None, Some(&transaction), 12)
                 .unwrap();
             let mut it = kv_store
                 .storage
@@ -365,7 +366,7 @@ mod tests {
             let current_keys = kv_store.collect_all_mvcc_kvs();
 
             kv_store
-                .mvcc_put(key, None, Some(&transaction), 12)
+                .mvcc_put(str_to_key(key), None, Some(&transaction), 12)
                 .unwrap();
 
             let txn2_id = Uuid::new_v4();
@@ -382,7 +383,7 @@ mod tests {
                 },
             );
 
-            let res = kv_store.mvcc_put(key, None, Some(&second_transaction), 12);
+            let res = kv_store.mvcc_put(str_to_key(key), None, Some(&second_transaction), 12);
             assert!(res.is_err());
         }
     }
@@ -406,17 +407,17 @@ mod tests {
             let mut kv_store = KVStore::new("./tmp/data");
             let read_timestamp = Timestamp::new(10, 10);
 
-            let key1 = "apple";
+            let key1 = str_to_key("apple");
             let key1_timestamp1 = read_timestamp.decrement_by(3); // 7
             let key1_timestamp2 = read_timestamp.decrement_by(1); // 9
             let key1_timestamp3 = read_timestamp.advance_by(2); // 12
 
             kv_store
                 .storage
-                .put_serialized_with_mvcc_key(&MVCCKey::new(&key1, key1_timestamp1), 10)
+                .put_serialized_with_mvcc_key(&MVCCKey::new(key1.clone(), key1_timestamp1), 10)
                 .unwrap();
 
-            let most_recent_key = MVCCKey::new(&key1, key1_timestamp2);
+            let most_recent_key = MVCCKey::new(key1.clone(), key1_timestamp2);
             let most_recent_value = 11;
             kv_store
                 .storage
@@ -425,21 +426,18 @@ mod tests {
 
             kv_store
                 .storage
-                .put_serialized_with_mvcc_key(&MVCCKey::new(&key1, key1_timestamp3), 12)
+                .put_serialized_with_mvcc_key(&MVCCKey::new(key1.clone(), key1_timestamp3), 12)
                 .unwrap();
 
             let key2 = "banana";
             let key2_timestamp = read_timestamp.decrement_by(1);
             kv_store
                 .storage
-                .put_serialized_with_mvcc_key(&MVCCKey::new(&key2, key2_timestamp), 10)
+                .put_serialized_with_mvcc_key(&MVCCKey::new(str_to_key(key2), key2_timestamp), 10)
                 .unwrap();
 
-            let res = kv_store.mvcc_get(
-                &str_to_key(key1),
-                &read_timestamp,
-                MVCCGetParams { transaction: None },
-            );
+            let res =
+                kv_store.mvcc_get(&key1, &read_timestamp, MVCCGetParams { transaction: None });
             assert!(res.intent.is_none());
             assert_eq!(
                 res.value,
@@ -460,12 +458,12 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Txn::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
+            let transaction = Txn::new(txn1_id, timestamp, timestamp);
 
-            kv_store.create_pending_transaction_record(&txn1_id, timestamp.clone());
+            kv_store.create_pending_transaction_record(&txn1_id, timestamp);
 
             kv_store
-                .mvcc_put(key, None, Some(&transaction), 12)
+                .mvcc_put(str_to_key(key), None, Some(&transaction), 12)
                 .unwrap();
 
             let res = kv_store.mvcc_get(
