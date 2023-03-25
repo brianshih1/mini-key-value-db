@@ -64,3 +64,15 @@ pub enum TransactionStatus {
     COMMITTED,
     ABORTED,
 }
+
+impl TxnIntent {
+    pub fn new(txn_id: Uuid, write_timestamp: Timestamp, key: Key) -> Self {
+        TxnIntent {
+            txn_meta: TxnMetadata {
+                txn_id: txn_id,
+                write_timestamp: write_timestamp,
+            },
+            key: key,
+        }
+    }
+}
