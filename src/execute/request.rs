@@ -77,6 +77,8 @@ pub struct RequestMetadata {
     /**
      * The timestamp the request should evaluate at.
      * Should be set to Txn.ReadTimestamp if Txn is non-nil
+     *
+     * Why do we need this addition to the txn?
      */
     pub timestamp: Timestamp,
     /**
@@ -161,7 +163,7 @@ impl Command for EndTransactionRequest {
 }
 
 pub struct GetRequest {
-    key: Key,
+    pub key: Key,
 }
 
 pub struct GetResponse {

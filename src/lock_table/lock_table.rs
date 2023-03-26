@@ -1,4 +1,5 @@
 use std::{
+    borrow::{Borrow, BorrowMut},
     cell::RefCell,
     collections::HashMap,
     sync::{Arc, Mutex, RwLock},
@@ -165,8 +166,32 @@ impl LockTable {
      *
      * This function sets the lock_holder as null and calls is_lock_free to free the readers / next writer or start
      * garbage collection.
+     *
+     * Returns whether the lock can be garbage collected.
      */
-    pub fn update_locks(&self) {}
+    pub async fn update_locks(&self, key: Key, txn: Txn) -> bool {
+        let locks = self.locks.read().unwrap();
+        let lock_state_option = locks.get(&key);
+        if lock_state_option.is_none() {
+            return false;
+        }
+        let lock_state_link = lock_state_option.unwrap();
+        let lock_state = lock_state_link.as_ref().write().unwrap();
+
+        let reservation = lock_state.reservation.borrow();
+        let mut holder_option = lock_state.lock_holder.borrow_mut();
+
+        if reservation.is_none() && holder_option.is_none() {
+            return true;
+        }
+        if let Some(holder) = &*holder_option {
+            if holder.txn_id != txn.txn_id {
+                return false;
+            }
+        }
+        *holder_option = None;
+        lock_state.lock_is_free().await
+    }
 }
 
 impl<'a> LockState {
@@ -179,16 +204,43 @@ impl<'a> LockState {
         }
     }
     /**
+     * The lock has transitioned from locked/reserved to unlocked. Ther could be waiters,
+     * but there cannot be a reservation.
+     *
+     * All readers are freed and if there are queued writers, the first writer gets the reservation.
+     *
      * Returns whether a lock can be freed - which is when there are no more queued_writers.
-     * It releases all waiting_readers since readers don't need to wait anymore.
-     * If there are no queued writers, return true. Otherwise, the first queued writer gets the
-     * reservation.
      *
      * This function should be called whenever the holder is set to null (i.e. the holder is finalized - committed/aborted)
      * or the reservation is set to null (dequeud - doneRequest). In other words, the next waiter's turn is up.
      */
-    pub fn is_lock_free() -> bool {
-        todo!()
+    pub async fn lock_is_free(&self) -> bool {
+        let holder = self.lock_holder.borrow();
+        if holder.is_some() {
+            panic!("called lock_is_free with holder");
+        }
+
+        let reservation = self.reservation.borrow();
+        if reservation.is_some() {
+            panic!("called lock_is_free with reservation");
+        }
+
+        let readers = self.waiting_readers.read().unwrap();
+        for reader_arc in readers.iter() {
+            let reader = reader_arc.as_ref().read().unwrap();
+            reader.done_waiting_at_lock().await;
+        }
+
+        let mut writers = self.queued_writers.write().unwrap();
+        if writers.len() == 0 {
+            return true;
+        }
+
+        let first = writers.remove(0);
+        let first_writer = first.as_ref().read().unwrap();
+        first_writer.done_waiting_at_lock().await;
+
+        return false;
     }
 
     pub fn register_guard(&self, guard: LockTableGuardLink) {
@@ -324,7 +376,14 @@ impl LockTableGuard {
         self.should_wait
     }
 
-    pub fn done_waiting_at_lock(&self) {}
+    /**
+     * Called when the request is no longer waiting at lock and should find the
+     * next lock to wait at.
+     */
+    pub async fn done_waiting_at_lock(&self) {
+        let sender = self.sender.as_ref();
+        sender.send(()).await.unwrap();
+    }
 
     pub fn get_txn_meta(guard_link: &LockTableGuardLink) -> TxnMetadata {
         let read_guard = guard_link.as_ref().read().unwrap();
@@ -353,7 +412,7 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        execute::request::{PutRequest, Request, RequestMetadata, RequestUnion},
+        execute::request::{GetRequest, PutRequest, Request, RequestMetadata, RequestUnion},
         hlc::timestamp::Timestamp,
         storage::{serialized_to_value, str_to_key, txn::Txn, Key},
     };
@@ -435,6 +494,24 @@ mod test {
         });
         let txn_id = Uuid::new_v4();
         let timestamp = Timestamp::new(1, 2);
+        let txn = Txn::new(txn_id, timestamp, timestamp);
+        (
+            Request {
+                metadata: RequestMetadata {
+                    timestamp: timestamp,
+                    txn: txn.clone(),
+                },
+                request_union,
+            },
+            txn,
+        )
+    }
+
+    pub fn create_test_read_request(key: &str, timestamp: Timestamp) -> (Request, Txn) {
+        let request_union = RequestUnion::Get(GetRequest {
+            key: str_to_key(key),
+        });
+        let txn_id = Uuid::new_v4();
         let txn = Txn::new(txn_id, timestamp, timestamp);
         (
             Request {
@@ -591,8 +668,9 @@ mod test {
                     hlc::timestamp::Timestamp,
                     lock_table::lock_table::{
                         test::{
-                            create_test_lock_table_guard,
-                            create_test_lock_table_guard_with_timestamp,
+                            assert_lock_state, create_test_lock_table_guard,
+                            create_test_lock_table_guard_with_timestamp, create_test_read_request,
+                            get_guard_id, TestLockState,
                         },
                         LockTable,
                     },
@@ -611,6 +689,43 @@ mod test {
                     lock_table.add_discovered_lock(lg, txn.to_intent(str_to_key(key_str)));
 
                     // enqueue a READ request onto the discovered lock
+                    let (read_request, _) =
+                        create_test_read_request(key_str, lock_timestamp.advance_by(1));
+                    let (should_wait, read_lg) = lock_table.scan_and_enqueue(&read_request, None);
+                    assert!(should_wait);
+
+                    let test_lock_state = TestLockState {
+                        queued_writers: Vec::from([]),
+                        waiting_readers: Vec::from([get_guard_id(read_lg)]),
+                        lock_holder: Some(txn_id),
+                        reservation: None,
+                    };
+                    assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
+                }
+
+                #[test]
+                fn read_request_with_smaller_timestamp_than_lock_holder() {
+                    let key_str = "foo";
+                    let lock_table = LockTable::new();
+
+                    // add discovered lock
+                    let lock_timestamp = Timestamp::new(2, 2);
+                    let (txn_id, txn, lg) =
+                        create_test_lock_table_guard_with_timestamp(lock_timestamp);
+                    lock_table.add_discovered_lock(lg, txn.to_intent(str_to_key(key_str)));
+
+                    let (read_request, _) =
+                        create_test_read_request(key_str, lock_timestamp.decrement_by(1));
+                    let (should_wait, _) = lock_table.scan_and_enqueue(&read_request, None);
+                    assert!(!should_wait);
+
+                    let test_lock_state = TestLockState {
+                        queued_writers: Vec::from([]),
+                        waiting_readers: Vec::from([]),
+                        lock_holder: Some(txn_id),
+                        reservation: None,
+                    };
+                    assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
                 }
             }
         }
@@ -623,7 +738,7 @@ mod test {
     }
 
     mod lock_state {
-        mod is_lock_free {}
+        mod lock_is_free {}
 
         mod try_active_wait {}
     }

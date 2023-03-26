@@ -167,7 +167,6 @@ mod Test {
             _ = &mut sleep, if !sleep.is_elapsed() => {
                 println!("operation timed out");
             }
-
         };
     }
 }
