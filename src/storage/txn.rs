@@ -49,6 +49,13 @@ impl Txn {
             read_timestamp: read_timestamp,
         }
     }
+
+    pub fn to_intent(&self, key: Key) -> TxnIntent {
+        TxnIntent {
+            txn_meta: self.metadata.clone(),
+            key,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]

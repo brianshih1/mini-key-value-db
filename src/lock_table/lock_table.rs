@@ -281,6 +281,19 @@ impl<'a> LockState {
     }
 
     #[cfg(test)]
+    pub fn get_waiting_readers_ids(&self) -> Vec<Uuid> {
+        let writers = self.waiting_readers.read().unwrap();
+        let ids = writers
+            .iter()
+            .map(|x| {
+                let lg = x.as_ref().read().unwrap();
+                lg.guard_id
+            })
+            .collect::<Vec<Uuid>>();
+        ids
+    }
+
+    #[cfg(test)]
     pub fn get_holder_txn_id(&self) -> Option<Uuid> {
         let holder = self.lock_holder.borrow();
         holder.and_then(|txn_meta| Some(txn_meta.txn_id))
@@ -335,15 +348,17 @@ impl LockTableGuard {
 
 #[cfg(test)]
 mod test {
+    use core::time;
+
     use uuid::Uuid;
 
     use crate::{
         execute::request::{PutRequest, Request, RequestMetadata, RequestUnion},
         hlc::timestamp::Timestamp,
-        storage::{serialized_to_value, str_to_key, txn::Txn},
+        storage::{serialized_to_value, str_to_key, txn::Txn, Key},
     };
 
-    use super::{LockStateLink, LockTableGuard, LockTableGuardLink};
+    use super::{LockStateLink, LockTable, LockTableGuard, LockTableGuardLink};
 
     pub fn assert_holder_txn_id(lock_state_link: LockStateLink, txn_id: Uuid) {
         let lock_state = lock_state_link.as_ref().read().unwrap();
@@ -352,9 +367,63 @@ mod test {
         assert_eq!(lock_state.get_holder_txn_id(), Some(txn_id));
     }
 
+    pub fn get_guard_id(guard_link: LockTableGuardLink) -> Uuid {
+        guard_link.as_ref().read().unwrap().guard_id
+    }
+
+    // Test struture for LockState to assert what is being held by a LockState
+    pub struct TestLockState {
+        pub queued_writers: Vec<Uuid>,  // guard ids
+        pub waiting_readers: Vec<Uuid>, // guard ids
+        pub lock_holder: Option<Uuid>,  // txn_id
+        pub reservation: Option<Uuid>,  // guard_id
+    }
+
+    #[cfg(test)]
+    pub fn assert_lock_state(lock_table: &LockTable, key: Key, test_lock_state: TestLockState) {
+        let lock_state_arc = lock_table.get_lock_state(&key).unwrap();
+        let lock_state = lock_state_arc.as_ref().read().unwrap();
+        assert_eq!(
+            lock_state.get_queued_writer_ids(),
+            test_lock_state.queued_writers
+        );
+        assert_eq!(
+            lock_state.get_waiting_readers_ids(),
+            test_lock_state.waiting_readers
+        );
+        match test_lock_state.lock_holder {
+            Some(txn_id) => {
+                let holder = &lock_state.lock_holder.borrow().unwrap();
+                assert_eq!(txn_id, holder.txn_id)
+            }
+            None => {
+                assert!(lock_state.lock_holder.borrow().is_none())
+            }
+        }
+        match test_lock_state.reservation {
+            Some(guard_id) => {
+                let reservation_arc = &lock_state.reservation.borrow().clone().unwrap();
+                let reservation = reservation_arc.as_ref().read().unwrap();
+                assert_eq!(guard_id, reservation.guard_id)
+            }
+            None => {
+                assert!(lock_state.reservation.borrow().is_none())
+            }
+        }
+    }
+
     pub fn create_test_lock_table_guard() -> (Uuid, Txn, LockTableGuardLink) {
         let txn_id = Uuid::new_v4();
         let txn = Txn::new(txn_id, Timestamp::new(1, 1), Timestamp::new(1, 1));
+        let lg = LockTableGuard::new_lock_table_guard_link(txn.clone());
+        (txn_id, txn, lg)
+    }
+
+    pub fn create_test_lock_table_guard_with_timestamp(
+        timestamp: Timestamp,
+    ) -> (Uuid, Txn, LockTableGuardLink) {
+        let txn_id = Uuid::new_v4();
+        let txn = Txn::new(txn_id, timestamp, timestamp);
         let lg = LockTableGuard::new_lock_table_guard_link(txn.clone());
         (txn_id, txn, lg)
     }
@@ -386,7 +455,10 @@ mod test {
             use crate::{
                 hlc::timestamp::Timestamp,
                 lock_table::lock_table::{
-                    test::{assert_holder_txn_id, create_test_lock_table_guard},
+                    test::{
+                        assert_holder_txn_id, assert_lock_state, create_test_lock_table_guard,
+                        TestLockState,
+                    },
                     LockTable, LockTableGuard,
                 },
                 storage::{
@@ -402,15 +474,15 @@ mod test {
                 let key = str_to_key("foo");
                 lock_table.add_discovered_lock(
                     lg,
-                    TxnIntent::new(txn_id, Timestamp::new(0, 0), key.clone()),
+                    TxnIntent::new(txn_id, Timestamp::new(1, 1), key.clone()),
                 );
-                let state = lock_table.get_lock_state(&key);
-                assert!(state.is_some());
-                let unwrapped = state.unwrap();
-                let lock_state_arc = unwrapped.clone();
-                let lock_state = lock_state_arc.as_ref().read().unwrap();
-                assert!(lock_state.get_queued_writer_ids().is_empty());
-                assert_holder_txn_id(unwrapped.clone(), txn_id);
+                let test_lock_state = TestLockState {
+                    queued_writers: Vec::from([]),
+                    waiting_readers: Vec::from([]),
+                    lock_holder: Some(txn_id),
+                    reservation: None,
+                };
+                assert_lock_state(&lock_table, key, test_lock_state);
             }
 
             #[test]
@@ -431,19 +503,14 @@ mod test {
                     lg_2.clone(),
                     TxnIntent::new(txn_2_id, Timestamp::new(0, 0), key.clone()),
                 );
-                let state = lock_table.get_lock_state(&key);
-                assert!(state.is_some());
-                let unwrapped = state.unwrap();
-                let lock_state = unwrapped.as_ref().read().unwrap();
 
-                assert_eq!(
-                    lock_state.get_queued_writer_ids(),
-                    Vec::from([lg_2.as_ref().read().unwrap().guard_id])
-                );
-
-                let holder = lock_state.lock_holder.borrow();
-                assert!(holder.is_some());
-                assert_eq!(lock_state.get_holder_txn_id(), Some(txn_1_id));
+                let test_lock_state = TestLockState {
+                    queued_writers: Vec::from([lg_2.as_ref().read().unwrap().guard_id]),
+                    waiting_readers: Vec::from([]),
+                    lock_holder: Some(txn_1_id),
+                    reservation: None,
+                };
+                assert_lock_state(&lock_table, key, test_lock_state);
             }
         }
 
@@ -455,7 +522,10 @@ mod test {
                     execute::request::{PutRequest, Request, RequestMetadata, RequestUnion},
                     hlc::timestamp::Timestamp,
                     lock_table::lock_table::{
-                        test::{create_test_lock_table_guard, create_test_put_request},
+                        test::{
+                            assert_lock_state, create_test_lock_table_guard,
+                            create_test_put_request, get_guard_id, TestLockState,
+                        },
                         LockTable,
                     },
                     storage::{
@@ -484,28 +554,64 @@ mod test {
 
                     // add discovered lock
                     let (txn_id, txn, lg) = create_test_lock_table_guard();
-                    lock_table.add_discovered_lock(
-                        lg,
-                        TxnIntent::new(txn_id, txn.metadata.write_timestamp, str_to_key(key_str)),
-                    );
+                    lock_table.add_discovered_lock(lg, txn.to_intent(str_to_key(key_str)));
 
                     // enqueue a WRITE request onto the discovered lock
                     let (request, _) = create_test_put_request(key_str);
                     let (should_wait, guard) = lock_table.scan_and_enqueue(&request, None);
                     assert!(should_wait);
-                    let state = lock_table.get_lock_state(&str_to_key(key_str));
-                    assert!(state.is_some());
-                    let unwrapped = state.unwrap();
-                    let lock_state = unwrapped.as_ref().read().unwrap();
-                    assert_eq!(
-                        lock_state.get_queued_writer_ids(),
-                        Vec::from([guard.as_ref().read().unwrap().guard_id])
-                    );
+
+                    let test_lock_state = TestLockState {
+                        queued_writers: Vec::from([get_guard_id(guard.clone())]),
+                        waiting_readers: Vec::from([]),
+                        lock_holder: Some(txn_id),
+                        reservation: None,
+                    };
+                    assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
+
+                    // enqueue another WRITE request to the locked state
+                    let (request, _) = create_test_put_request(key_str);
+                    let (should_wait_2, guard_2) = lock_table.scan_and_enqueue(&request, None);
+                    assert!(should_wait_2);
+
+                    let test_lock_state_2 = TestLockState {
+                        queued_writers: Vec::from([
+                            get_guard_id(guard.clone()),
+                            get_guard_id(guard_2.clone()),
+                        ]),
+                        waiting_readers: Vec::from([]),
+                        lock_holder: Some(txn_id),
+                        reservation: None,
+                    };
+                    assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state_2);
                 }
             }
             mod read_request {
+                use crate::{
+                    hlc::timestamp::Timestamp,
+                    lock_table::lock_table::{
+                        test::{
+                            create_test_lock_table_guard,
+                            create_test_lock_table_guard_with_timestamp,
+                        },
+                        LockTable,
+                    },
+                    storage::{str_to_key, txn::TxnIntent},
+                };
+
                 #[test]
-                fn read_request() {}
+                fn queue_read_request_to_held_lock() {
+                    let key_str = "foo";
+                    let lock_table = LockTable::new();
+
+                    // add discovered lock
+                    let lock_timestamp = Timestamp::new(2, 2);
+                    let (txn_id, txn, lg) =
+                        create_test_lock_table_guard_with_timestamp(lock_timestamp);
+                    lock_table.add_discovered_lock(lg, txn.to_intent(str_to_key(key_str)));
+
+                    // enqueue a READ request onto the discovered lock
+                }
             }
         }
 
