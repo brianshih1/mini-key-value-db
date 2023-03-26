@@ -34,7 +34,7 @@ impl ConcurrencyManager {
                 .latch_manager
                 .acquire_and_wait(spans_to_acquire.clone())
                 .await;
-            let (should_wait, lock_guard) = self.lock_table.scan_and_enqueue(request, None);
+            let (should_wait, lock_guard) = self.lock_table.scan_and_enqueue(request);
             if should_wait {
                 self.latch_manager.release(latch_guard);
                 self.lock_table.wait_for(lock_guard).await;
