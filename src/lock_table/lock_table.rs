@@ -223,8 +223,6 @@ impl LockTable {
         }
         let lock_state_link = lock_state_option.unwrap().clone();
 
-        drop(lock_state_option);
-
         {
             let lock_state = lock_state_link.as_ref();
             let reservation = lock_state.reservation.read().unwrap().clone();
@@ -267,41 +265,39 @@ impl<'a> LockState {
      * or the reservation is set to null (dequeud - doneRequest). In other words, the next waiter's turn is up.
      */
     pub async fn lock_is_free(&self) -> bool {
-        // let holder = self.lock_holder.read().unwrap();
-        // if holder.is_some() {
-        //     panic!("called lock_is_free with holder");
-        // }
-        // drop(holder);
+        {
+            let holder = self.lock_holder.read().unwrap();
+            if holder.is_some() {
+                panic!("called lock_is_free with holder");
+            }
 
-        // let mut reservation = self.reservation.write().unwrap();
-        // if reservation.is_some() {
-        //     panic!("called lock_is_free with reservation");
-        // }
+            let mut reservation = self.reservation.write().unwrap();
+            if reservation.is_some() {
+                panic!("called lock_is_free with reservation");
+            }
 
-        // let readers = self
-        //     .waiting_readers
-        //     .read()
-        //     .unwrap()
-        //     .iter()
-        //     .map(|r| r.clone())
-        //     .collect::<Vec<Arc<LockTableGuard>>>();
+            let mut writers = self.queued_writers.write().unwrap();
+            if writers.len() == 0 {
+                return true;
+            }
 
-        // let mut writers = self.queued_writers.write().unwrap();
-        // if writers.len() == 0 {
-        //     return true;
-        // }
+            let first_writer = writers.remove(0).clone();
+            *reservation = Some(first_writer.clone());
+        }
+        let readers = self
+            .waiting_readers
+            .read()
+            .unwrap()
+            .iter()
+            .map(|r| r.clone())
+            .collect::<Vec<Arc<LockTableGuard>>>();
 
-        // let first_writer = writers.remove(0);
-        // drop(writers);
+        for reader in readers.iter() {
+            reader.done_waiting_at_lock().await;
+        }
+        let first_writer = self.queued_writers.write().unwrap().remove(0).clone();
 
-        // *reservation = Some(first_writer.clone());
-        // drop(reservation);
-
-        // for reader in readers.iter() {
-        //     reader.done_waiting_at_lock().await;
-        // }
-
-        // first_writer.done_waiting_at_lock().await;
+        first_writer.done_waiting_at_lock().await;
 
         return false;
     }
