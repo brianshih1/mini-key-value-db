@@ -271,19 +271,12 @@ impl<'a> LockState {
                 panic!("called lock_is_free with holder");
             }
 
-            let mut reservation = self.reservation.write().unwrap();
+            let reservation = self.reservation.read().unwrap();
             if reservation.is_some() {
                 panic!("called lock_is_free with reservation");
             }
-
-            let mut writers = self.queued_writers.write().unwrap();
-            if writers.len() == 0 {
-                return true;
-            }
-
-            let first_writer = writers.remove(0).clone();
-            *reservation = Some(first_writer.clone());
         }
+
         let readers = self
             .waiting_readers
             .read()
@@ -295,11 +288,30 @@ impl<'a> LockState {
         for reader in readers.iter() {
             reader.done_waiting_at_lock().await;
         }
-        let first_writer = self.queued_writers.write().unwrap().remove(0).clone();
 
-        first_writer.done_waiting_at_lock().await;
+        // TODO: This is getting removed twice!
+        let first_writer = self.remove_first_writer();
+        match first_writer {
+            Some(writer) => {
+                self.update_reservation(Some(writer.clone()));
+                writer.done_waiting_at_lock().await;
+            }
+            None => {
+                return true;
+            }
+        }
 
         return false;
+    }
+
+    pub fn update_reservation(&self, link: Option<LockTableGuardLink>) {
+        *self.reservation.write().unwrap() = link;
+    }
+
+    // Returns None if the array is empty
+    pub fn remove_first_writer(&self) -> Option<LockTableGuardLink> {
+        let mut writers = self.queued_writers.write().unwrap();
+        writers.pop()
     }
 
     pub fn register_guard(&self, guard: LockTableGuardLink) {
