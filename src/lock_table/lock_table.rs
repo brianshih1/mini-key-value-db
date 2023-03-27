@@ -3,11 +3,14 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     future::Future,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use tokio::{
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Mutex,
+    },
     time::{self, Duration},
 };
 use uuid::Uuid;
@@ -24,11 +27,11 @@ use crate::{
 pub struct LockTableGuard {
     // whether the request needs to wait for the guard since it's
     // queued to a conflicting lock
-    pub should_wait: RwLock<bool>,
+    pub should_wait: Arc<RwLock<bool>>,
 
     // TODO: Does this Txn need to be in RwLock? Are we going to mutate it somewhere?
     // (i.e. bump the readTimestmap)
-    pub txn: RwLock<Txn>,
+    pub txn: Arc<RwLock<Txn>>,
 
     pub sender: Arc<Sender<()>>,
 
@@ -60,7 +63,7 @@ pub enum WaitingState {
 
 pub struct LockTable {
     // TODO: Use a concurent btree instead of a hash map
-    pub locks: RwLock<HashMap<Key, LockStateLink>>,
+    pub locks: Arc<RwLock<HashMap<Key, LockStateLink>>>,
 }
 
 pub type LockStateLink = Arc<LockState>;
@@ -73,19 +76,19 @@ pub type LockTableGuardLink = Arc<LockTableGuard>;
  */
 pub struct LockState {
     // TODO: Holder
-    pub reservation: RwLock<Option<LockTableGuardLink>>,
+    pub reservation: Arc<RwLock<Option<LockTableGuardLink>>>,
 
-    pub lock_holder: RwLock<Option<TxnMetadata>>,
+    pub lock_holder: Arc<RwLock<Option<TxnMetadata>>>,
 
-    pub queued_writers: RwLock<Vec<LockTableGuardLink>>,
+    pub queued_writers: Arc<RwLock<Vec<LockTableGuardLink>>>,
 
-    pub waiting_readers: RwLock<Vec<LockTableGuardLink>>,
+    pub waiting_readers: Arc<RwLock<Vec<LockTableGuardLink>>>,
 }
 
 impl LockTable {
     pub fn new() -> Self {
         LockTable {
-            locks: RwLock::new(HashMap::new()),
+            locks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -176,7 +179,7 @@ impl LockTable {
      */
     pub async fn wait_for(&self, guard: LockTableGuardLink) {
         let lg = guard.as_ref();
-        let mut rx = lg.receiver.lock().unwrap();
+        let mut rx = lg.receiver.lock().await;
 
         let sleep = time::sleep(Duration::from_millis(1000));
         tokio::pin!(sleep);
@@ -215,25 +218,25 @@ impl LockTable {
         if lock_state_option.is_none() {
             return false;
         }
-        let lock_state_link = lock_state_option.unwrap();
+        let lock_state_link = lock_state_option.unwrap().clone();
+        // let lock_state = lock_state_link.as_ref();
 
-        let lock_state = lock_state_link.as_ref();
+        // let reservation = lock_state.reservation.read().unwrap();
+        // let mut holder_option = lock_state.lock_holder.write().unwrap();
 
-        let reservation = lock_state.reservation.read().unwrap();
-        let mut holder_option = lock_state.lock_holder.write().unwrap();
-
-        if reservation.is_none() && holder_option.is_none() {
-            return true;
-        }
-        if let Some(holder) = &*holder_option {
-            if holder.txn_id != txn.txn_id {
-                return false;
-            }
-        }
-        *holder_option = None;
-        drop(holder_option);
-        drop(reservation);
-        drop(lock_state);
+        // if reservation.is_none() && holder_option.is_none() {
+        //     return true;
+        // }
+        // if let Some(holder) = &*holder_option {
+        //     if holder.txn_id != txn.txn_id {
+        //         return false;
+        //     }
+        // }
+        // *holder_option = None;
+        // drop(lock_state_option);
+        // drop(holder_option);
+        // drop(reservation);
+        // drop(lock_state);
         lock_state_link.lock_is_free().await
     }
 }
@@ -241,10 +244,10 @@ impl LockTable {
 impl<'a> LockState {
     pub fn new() -> Self {
         LockState {
-            reservation: RwLock::new(None),
-            lock_holder: RwLock::new(None),
-            queued_writers: RwLock::new(Vec::new()),
-            waiting_readers: RwLock::new(Vec::new()),
+            reservation: Arc::new(RwLock::new(None)),
+            lock_holder: Arc::new(RwLock::new(None)),
+            queued_writers: Arc::new(RwLock::new(Vec::new())),
+            waiting_readers: Arc::new(RwLock::new(Vec::new())),
         }
     }
     /**
@@ -259,32 +262,41 @@ impl<'a> LockState {
      * or the reservation is set to null (dequeud - doneRequest). In other words, the next waiter's turn is up.
      */
     pub async fn lock_is_free(&self) -> bool {
-        let holder = self.lock_holder.read().unwrap();
-        if holder.is_some() {
-            panic!("called lock_is_free with holder");
-        }
-        drop(holder);
+        // let holder = self.lock_holder.read().unwrap();
+        // if holder.is_some() {
+        //     panic!("called lock_is_free with holder");
+        // }
+        // drop(holder);
 
-        let mut reservation = self.reservation.write().unwrap();
-        if reservation.is_some() {
-            panic!("called lock_is_free with reservation");
-        }
+        // let mut reservation = self.reservation.write().unwrap();
+        // if reservation.is_some() {
+        //     panic!("called lock_is_free with reservation");
+        // }
 
-        let readers = self.waiting_readers.read().unwrap();
-        for reader in readers.iter() {
-            reader.done_waiting_at_lock().await;
-        }
+        // let readers = self
+        //     .waiting_readers
+        //     .read()
+        //     .unwrap()
+        //     .iter()
+        //     .map(|r| r.clone())
+        //     .collect::<Vec<Arc<LockTableGuard>>>();
 
-        let mut writers = self.queued_writers.write().unwrap();
-        if writers.len() == 0 {
-            return true;
-        }
+        // let mut writers = self.queued_writers.write().unwrap();
+        // if writers.len() == 0 {
+        //     return true;
+        // }
 
-        let first_writer = writers.remove(0);
+        // let first_writer = writers.remove(0);
+        // drop(writers);
 
-        *reservation = Some(first_writer.clone());
+        // *reservation = Some(first_writer.clone());
+        // drop(reservation);
 
-        first_writer.done_waiting_at_lock().await;
+        // for reader in readers.iter() {
+        //     reader.done_waiting_at_lock().await;
+        // }
+
+        // first_writer.done_waiting_at_lock().await;
 
         return false;
     }
@@ -382,8 +394,8 @@ impl LockTableGuard {
     pub fn new(txn: Txn, is_read_only: bool) -> Self {
         let (tx, rx) = channel::<()>(1);
         LockTableGuard {
-            should_wait: RwLock::new(false),
-            txn: RwLock::new(txn.clone()),
+            should_wait: Arc::new(RwLock::new(false)),
+            txn: Arc::new(RwLock::new(txn.clone())),
             sender: Arc::new(tx),
             receiver: Mutex::new(rx),
             guard_id: Uuid::new_v4(),

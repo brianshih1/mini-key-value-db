@@ -374,33 +374,36 @@ mod test {
 
             #[tokio::test]
             async fn test() {
-                let lock_table = Arc::new(LockTable::new());
                 // add discovered lock
-                let lock_timestamp = Timestamp::new(2, 2);
-                let (txn_id, _, lg) = create_test_lock_table_guard(false);
-                let key_str = "foo";
+                // let lock_timestamp = Timestamp::new(2, 2);
+                // let (txn_id, _, lg) = create_test_lock_table_guard(false);
+                // let key_str = "foo";
 
-                let lock_holder_txn = create_test_txn_with_timestamp(lock_timestamp);
-                lock_table.add_discovered_lock(
-                    lg.clone(),
-                    lock_holder_txn.to_intent(str_to_key(key_str)),
-                );
+                // let lock_holder_txn = create_test_txn_with_timestamp(lock_timestamp);
+                // lock_table.add_discovered_lock(
+                //     lg.clone(),
+                //     lock_holder_txn.to_intent(str_to_key(key_str)),
+                // );
 
-                let task_1 = tokio::spawn(async move {
-                    println!("sleeping!");
-                    sleep(Duration::from_millis(100)).await;
-                    println!("releasing!");
-                });
-
-                let lock_table_2 = lock_table.clone();
-                // let task_2 = tokio::spawn(async move {
-                //     println!("thread 2 starting sleep!");
+                // let task_1 = tokio::spawn(async move {
+                //     println!("sleeping!");
                 //     sleep(Duration::from_millis(100)).await;
-                //     println!("updating lock!");
-                //     lock_table_2
-                //         .update_locks(str_to_key(key_str), lock_holder_txn)
-                //         .await;
+                //     println!("releasing!");
                 // });
+
+                let task_2 = tokio::spawn(async move {
+                    let lock_table = Arc::new(LockTable::new());
+                    let lock_table_2 = lock_table.clone();
+
+                    let lock_holder_txn = create_test_txn_with_timestamp(Timestamp::new(1, 1));
+
+                    // println!("thread 2 starting sleep!");
+                    // sleep(Duration::from_millis(100)).await;
+                    // println!("updating lock!");
+                    lock_table_2
+                        .update_locks(str_to_key("foo"), lock_holder_txn)
+                        .await;
+                });
                 // tokio::try_join!(task_1, task_2).unwrap();
             }
         }
