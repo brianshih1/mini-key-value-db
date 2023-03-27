@@ -311,7 +311,10 @@ impl<'a> LockState {
     // Returns None if the array is empty
     pub fn remove_first_writer(&self) -> Option<LockTableGuardLink> {
         let mut writers = self.queued_writers.write().unwrap();
-        writers.pop()
+        if writers.len() == 0 {
+            return None;
+        }
+        Some(writers.remove(0))
     }
 
     pub fn register_guard(&self, guard: LockTableGuardLink) {

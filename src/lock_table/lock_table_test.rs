@@ -487,6 +487,7 @@ mod test {
                 let lock_holder_txn = create_test_txn_with_timestamp(write_timestamp);
 
                 let (_, _, lg_1) = create_test_lock_table_guard(false);
+
                 lock_table
                     .add_discovered_lock(
                         lg_1.clone(),
@@ -497,6 +498,7 @@ mod test {
 
                 let (read_req, _) = create_test_put_request(key_str);
                 let (should_wait, lg_2) = lock_table.scan_and_enqueue(&read_req).await;
+
                 assert!(should_wait);
                 assert_lock_table_guard_wait_state(lg_2.clone(), WaitingState::Waiting);
 
