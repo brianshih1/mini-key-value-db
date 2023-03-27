@@ -24,7 +24,7 @@ use crate::{
 pub struct LockTableGuard {
     // whether the request needs to wait for the guard since it's
     // queued to a conflicting lock
-    pub should_wait: bool,
+    pub should_wait: RwLock<bool>,
 
     // TODO: Does this Txn need to be in RwLock? Are we going to mutate it somewhere?
     // (i.e. bump the readTimestmap)
@@ -39,7 +39,7 @@ pub struct LockTableGuard {
     /**
      * Whether the request associated to the guard is a read or write request
      */
-    pub is_read_only: bool,
+    pub is_read_only: RwLock<bool>,
 
     pub wait_state: RwLock<WaitingState>,
 }
@@ -63,9 +63,9 @@ pub struct LockTable {
     pub locks: RwLock<HashMap<Key, LockStateLink>>,
 }
 
-pub type LockStateLink = Arc<RwLock<LockState>>;
+pub type LockStateLink = Arc<LockState>;
 
-pub type LockTableGuardLink = Arc<RwLock<LockTableGuard>>;
+pub type LockTableGuardLink = Arc<LockTableGuard>;
 
 /**
  * Invariants:
@@ -101,10 +101,10 @@ impl LockTable {
         let lock_state = if locks.contains_key(&intent.key) {
             Arc::clone(locks.get(&intent.key).unwrap())
         } else {
-            Arc::new(RwLock::new(LockState::new()))
+            Arc::new(LockState::new())
         };
         locks.insert(intent.key, lock_state.clone());
-        let state = lock_state.as_ref().write().unwrap();
+        let state = lock_state.as_ref();
 
         let mut holder = state.lock_holder.write().unwrap();
         if holder.is_none() {
@@ -118,8 +118,8 @@ impl LockTable {
         }
 
         // push the guard onto the queued_writers or waiting_reads
-        let is_read_only = guard.as_ref().read().unwrap().is_read_only;
-        let lg = guard.read().unwrap();
+        let is_read_only = *guard.as_ref().is_read_only.read().unwrap();
+        let lg = guard.as_ref();
         lg.update_wait_state(WaitingState::Waiting);
         if is_read_only {
             let mut waiting_readers = state.waiting_readers.write().unwrap();
@@ -154,17 +154,16 @@ impl LockTable {
         for span in spans.iter() {
             let locks = self.locks.read().unwrap();
             let lock = locks.get(&span.start_key);
-            if let Some(lock_state) = lock {
-                let write_lock_state = lock_state.write().unwrap();
+            if let Some(write_lock_state) = lock {
                 let should_wait =
                     write_lock_state.try_active_wait(lock_guard.clone(), is_read_only);
                 if should_wait {
-                    lock_guard.as_ref().write().unwrap().should_wait = true;
+                    *lock_guard.as_ref().should_wait.write().unwrap() = true;
                     return (true, lock_guard);
                 }
             }
         }
-        lock_guard.as_ref().write().unwrap().should_wait = false;
+        *lock_guard.as_ref().should_wait.write().unwrap() = false;
         (false, lock_guard)
     }
 
@@ -176,7 +175,7 @@ impl LockTable {
      * It's also responsible for pushing transaction if it times out
      */
     pub async fn wait_for(&self, guard: LockTableGuardLink) {
-        let lg = guard.as_ref().read().unwrap();
+        let lg = guard.as_ref();
         let mut rx = lg.receiver.lock().unwrap();
 
         let sleep = time::sleep(Duration::from_millis(1000));
@@ -217,7 +216,8 @@ impl LockTable {
             return false;
         }
         let lock_state_link = lock_state_option.unwrap();
-        let lock_state = lock_state_link.as_ref().write().unwrap();
+
+        let lock_state = lock_state_link.as_ref();
 
         let reservation = lock_state.reservation.read().unwrap();
         let mut holder_option = lock_state.lock_holder.write().unwrap();
@@ -233,7 +233,8 @@ impl LockTable {
         *holder_option = None;
         drop(holder_option);
         drop(reservation);
-        lock_state.lock_is_free().await
+        drop(lock_state);
+        lock_state_link.lock_is_free().await
     }
 }
 
@@ -270,8 +271,7 @@ impl<'a> LockState {
         }
 
         let readers = self.waiting_readers.read().unwrap();
-        for reader_arc in readers.iter() {
-            let reader = reader_arc.as_ref().read().unwrap();
+        for reader in readers.iter() {
             reader.done_waiting_at_lock().await;
         }
 
@@ -280,18 +280,17 @@ impl<'a> LockState {
             return true;
         }
 
-        let first = writers.remove(0);
+        let first_writer = writers.remove(0);
 
-        *reservation = Some(first.clone());
+        *reservation = Some(first_writer.clone());
 
-        let first_writer = first.as_ref().read().unwrap();
         first_writer.done_waiting_at_lock().await;
 
         return false;
     }
 
     pub fn register_guard(&self, guard: LockTableGuardLink) {
-        let lg = guard.as_ref().read().unwrap();
+        let lg = guard.as_ref();
         let txn = lg.txn.read().unwrap();
         let mut lock_holder = self.lock_holder.write().unwrap();
         if lock_holder.is_none() {
@@ -310,8 +309,8 @@ impl<'a> LockState {
      * Note that this method does not actually wait.
      */
     pub fn try_active_wait<'b>(&self, guard: LockTableGuardLink, is_read_only: bool) -> bool {
-        let guard_ref = guard.as_ref();
-        let mut lg = guard_ref.write().unwrap();
+        let lg = guard.as_ref();
+
         let lg_txn = lg.txn.read().unwrap();
         let lock_holder = self.lock_holder.read().unwrap();
         if let Some(ref holder) = *lock_holder {
@@ -348,7 +347,7 @@ impl<'a> LockState {
             self.queued_writers.write().unwrap().push(guard.clone());
         }
         drop(lg_txn);
-        lg.should_wait = true;
+        *lg.should_wait.write().unwrap() = true;
         true
     }
 
@@ -357,10 +356,7 @@ impl<'a> LockState {
         let writers = self.queued_writers.read().unwrap();
         let ids = writers
             .iter()
-            .map(|x| {
-                let lg = x.as_ref().read().unwrap();
-                lg.guard_id
-            })
+            .map(|x| x.as_ref().guard_id)
             .collect::<Vec<Uuid>>();
         ids
     }
@@ -370,10 +366,7 @@ impl<'a> LockState {
         let writers = self.waiting_readers.read().unwrap();
         let ids = writers
             .iter()
-            .map(|x| {
-                let lg = x.as_ref().read().unwrap();
-                lg.guard_id
-            })
+            .map(|x| x.as_ref().guard_id)
             .collect::<Vec<Uuid>>();
         ids
     }
@@ -389,18 +382,18 @@ impl LockTableGuard {
     pub fn new(txn: Txn, is_read_only: bool) -> Self {
         let (tx, rx) = channel::<()>(1);
         LockTableGuard {
-            should_wait: false,
+            should_wait: RwLock::new(false),
             txn: RwLock::new(txn.clone()),
             sender: Arc::new(tx),
             receiver: Mutex::new(rx),
             guard_id: Uuid::new_v4(),
-            is_read_only,
+            is_read_only: RwLock::new(is_read_only),
             wait_state: RwLock::new(WaitingState::DoneWaiting),
         }
     }
 
     pub fn new_lock_table_guard_link(txn: Txn, is_read_only: bool) -> LockTableGuardLink {
-        Arc::new(RwLock::new(LockTableGuard::new(txn, is_read_only)))
+        Arc::new(LockTableGuard::new(txn, is_read_only))
     }
 
     /**
@@ -408,7 +401,7 @@ impl LockTableGuard {
      * and wait until the lock is reserved by the transcation or it timed out
      */
     pub fn should_wait(&self) -> bool {
-        self.should_wait
+        *self.should_wait.read().unwrap()
     }
 
     pub fn update_wait_state(&self, waiting_state: WaitingState) {
@@ -427,20 +420,20 @@ impl LockTableGuard {
     }
 
     pub fn get_txn_meta(guard_link: &LockTableGuardLink) -> TxnMetadata {
-        let read_guard = guard_link.as_ref().read().unwrap();
+        let read_guard = guard_link.as_ref();
         let txn_guard = read_guard.txn.read().unwrap();
         txn_guard.metadata.clone()
     }
 
     #[cfg(test)]
     pub fn get_guard_id(guard: LockTableGuardLink) -> Uuid {
-        let g = guard.as_ref().read().unwrap();
+        let g = guard.as_ref();
         g.guard_id
     }
 
     #[cfg(test)]
     pub fn get_txn_id(guard: LockTableGuardLink) -> Uuid {
-        let g = guard.as_ref().read().unwrap();
+        let g = guard.as_ref();
         let txn_id = g.txn.read().unwrap().txn_id;
         txn_id
     }

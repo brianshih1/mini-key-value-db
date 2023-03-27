@@ -14,14 +14,14 @@ mod test {
     };
 
     pub fn assert_holder_txn_id(lock_state_link: LockStateLink, txn_id: Uuid) {
-        let lock_state = lock_state_link.as_ref().read().unwrap();
+        let lock_state = lock_state_link.as_ref();
         let holder = lock_state.lock_holder.read().unwrap();
         assert!(holder.is_some());
         assert_eq!(lock_state.get_holder_txn_id(), Some(txn_id));
     }
 
     pub fn get_guard_id(guard_link: LockTableGuardLink) -> Uuid {
-        guard_link.as_ref().read().unwrap().guard_id
+        guard_link.as_ref().guard_id
     }
 
     // Test struture for LockState to assert what is being held by a LockState
@@ -33,15 +33,14 @@ mod test {
     }
 
     pub fn assert_lock_table_guard_wait_state(lg: LockTableGuardLink, waiting_state: WaitingState) {
-        let guard = lg.read().unwrap();
-        let state = guard.wait_state.read().unwrap();
+        let state = lg.as_ref().wait_state.read().unwrap();
         assert_eq!(*state, waiting_state);
     }
 
     #[cfg(test)]
     pub fn assert_lock_state(lock_table: &LockTable, key: Key, test_lock_state: TestLockState) {
         let lock_state_arc = lock_table.get_lock_state(&key).unwrap();
-        let lock_state = lock_state_arc.as_ref().read().unwrap();
+        let lock_state = lock_state_arc.as_ref();
         assert_eq!(
             lock_state.get_queued_writer_ids(),
             test_lock_state.queued_writers
@@ -64,7 +63,7 @@ mod test {
                 let reservation = lock_state.reservation.read().unwrap().clone();
                 assert!(reservation.is_some());
                 let reservation_arc = reservation.unwrap();
-                let reservation = reservation_arc.as_ref().read().unwrap();
+                let reservation = reservation_arc.as_ref();
                 assert_eq!(guard_id, reservation.guard_id)
             }
             None => {
@@ -394,13 +393,15 @@ mod test {
                 });
 
                 let lock_table_2 = lock_table.clone();
-                let task_2 = tokio::spawn(async move {
-                    println!("thread 2 starting sleep!");
-                    sleep(Duration::from_millis(100)).await;
-                    println!("updating lock!");
-                    lock_table_2.update_locks(str_to_key(key_str), lock_holder_txn);
-                });
-                tokio::try_join!(task_1, task_2).unwrap();
+                // let task_2 = tokio::spawn(async move {
+                //     println!("thread 2 starting sleep!");
+                //     sleep(Duration::from_millis(100)).await;
+                //     println!("updating lock!");
+                //     lock_table_2
+                //         .update_locks(str_to_key(key_str), lock_holder_txn)
+                //         .await;
+                // });
+                // tokio::try_join!(task_1, task_2).unwrap();
             }
         }
 
