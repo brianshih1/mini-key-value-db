@@ -38,9 +38,12 @@ mod test {
     }
 
     #[cfg(test)]
-    pub fn assert_lock_state(lock_table: &LockTable, key: Key, test_lock_state: TestLockState) {
-        let lock_state_arc = lock_table.get_lock_state(&key).unwrap();
-        let lock_state = lock_state_arc.as_ref();
+    pub async fn assert_lock_state(
+        lock_table: &LockTable,
+        key: Key,
+        test_lock_state: TestLockState,
+    ) {
+        let lock_state = lock_table.get_lock_state(&key).await.unwrap();
         assert_eq!(
             lock_state.get_queued_writer_ids(),
             test_lock_state.queued_writers
@@ -155,15 +158,17 @@ mod test {
                 },
             };
 
-            #[test]
-            fn empty_lock_table() {
+            #[tokio::test]
+            async fn empty_lock_table() {
                 let lock_table = LockTable::new();
                 let key = str_to_key("foo");
 
                 let lock_holder_txn = create_test_txn_with_timestamp(Timestamp::new(1, 1));
                 let (_, _, lg) = create_test_lock_table_guard(false);
 
-                lock_table.add_discovered_lock(lg.clone(), lock_holder_txn.to_intent(key.clone()));
+                lock_table
+                    .add_discovered_lock(lg.clone(), lock_holder_txn.to_intent(key.clone()))
+                    .await;
                 let test_lock_state = TestLockState {
                     queued_writers: Vec::from([get_guard_id(lg.clone())]),
                     waiting_readers: Vec::from([]),
@@ -174,8 +179,8 @@ mod test {
                 assert_lock_state(&lock_table, key, test_lock_state);
             }
 
-            #[test]
-            fn two_guards_add_same_key() {
+            #[tokio::test]
+            async fn two_guards_add_same_key() {
                 let lock_table = LockTable::new();
 
                 let (_, _, lg_1) = create_test_lock_table_guard(true);
@@ -183,7 +188,8 @@ mod test {
 
                 let key = str_to_key("foo");
                 lock_table
-                    .add_discovered_lock(lg_1.clone(), lock_holder_txn.to_intent(key.clone()));
+                    .add_discovered_lock(lg_1.clone(), lock_holder_txn.to_intent(key.clone()))
+                    .await;
                 assert_lock_table_guard_wait_state(lg_1.clone(), WaitingState::Waiting);
 
                 let test_lock_state = TestLockState {
@@ -192,7 +198,7 @@ mod test {
                     lock_holder: Some(lock_holder_txn.txn_id),
                     reservation: None,
                 };
-                assert_lock_state(&lock_table, key, test_lock_state);
+                assert_lock_state(&lock_table, key, test_lock_state).await;
             }
         }
 
@@ -217,23 +223,23 @@ mod test {
                     },
                 };
 
-                #[test]
-                fn no_lock_state_for_key() {
+                #[tokio::test]
+                async fn no_lock_state_for_key() {
                     let key_str = "foo";
                     let key = str_to_key(key_str);
                     let lock_table = LockTable::new();
 
                     let (request, _) = create_test_put_request(key_str);
-                    let (should_wait, lg) = lock_table.scan_and_enqueue(&request);
+                    let (should_wait, lg) = lock_table.scan_and_enqueue(&request).await;
                     assert_lock_table_guard_wait_state(lg.clone(), WaitingState::DoneWaiting);
 
                     assert!(!should_wait);
-                    let lock_state_option = lock_table.get_lock_state(&key);
+                    let lock_state_option = lock_table.get_lock_state(&key).await;
                     assert!(lock_state_option.is_none());
                 }
 
-                #[test]
-                fn queue_write_request_to_held_lock() {
+                #[tokio::test]
+                async fn queue_write_request_to_held_lock() {
                     let key_str = "foo";
                     let lock_table = LockTable::new();
 
@@ -247,7 +253,7 @@ mod test {
 
                     // enqueue a WRITE request onto the discovered lock
                     let (request, _) = create_test_put_request(key_str);
-                    let (should_wait, guard) = lock_table.scan_and_enqueue(&request);
+                    let (should_wait, guard) = lock_table.scan_and_enqueue(&request).await;
                     assert!(should_wait);
                     assert_lock_table_guard_wait_state(guard.clone(), WaitingState::Waiting);
 
@@ -264,7 +270,7 @@ mod test {
 
                     // enqueue another WRITE request to the locked state
                     let (request, _) = create_test_put_request(key_str);
-                    let (should_wait_2, guard_2) = lock_table.scan_and_enqueue(&request);
+                    let (should_wait_2, guard_2) = lock_table.scan_and_enqueue(&request).await;
                     assert!(should_wait_2);
                     assert_lock_table_guard_wait_state(guard_2.clone(), WaitingState::Waiting);
 
@@ -296,8 +302,8 @@ mod test {
                     storage::{str_to_key, txn::TxnIntent},
                 };
 
-                #[test]
-                fn queue_read_request_to_held_lock() {
+                #[tokio::test]
+                async fn queue_read_request_to_held_lock() {
                     let key_str = "foo";
                     let lock_table = LockTable::new();
 
@@ -314,7 +320,7 @@ mod test {
                     // enqueue a READ request onto the discovered lock
                     let (read_request, _) =
                         create_test_read_request(key_str, lock_timestamp.advance_by(1));
-                    let (should_wait, read_lg) = lock_table.scan_and_enqueue(&read_request);
+                    let (should_wait, read_lg) = lock_table.scan_and_enqueue(&read_request).await;
                     assert!(should_wait);
                     assert_lock_table_guard_wait_state(read_lg.clone(), WaitingState::Waiting);
 
@@ -327,8 +333,8 @@ mod test {
                     assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
                 }
 
-                #[test]
-                fn read_request_with_smaller_timestamp_than_lock_holder() {
+                #[tokio::test]
+                async fn read_request_with_smaller_timestamp_than_lock_holder() {
                     let key_str = "foo";
                     let lock_table = LockTable::new();
 
@@ -344,7 +350,7 @@ mod test {
 
                     let (read_request, _) =
                         create_test_read_request(key_str, lock_timestamp.decrement_by(1));
-                    let (should_wait, lg_1) = lock_table.scan_and_enqueue(&read_request);
+                    let (should_wait, lg_1) = lock_table.scan_and_enqueue(&read_request).await;
                     assert!(!should_wait);
                     assert_lock_table_guard_wait_state(lg_1.clone(), WaitingState::DoneWaiting);
 
@@ -403,6 +409,7 @@ mod test {
                     lock_table_2
                         .update_locks(str_to_key("foo"), lock_holder_txn)
                         .await;
+                    // .await;
                 });
                 // tokio::try_join!(task_1, task_2).unwrap();
             }
@@ -462,7 +469,7 @@ mod test {
 
                 let (read_req, _) =
                     create_test_read_request(key_str, write_timestamp.advance_by(3));
-                let (should_wait, read_lg) = lock_table.scan_and_enqueue(&read_req);
+                let (should_wait, read_lg) = lock_table.scan_and_enqueue(&read_req).await;
                 assert!(should_wait);
                 assert_lock_table_guard_wait_state(read_lg.clone(), WaitingState::Waiting);
 
@@ -490,7 +497,7 @@ mod test {
                 assert_lock_table_guard_wait_state(lg_1.clone(), WaitingState::Waiting);
 
                 let (read_req, _) = create_test_put_request(key_str);
-                let (should_wait, lg_2) = lock_table.scan_and_enqueue(&read_req);
+                let (should_wait, lg_2) = lock_table.scan_and_enqueue(&read_req).await;
                 assert!(should_wait);
                 assert_lock_table_guard_wait_state(lg_2.clone(), WaitingState::Waiting);
 

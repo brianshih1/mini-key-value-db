@@ -63,7 +63,7 @@ pub enum WaitingState {
 
 pub struct LockTable {
     // TODO: Use a concurent btree instead of a hash map
-    pub locks: Arc<RwLock<HashMap<Key, LockStateLink>>>,
+    pub locks: Mutex<HashMap<Key, LockStateLink>>,
 }
 
 pub type LockStateLink = Arc<LockState>;
@@ -88,7 +88,7 @@ pub struct LockState {
 impl LockTable {
     pub fn new() -> Self {
         LockTable {
-            locks: Arc::new(RwLock::new(HashMap::new())),
+            locks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -99,8 +99,9 @@ impl LockTable {
      * or waiting_readers depending on if the request is_read_only.
      *
      */
-    pub fn add_discovered_lock(&self, guard: LockTableGuardLink, intent: TxnIntent) {
-        let mut locks = self.locks.write().unwrap();
+    pub async fn add_discovered_lock(&self, guard: LockTableGuardLink, intent: TxnIntent) {
+        let mut locks = self.locks.lock().await;
+
         let lock_state = if locks.contains_key(&intent.key) {
             Arc::clone(locks.get(&intent.key).unwrap())
         } else {
@@ -134,8 +135,8 @@ impl LockTable {
     }
 
     #[cfg(test)]
-    pub fn get_lock_state(&self, key: &Key) -> Option<LockStateLink> {
-        let locks = self.locks.read().unwrap();
+    pub async fn get_lock_state(&self, key: &Key) -> Option<LockStateLink> {
+        let locks = self.locks.lock().await;
         locks.get(key).and_then(|v| Some(v.clone()))
     }
 
@@ -148,14 +149,14 @@ impl LockTable {
      * until the request has reserved the lock. Then the manager will re-acquire the latches
      * and call ScanAndEnqueue again to continue finding other conflicts.
      */
-    pub fn scan_and_enqueue<'a>(&'a self, request: &Request) -> (bool, LockTableGuardLink) {
+    pub async fn scan_and_enqueue<'a>(&'a self, request: &Request) -> (bool, LockTableGuardLink) {
         let spans = request.request_union.collect_spans();
         let is_read_only = request.request_union.is_read_only();
         let txn = request.metadata.txn;
 
         let lock_guard = LockTableGuard::new_lock_table_guard_link(txn.clone(), is_read_only);
         for span in spans.iter() {
-            let locks = self.locks.read().unwrap();
+            let locks = self.locks.lock().await;
             let lock = locks.get(&span.start_key);
             if let Some(write_lock_state) = lock {
                 let should_wait =
@@ -213,30 +214,34 @@ impl LockTable {
      * Returns whether the lock can be garbage collected.
      */
     pub async fn update_locks(&self, key: Key, txn: Txn) -> bool {
-        let locks = self.locks.read().unwrap();
+        let locks = self.locks.lock().await;
+
         let lock_state_option = locks.get(&key);
+
         if lock_state_option.is_none() {
             return false;
         }
         let lock_state_link = lock_state_option.unwrap().clone();
-        // let lock_state = lock_state_link.as_ref();
 
-        // let reservation = lock_state.reservation.read().unwrap();
-        // let mut holder_option = lock_state.lock_holder.write().unwrap();
+        drop(lock_state_option);
 
-        // if reservation.is_none() && holder_option.is_none() {
-        //     return true;
-        // }
-        // if let Some(holder) = &*holder_option {
-        //     if holder.txn_id != txn.txn_id {
-        //         return false;
-        //     }
-        // }
-        // *holder_option = None;
-        // drop(lock_state_option);
-        // drop(holder_option);
-        // drop(reservation);
-        // drop(lock_state);
+        {
+            let lock_state = lock_state_link.as_ref();
+            let reservation = lock_state.reservation.read().unwrap().clone();
+            let foo = lock_state.lock_holder.clone();
+            let mut holder_option = foo.as_ref().write().unwrap();
+
+            if reservation.is_none() && holder_option.is_none() {
+                return true;
+            }
+            if let Some(holder) = &*holder_option {
+                if holder.txn_id != txn.txn_id {
+                    return false;
+                }
+            }
+            *holder_option = None;
+        }
+
         lock_state_link.lock_is_free().await
     }
 }
