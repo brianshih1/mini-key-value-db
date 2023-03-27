@@ -2,6 +2,7 @@ use std::{
     borrow::{Borrow, BorrowMut},
     cell::RefCell,
     collections::HashMap,
+    future::Future,
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -72,9 +73,9 @@ pub type LockTableGuardLink = Arc<RwLock<LockTableGuard>>;
  */
 pub struct LockState {
     // TODO: Holder
-    pub reservation: RefCell<Option<LockTableGuardLink>>,
+    pub reservation: RwLock<Option<LockTableGuardLink>>,
 
-    pub lock_holder: RefCell<Option<TxnMetadata>>,
+    pub lock_holder: RwLock<Option<TxnMetadata>>,
 
     pub queued_writers: RwLock<Vec<LockTableGuardLink>>,
 
@@ -89,6 +90,8 @@ impl LockTable {
     }
 
     /**
+     * An uncommitted intent (lock_state) was discovered by a lock_table_guard
+     * Push the guard onto the queued_writers.
      * Add a discovered lock to lockTable. Add the guard to the queued_writers
      * or waiting_readers depending on if the request is_read_only.
      *
@@ -102,7 +105,29 @@ impl LockTable {
         };
         locks.insert(intent.key, lock_state.clone());
         let state = lock_state.as_ref().write().unwrap();
-        state.discovered_lock(guard.clone())
+
+        let mut holder = state.lock_holder.write().unwrap();
+        if holder.is_none() {
+            *holder = Some(intent.txn_meta)
+        } else {
+            // TODO: What should we do if there's already a holder?
+        }
+        let mut reservation = state.reservation.write().unwrap();
+        if reservation.is_some() {
+            *reservation = None
+        }
+
+        // push the guard onto the queued_writers or waiting_reads
+        let is_read_only = guard.as_ref().read().unwrap().is_read_only;
+        let lg = guard.read().unwrap();
+        lg.update_wait_state(WaitingState::Waiting);
+        if is_read_only {
+            let mut waiting_readers = state.waiting_readers.write().unwrap();
+            waiting_readers.push(guard.clone());
+        } else {
+            let mut queued_writers = state.queued_writers.write().unwrap();
+            queued_writers.push(guard.clone());
+        }
     }
 
     #[cfg(test)]
@@ -194,8 +219,8 @@ impl LockTable {
         let lock_state_link = lock_state_option.unwrap();
         let lock_state = lock_state_link.as_ref().write().unwrap();
 
-        let reservation = lock_state.reservation.borrow();
-        let mut holder_option = lock_state.lock_holder.borrow_mut();
+        let reservation = lock_state.reservation.read().unwrap();
+        let mut holder_option = lock_state.lock_holder.write().unwrap();
 
         if reservation.is_none() && holder_option.is_none() {
             return true;
@@ -207,6 +232,7 @@ impl LockTable {
         }
         *holder_option = None;
         drop(holder_option);
+        drop(reservation);
         lock_state.lock_is_free().await
     }
 }
@@ -214,8 +240,8 @@ impl LockTable {
 impl<'a> LockState {
     pub fn new() -> Self {
         LockState {
-            reservation: RefCell::new(None),
-            lock_holder: RefCell::new(None),
+            reservation: RwLock::new(None),
+            lock_holder: RwLock::new(None),
             queued_writers: RwLock::new(Vec::new()),
             waiting_readers: RwLock::new(Vec::new()),
         }
@@ -232,12 +258,13 @@ impl<'a> LockState {
      * or the reservation is set to null (dequeud - doneRequest). In other words, the next waiter's turn is up.
      */
     pub async fn lock_is_free(&self) -> bool {
-        let holder = self.lock_holder.borrow();
+        let holder = self.lock_holder.read().unwrap();
         if holder.is_some() {
             panic!("called lock_is_free with holder");
         }
+        drop(holder);
 
-        let reservation = self.reservation.borrow();
+        let mut reservation = self.reservation.write().unwrap();
         if reservation.is_some() {
             panic!("called lock_is_free with reservation");
         }
@@ -254,6 +281,9 @@ impl<'a> LockState {
         }
 
         let first = writers.remove(0);
+
+        *reservation = Some(first.clone());
+
         let first_writer = first.as_ref().read().unwrap();
         first_writer.done_waiting_at_lock().await;
 
@@ -263,12 +293,12 @@ impl<'a> LockState {
     pub fn register_guard(&self, guard: LockTableGuardLink) {
         let lg = guard.as_ref().read().unwrap();
         let txn = lg.txn.read().unwrap();
-        let mut lock_holder = self.lock_holder.borrow_mut();
+        let mut lock_holder = self.lock_holder.write().unwrap();
         if lock_holder.is_none() {
             *lock_holder = Some(txn.metadata)
         }
 
-        if self.reservation.borrow().is_some() {
+        if self.reservation.read().unwrap().is_some() {
             self.queued_writers.write().unwrap().push(guard.clone());
         }
     }
@@ -283,7 +313,7 @@ impl<'a> LockState {
         let guard_ref = guard.as_ref();
         let mut lg = guard_ref.write().unwrap();
         let lg_txn = lg.txn.read().unwrap();
-        let lock_holder = self.lock_holder.borrow();
+        let lock_holder = self.lock_holder.read().unwrap();
         if let Some(ref holder) = *lock_holder {
             // the request already holds the lock
             if holder.txn_id == lg_txn.txn_id {
@@ -322,31 +352,6 @@ impl<'a> LockState {
         true
     }
 
-    // An uncommitted intent (lock_state) was discovered by a lock_table_guard
-    // Push the guard onto the queued_writers
-    pub fn discovered_lock(&self, guard: LockTableGuardLink) {
-        let mut holder = self.lock_holder.borrow_mut();
-        if holder.is_none() {
-            let txn_meta = LockTableGuard::get_txn_meta(&guard);
-            *holder = Some(txn_meta)
-        }
-        let mut reservation = self.reservation.borrow_mut();
-        if reservation.is_some() {
-            *reservation = None
-        }
-
-        let is_read_only = guard.as_ref().read().unwrap().is_read_only;
-        let lg = guard.read().unwrap();
-        lg.update_wait_state(WaitingState::Waiting);
-        if is_read_only {
-            let mut waiting_readers = self.waiting_readers.write().unwrap();
-            waiting_readers.push(guard.clone());
-        } else {
-            let mut queued_writers = self.queued_writers.write().unwrap();
-            queued_writers.push(guard.clone());
-        }
-    }
-
     #[cfg(test)]
     pub fn get_queued_writer_ids(&self) -> Vec<Uuid> {
         let writers = self.queued_writers.read().unwrap();
@@ -375,7 +380,7 @@ impl<'a> LockState {
 
     #[cfg(test)]
     pub fn get_holder_txn_id(&self) -> Option<Uuid> {
-        let holder = self.lock_holder.borrow();
+        let holder = self.lock_holder.read().unwrap();
         holder.and_then(|txn_meta| Some(txn_meta.txn_id))
     }
 }
