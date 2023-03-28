@@ -42,7 +42,7 @@ mod test {
         key: Key,
         test_lock_state: TestLockState,
     ) {
-        let lock_state = lock_table.get_lock_state(&key).await.unwrap();
+        let lock_state = lock_table.get_lock_state(&key).unwrap();
         assert_eq!(
             lock_state.get_queued_writer_ids(),
             test_lock_state.queued_writers
@@ -224,7 +224,7 @@ mod test {
                     assert_lock_table_guard_wait_state(lg.clone(), WaitingState::DoneWaiting);
 
                     assert!(!should_wait);
-                    let lock_state_option = lock_table.get_lock_state(&key).await;
+                    let lock_state_option = lock_table.get_lock_state(&key);
                     assert!(lock_state_option.is_none());
                 }
 
@@ -395,14 +395,13 @@ mod test {
 
                 let task_2 = tokio::spawn(async move {
                     let lock_table = Arc::new(LockTable::new());
-                    let lock_table_2 = lock_table.clone();
 
                     let lock_holder_txn = create_test_txn_with_timestamp(Timestamp::new(1, 1));
 
                     // println!("thread 2 starting sleep!");
                     // sleep(Duration::from_millis(100)).await;
                     // println!("updating lock!");
-                    lock_table_2
+                    lock_table
                         .update_locks(str_to_key("foo"), lock_holder_txn)
                         .await;
                     // .await;
