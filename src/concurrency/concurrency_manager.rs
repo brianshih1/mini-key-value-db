@@ -51,7 +51,7 @@ impl ConcurrencyManager {
      */
     pub fn finish_req(&self, guard: Guard) -> () {
         self.latch_manager.release(guard.latch_guard);
-        self.lock_table.dequeue();
+        // self.lock_table.dequeue();
     }
 }
 

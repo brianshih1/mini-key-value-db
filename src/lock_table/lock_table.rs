@@ -1,8 +1,5 @@
 use std::{
-    borrow::{Borrow, BorrowMut},
-    cell::RefCell,
     collections::HashMap,
-    future::Future,
     sync::{Arc, RwLock},
 };
 
@@ -16,8 +13,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    execute::request::{Command, Request},
-    latch_manager::latch_interval_btree::Range,
+    execute::request::{Command, Request, SpanSet},
     storage::{
         txn::{Txn, TxnIntent, TxnMetadata},
         Key,
@@ -45,6 +41,11 @@ pub struct LockTableGuard {
     pub is_read_only: RwLock<bool>,
 
     pub wait_state: RwLock<WaitingState>,
+
+    /**
+     * The keys that this request affects
+     */
+    pub keys: SpanSet<Key>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -75,7 +76,6 @@ pub type LockTableGuardLink = Arc<LockTableGuard>;
  * - Reservation and lock_holder cannot both exist at the same time (both not None)
  */
 pub struct LockState {
-    // TODO: Holder
     pub reservation: Arc<RwLock<Option<LockTableGuardLink>>>,
 
     pub lock_holder: Arc<RwLock<Option<TxnMetadata>>>,
@@ -153,7 +153,8 @@ impl LockTable {
         let is_read_only = request.request_union.is_read_only();
         let txn = request.metadata.txn;
 
-        let lock_guard = LockTableGuard::new_lock_table_guard_link(txn.clone(), is_read_only);
+        let lock_guard =
+            LockTableGuard::new_lock_table_guard_link(txn.clone(), is_read_only, spans.clone());
         for span in spans.iter() {
             let locks = self.locks.read().unwrap();
             let lock = locks.get(&span.start_key);
@@ -192,7 +193,6 @@ impl LockTable {
                 println!("operation timed out");
                 // TODO: PushTransactions
             }
-
         };
     }
 
@@ -201,7 +201,15 @@ impl LockTable {
      * to be called when the request is finished, whether it was evaluated
      * or not. The method does not release any locks.
      */
-    pub fn dequeue(&self) {}
+    pub async fn dequeue(&self, lock_table_guard: LockTableGuardLink) {
+        let keys = &lock_table_guard.as_ref().keys;
+        for key in keys.iter() {
+            let state = self.get_lock_state(&key.start_key);
+            if let Some(lock_state) = state {
+                lock_state.request_done(lock_table_guard.clone()).await
+            }
+        }
+    }
 
     /**
      * This function tells the lockTable that an existing lock was updated/released (e.g. the transaction
@@ -238,7 +246,7 @@ impl LockTable {
     }
 }
 
-impl<'a> LockState {
+impl LockState {
     pub fn new() -> Self {
         LockState {
             reservation: Arc::new(RwLock::new(None)),
@@ -282,8 +290,8 @@ impl<'a> LockState {
         for reader in readers.iter() {
             reader.done_waiting_at_lock().await;
         }
+        self.clear_readers();
 
-        // TODO: This is getting removed twice!
         let first_writer = self.remove_first_writer();
         match first_writer {
             Some(writer) => {
@@ -296,6 +304,10 @@ impl<'a> LockState {
         }
 
         return false;
+    }
+
+    pub fn clear_readers(&self) {
+        *self.waiting_readers.write().unwrap() = Vec::new();
     }
 
     pub fn update_reservation(&self, link: Option<LockTableGuardLink>) {
@@ -373,6 +385,25 @@ impl<'a> LockState {
         true
     }
 
+    /**
+     * This function is called when a request is done. The request could be a reserver, or inside queued_writers,
+     * or waiting_readers. It removes the request from the lock_state
+     */
+    pub async fn request_done(&self, guard: LockTableGuardLink) {
+        let reservation_option = self.get_reservation();
+        if let Some(reservation) = reservation_option {
+            if reservation.guard_id == guard.guard_id {
+                self.update_reservation(None);
+                self.lock_is_free().await;
+            }
+        }
+        let mut queued_writers = self.queued_writers.write().unwrap();
+        queued_writers.retain(|g| g.guard_id != guard.guard_id);
+
+        let mut waiting_readers = self.waiting_readers.write().unwrap();
+        waiting_readers.retain(|g| g.guard_id != guard.guard_id);
+    }
+
     pub fn get_holder_txn_meta(&self) -> Option<TxnMetadata> {
         let holder = self.lock_holder.read().unwrap();
         holder.and_then(|txn_meta| Some(txn_meta))
@@ -381,6 +412,11 @@ impl<'a> LockState {
     pub fn update_holder(&self, new_holder: Option<TxnMetadata>) {
         let mut holder = self.lock_holder.write().unwrap();
         *holder = new_holder;
+    }
+
+    pub fn get_reservation(&self) -> Option<LockTableGuardLink> {
+        let reservation = self.reservation.read().unwrap();
+        reservation.clone()
     }
 
     #[cfg(test)]
@@ -411,7 +447,7 @@ impl<'a> LockState {
 }
 
 impl LockTableGuard {
-    pub fn new(txn: Txn, is_read_only: bool) -> Self {
+    pub fn new(txn: Txn, is_read_only: bool, keys: SpanSet<Key>) -> Self {
         let (tx, rx) = channel::<()>(1);
         LockTableGuard {
             should_wait: RwLock::new(false),
@@ -421,11 +457,16 @@ impl LockTableGuard {
             guard_id: Uuid::new_v4(),
             is_read_only: RwLock::new(is_read_only),
             wait_state: RwLock::new(WaitingState::DoneWaiting),
+            keys,
         }
     }
 
-    pub fn new_lock_table_guard_link(txn: Txn, is_read_only: bool) -> LockTableGuardLink {
-        Arc::new(LockTableGuard::new(txn, is_read_only))
+    pub fn new_lock_table_guard_link(
+        txn: Txn,
+        is_read_only: bool,
+        keys: SpanSet<Key>,
+    ) -> LockTableGuardLink {
+        Arc::new(LockTableGuard::new(txn, is_read_only, keys))
     }
 
     /**

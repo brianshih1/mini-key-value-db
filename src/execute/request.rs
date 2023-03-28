@@ -126,7 +126,7 @@ impl Command for AbortTransactionRequest {
         todo!()
     }
 
-    fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let txn = header.txn;
         let write_timestamp = header.txn.metadata.write_timestamp;
         writer.abort_transaction(&txn.txn_id, write_timestamp);
@@ -150,7 +150,7 @@ impl Command for EndTransactionRequest {
         Vec::new()
     }
 
-    fn execute(&self, header: &RequestMetadata, mut writer: &KVStore) -> ExecuteResult {
+    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let txn = header.txn;
         let write_timestamp = header.txn.metadata.write_timestamp;
 
