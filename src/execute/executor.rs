@@ -6,7 +6,9 @@ use crate::{
     timestamp_oracle::oracle::TimestampOracle,
 };
 
-use super::request::{Command, ExecuteError, ExecuteResult, Request, SpansToAcquire};
+use super::request::{
+    Command, ExecuteError, ExecuteResult, Request, ResponseUnion, SpansToAcquire,
+};
 
 pub struct Executor {
     concr_manager: ConcurrencyManager,
@@ -15,7 +17,15 @@ pub struct Executor {
 }
 
 impl Executor {
-    pub async fn execute_request_with_concurrency_retries(&self, request: Request) {
+    pub fn new() -> Self {
+        todo!()
+    }
+
+    pub async fn execute_request_with_concurrency_retries(
+        &self,
+        request: Request,
+    ) -> ResponseUnion {
+        // TODO: This should return some form of Result<...>
         loop {
             let request_union = &request.request_union;
             let spans = request_union.collect_spans();
@@ -31,17 +41,21 @@ impl Executor {
                 self.execute_read_write_request(&request, &guard)
             };
 
-            if let Some(err) = result.error {
-                match err {
-                    ExecuteError::WriteIntentError(_) => {
-                        // TODO: When do we call finish_req in this case?
-                        self.handle_write_intent_error();
+            match result {
+                Ok(result) => {
+                    // release latches and dequeue request from lockTable
+                    self.concr_manager.finish_req(guard).await;
+                    return result;
+                }
+                Err(err) => {
+                    match err {
+                        ExecuteError::WriteIntentError(_) => {
+                            // TODO: When do we call finish_req in this case?
+                            self.handle_write_intent_error();
+                        }
                     }
                 }
-            } else {
-                // release latches and dequeue request from lockTable
-                self.concr_manager.finish_req(guard).await;
-            }
+            };
         }
     }
 

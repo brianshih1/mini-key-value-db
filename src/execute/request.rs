@@ -3,6 +3,7 @@ use std::{collections::HashMap, default};
 use uuid::Uuid;
 
 use crate::{
+    db::db::TxnLink,
     hlc::timestamp::Timestamp,
     latch_manager::latch_interval_btree::{NodeKey, Range},
     storage::{
@@ -24,10 +25,7 @@ pub struct Request {
     pub request_union: RequestUnion,
 }
 
-pub struct ExecuteResult {
-    pub response: ResponseUnion,
-    pub error: Option<ExecuteError>,
-}
+pub type ExecuteResult = Result<ResponseUnion, ExecuteError>;
 
 pub enum ExecuteError {
     WriteIntentError(WriteIntentErrorData),
@@ -78,7 +76,7 @@ pub struct RequestMetadata {
      * For now, assume every request is part of a transaction.
      * In the future, we can support non-transactional reads.
      */
-    pub txn: Txn,
+    pub txn: TxnLink,
 }
 
 pub struct BeginTransactionRequest {
@@ -97,12 +95,10 @@ impl Command for BeginTransactionRequest {
     }
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
-        let write_timestamp = header.txn.metadata.write_timestamp;
+        let txn = header.txn.read().unwrap();
+        let write_timestamp = txn.metadata.write_timestamp;
         writer.create_pending_transaction_record(&self.txn_id, write_timestamp);
-        ExecuteResult {
-            response: ResponseUnion::BeginTransaction(BeginTransactionResponse {}),
-            error: None,
-        }
+        Ok(ResponseUnion::BeginTransaction(BeginTransactionResponse {}))
     }
 }
 
@@ -120,13 +116,10 @@ impl Command for AbortTransactionRequest {
     }
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
-        let txn = header.txn;
-        let write_timestamp = header.txn.metadata.write_timestamp;
+        let txn = header.txn.read().unwrap();
+        let write_timestamp = txn.metadata.write_timestamp;
         writer.abort_transaction(&txn.txn_id, write_timestamp);
-        ExecuteResult {
-            response: ResponseUnion::AbortTransaction(AbortTransactionResponse {}),
-            error: None,
-        }
+        Ok(ResponseUnion::AbortTransaction(AbortTransactionResponse {}))
     }
 }
 
@@ -144,14 +137,11 @@ impl Command for EndTransactionRequest {
     }
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
-        let txn = header.txn;
-        let write_timestamp = header.txn.metadata.write_timestamp;
+        let txn = header.txn.read().unwrap();
+        let write_timestamp = txn.metadata.write_timestamp;
 
         writer.commit_transaction(&txn.txn_id, write_timestamp);
-        ExecuteResult {
-            response: ResponseUnion::EndTransaction(EndTransactionResponse {}),
-            error: None,
-        }
+        Ok(ResponseUnion::EndTransaction(EndTransactionResponse {}))
     }
 }
 
@@ -160,8 +150,7 @@ pub struct GetRequest {
 }
 
 pub struct GetResponse {
-    pub value: Option<(MVCCKey, Value)>,
-    pub intent: Option<TxnIntent>,
+    pub value: (MVCCKey, Value),
 }
 
 impl Command for GetRequest {
@@ -177,27 +166,22 @@ impl Command for GetRequest {
     }
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
+        let txn = header.txn.read().unwrap();
         let result = writer.mvcc_get(
             &self.key,
-            &header.txn.read_timestamp,
+            &txn.read_timestamp,
             MVCCGetParams {
-                transaction: Some(&header.txn),
+                transaction: Some(&txn),
             },
         );
 
-        // TODO: Remove clone
-        let error = result.intent.clone().and_then(|intent| {
-            Some(ExecuteError::WriteIntentError(WriteIntentErrorData {
-                intent: intent.clone(), // TODO: Remove this clone
-            }))
-        });
-
-        ExecuteResult {
-            response: ResponseUnion::Get(GetResponse {
-                value: result.value,
-                intent: result.intent.clone(),
-            }),
-            error,
+        match result.intent {
+            Some(intent) => Err(ExecuteError::WriteIntentError(WriteIntentErrorData {
+                intent: intent.clone(),
+            })),
+            None => Ok(ResponseUnion::Get(GetResponse {
+                value: result.value.unwrap(),
+            })),
         }
     }
 }
@@ -222,22 +206,18 @@ impl<'a> Command for PutRequest {
     }
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
+        let txn = header.txn.read().unwrap();
         let res = writer.mvcc_put(
             self.key.clone(),
-            Some(header.txn.metadata.write_timestamp),
-            Some(&header.txn),
+            Some(txn.metadata.write_timestamp),
+            Some(&txn),
             self.value.clone(),
         ); // TODO: Remove value.clone()
-        let error = match res {
-            Ok(_) => None,
-            Err(err) => Some(ExecuteError::WriteIntentError(WriteIntentErrorData {
+        match res {
+            Ok(_) => Ok(ResponseUnion::Put(PutResponse {})),
+            Err(err) => Err(ExecuteError::WriteIntentError(WriteIntentErrorData {
                 intent: err.intent,
             })),
-        };
-
-        ExecuteResult {
-            response: ResponseUnion::Put(PutResponse {}),
-            error,
         }
     }
 }

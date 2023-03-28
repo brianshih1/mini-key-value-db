@@ -13,6 +13,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
+    db::db::TxnLink,
     execute::request::{Command, Request, SpanSet},
     storage::{
         txn::{Txn, TxnIntent, TxnMetadata},
@@ -27,7 +28,7 @@ pub struct LockTableGuard {
 
     // TODO: Does this Txn need to be in RwLock? Are we going to mutate it somewhere?
     // (i.e. bump the readTimestmap)
-    pub txn: RwLock<Txn>,
+    pub txn: TxnLink,
 
     pub sender: Arc<Sender<()>>,
 
@@ -151,7 +152,7 @@ impl LockTable {
     pub async fn scan_and_enqueue<'a>(&'a self, request: &Request) -> (bool, LockTableGuardLink) {
         let spans = request.request_union.collect_spans();
         let is_read_only = request.request_union.is_read_only();
-        let txn = request.metadata.txn;
+        let txn = request.metadata.txn.clone();
 
         let lock_guard =
             LockTableGuard::new_lock_table_guard_link(txn.clone(), is_read_only, spans.clone());
@@ -447,11 +448,11 @@ impl LockState {
 }
 
 impl LockTableGuard {
-    pub fn new(txn: Txn, is_read_only: bool, keys: SpanSet<Key>) -> Self {
+    pub fn new(txn: TxnLink, is_read_only: bool, keys: SpanSet<Key>) -> Self {
         let (tx, rx) = channel::<()>(1);
         LockTableGuard {
             should_wait: RwLock::new(false),
-            txn: RwLock::new(txn.clone()),
+            txn: txn.clone(),
             sender: Arc::new(tx),
             receiver: Mutex::new(rx),
             guard_id: Uuid::new_v4(),
@@ -462,7 +463,7 @@ impl LockTableGuard {
     }
 
     pub fn new_lock_table_guard_link(
-        txn: Txn,
+        txn: TxnLink,
         is_read_only: bool,
         keys: SpanSet<Key>,
     ) -> LockTableGuardLink {

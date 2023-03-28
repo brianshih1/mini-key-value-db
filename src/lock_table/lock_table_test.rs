@@ -4,6 +4,7 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
+        db::db::TxnLink,
         execute::request::{
             GetRequest, PutRequest, Request, RequestMetadata, RequestUnion, SpanSet,
         },
@@ -84,7 +85,7 @@ mod test {
     pub fn create_test_lock_table_guard(
         is_read_only: bool,
         keys: Vec<Key>,
-    ) -> (Uuid, Txn, LockTableGuardLink) {
+    ) -> (Uuid, TxnLink, LockTableGuardLink) {
         create_test_lock_table_guard_with_timestamp(Timestamp::new(1, 1), is_read_only, keys)
     }
 
@@ -92,9 +93,9 @@ mod test {
         timestamp: Timestamp,
         is_read_only: bool,
         keys: Vec<Key>,
-    ) -> (Uuid, Txn, LockTableGuardLink) {
+    ) -> (Uuid, TxnLink, LockTableGuardLink) {
         let txn_id = Uuid::new_v4();
-        let txn = Txn::new(txn_id, timestamp, timestamp);
+        let txn = Txn::new_link(txn_id, timestamp, timestamp);
         let spans = keys
             .iter()
             .map(|k| Range {
@@ -106,14 +107,14 @@ mod test {
         (txn_id, txn, lg)
     }
 
-    pub fn create_test_put_request(key: &str) -> (Request, Txn) {
+    pub fn create_test_put_request(key: &str) -> (Request, TxnLink) {
         let request_union = RequestUnion::Put(PutRequest {
             key: str_to_key(key),
             value: serialized_to_value(2),
         });
         let txn_id = Uuid::new_v4();
         let timestamp = Timestamp::new(1, 2);
-        let txn = Txn::new(txn_id, timestamp, timestamp);
+        let txn = Txn::new_link(txn_id, timestamp, timestamp);
         (
             Request {
                 metadata: RequestMetadata { txn: txn.clone() },
@@ -123,12 +124,12 @@ mod test {
         )
     }
 
-    pub fn create_test_read_request(key: &str, timestamp: Timestamp) -> (Request, Txn) {
+    pub fn create_test_read_request(key: &str, timestamp: Timestamp) -> (Request, TxnLink) {
         let request_union = RequestUnion::Get(GetRequest {
             key: str_to_key(key),
         });
         let txn_id = Uuid::new_v4();
-        let txn = Txn::new(txn_id, timestamp, timestamp);
+        let txn = Txn::new_link(txn_id, timestamp, timestamp);
         (
             Request {
                 metadata: RequestMetadata { txn: txn.clone() },

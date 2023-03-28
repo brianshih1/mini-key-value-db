@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_current_key_and_current_value() {
-        let mut storage = Storage::new_cleaned("./tmp/testt");
+        let storage = Storage::new_cleaned("./tmp/testt");
         let mvcc_key = MVCCKey::new(
             str_to_key("hello"),
             Timestamp {
@@ -175,7 +175,9 @@ mod tests {
                 wall_time: 12,
             },
         );
-        storage.put_serialized_with_mvcc_key(&mvcc_key.to_owned(), 12);
+        storage
+            .put_serialized_with_mvcc_key(&mvcc_key.to_owned(), 12)
+            .unwrap();
         let mut iterator = MVCCIterator::new(&storage, IterOptions { prefix: false });
         assert!(iterator.valid());
         let key = iterator.current_key();

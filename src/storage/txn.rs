@@ -1,7 +1,9 @@
+use std::sync::{Arc, RwLock};
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::hlc::timestamp::Timestamp;
+use crate::{db::db::TxnLink, hlc::timestamp::Timestamp};
 
 use super::{Key, Value};
 
@@ -48,6 +50,18 @@ impl Txn {
             },
             read_timestamp: read_timestamp,
         }
+    }
+
+    pub fn new_link(
+        transaction_id: Uuid,
+        read_timestamp: Timestamp,
+        write_timestamp: Timestamp,
+    ) -> TxnLink {
+        Arc::new(RwLock::new(Txn::new(
+            transaction_id,
+            read_timestamp,
+            write_timestamp,
+        )))
     }
 
     pub fn to_intent(&self, key: Key) -> TxnIntent {
