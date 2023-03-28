@@ -75,13 +75,6 @@ pub trait Command {
 // Similar to CRDB's RequestHeader
 pub struct RequestMetadata {
     /**
-     * The timestamp the request should evaluate at.
-     * Should be set to Txn.ReadTimestamp if Txn is non-nil
-     *
-     * Why do we need this addition to the txn?
-     */
-    pub timestamp: Timestamp,
-    /**
      * For now, assume every request is part of a transaction.
      * In the future, we can support non-transactional reads.
      */
@@ -186,7 +179,7 @@ impl Command for GetRequest {
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let result = writer.mvcc_get(
             &self.key,
-            &header.timestamp,
+            &header.txn.read_timestamp,
             MVCCGetParams {
                 transaction: Some(&header.txn),
             },
@@ -231,7 +224,7 @@ impl<'a> Command for PutRequest {
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let res = writer.mvcc_put(
             self.key.clone(),
-            Some(header.timestamp),
+            Some(header.txn.metadata.write_timestamp),
             Some(&header.txn),
             self.value.clone(),
         ); // TODO: Remove value.clone()

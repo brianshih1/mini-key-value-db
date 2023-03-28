@@ -8,7 +8,7 @@ use crate::{
 
 use super::request::{Command, ExecuteError, ExecuteResult, Request, SpansToAcquire};
 
-struct Executor {
+pub struct Executor {
     concr_manager: ConcurrencyManager,
     writer: KVStore,
     timestamp_oracle: RwLock<TimestampOracle>,
@@ -40,7 +40,7 @@ impl Executor {
                 }
             } else {
                 // release latches and dequeue request from lockTable
-                self.concr_manager.finish_req(guard);
+                self.concr_manager.finish_req(guard).await;
             }
         }
     }
@@ -49,7 +49,7 @@ impl Executor {
 
     pub fn execute_read_write_request(&self, request: &Request, guard: &Guard) -> ExecuteResult {
         // TODO: applyTimestampCache - we need to make sure we bump the
-        // txn.writeTimestsamp before we lay any intents
+        // txn.writeTimestamp before we lay any intents
         request
             .request_union
             .execute(&request.metadata, &self.writer)

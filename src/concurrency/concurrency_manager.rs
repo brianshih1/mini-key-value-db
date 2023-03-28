@@ -3,12 +3,9 @@ use std::collections::HashSet;
 use std::thread;
 
 use crate::execute::request::{Command, Request};
-use crate::latch_manager::latch_interval_btree::{BTree, Range};
 use crate::latch_manager::latch_manager::{LatchGuard, LatchManager};
-use crate::lock_table::lock_table::LockTable;
+use crate::lock_table::lock_table::{LockTable, LockTableGuardLink};
 use crate::storage::Key;
-use crate::{execute::request::SpansToAcquire, latch_manager::latch_interval_btree::NodeKey};
-use tokio::sync;
 
 pub struct ConcurrencyManager {
     latch_manager: LatchManager<Key>,
@@ -17,6 +14,8 @@ pub struct ConcurrencyManager {
 
 pub struct Guard {
     latch_guard: LatchGuard<Key>,
+
+    lock_guard: LockTableGuardLink,
 }
 
 impl ConcurrencyManager {
@@ -41,7 +40,10 @@ impl ConcurrencyManager {
                 // restart the loop to re-acquire latches and rescan the lockTable
                 continue;
             } else {
-                return Guard { latch_guard };
+                return Guard {
+                    latch_guard,
+                    lock_guard,
+                };
             }
         }
     }
@@ -49,9 +51,9 @@ impl ConcurrencyManager {
     /**
      * Release latches and dequeues the request from any lock tables.
      */
-    pub fn finish_req(&self, guard: Guard) -> () {
+    pub async fn finish_req(&self, guard: Guard) -> () {
         self.latch_manager.release(guard.latch_guard);
-        // self.lock_table.dequeue();
+        self.lock_table.dequeue(guard.lock_guard.clone()).await;
     }
 }
 
@@ -66,7 +68,7 @@ mod Test {
         time::{self, Duration},
     };
 
-    mod SequenceReq {
+    mod sequence_req {
         use core::time;
         use std::{sync::Arc, thread};
 

@@ -116,10 +116,7 @@ mod test {
         let txn = Txn::new(txn_id, timestamp, timestamp);
         (
             Request {
-                metadata: RequestMetadata {
-                    timestamp: timestamp,
-                    txn: txn.clone(),
-                },
+                metadata: RequestMetadata { txn: txn.clone() },
                 request_union,
             },
             txn,
@@ -134,10 +131,7 @@ mod test {
         let txn = Txn::new(txn_id, timestamp, timestamp);
         (
             Request {
-                metadata: RequestMetadata {
-                    timestamp: timestamp,
-                    txn: txn.clone(),
-                },
+                metadata: RequestMetadata { txn: txn.clone() },
                 request_union,
             },
             txn,
