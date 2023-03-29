@@ -259,7 +259,7 @@ mod tests {
             let mut kv_store = KVStore::new("./tmp/data");
             let timestamp = Timestamp::new(12, 0);
             let txn_id = Uuid::new_v4();
-            let transaction = Txn::new(txn_id, timestamp.to_owned(), timestamp.to_owned());
+            let transaction = Txn::new(txn_id, timestamp);
             let key = "foo";
             kv_store
                 .mvcc_put(str_to_key(key), Some(timestamp), Some(&transaction), 12)
@@ -453,11 +453,7 @@ mod tests {
             let mut kv_store = KVStore::new("./tmp/data");
             let txn_id = Uuid::new_v4();
             let transaction_timestamp = Timestamp::new(12, 0);
-            let transaction = Txn::new(
-                txn_id,
-                transaction_timestamp.to_owned(),
-                transaction_timestamp.to_owned(),
-            );
+            let transaction = Txn::new(txn_id, transaction_timestamp);
             let key1 = "apple";
             kv_store
                 .mvcc_put(

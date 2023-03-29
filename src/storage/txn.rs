@@ -25,7 +25,7 @@ pub struct UncommittedValue {
     pub txn_metadata: TxnMetadata,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct Txn {
     pub txn_id: Uuid,
     pub metadata: TxnMetadata,
@@ -33,35 +33,29 @@ pub struct Txn {
     // Writes are performed on metadata.write_timestamp.
     // If the write runs into timestamp oracle, then the write timestamp will be bumped.
     pub read_timestamp: Timestamp,
-    // TODO: locks, etc
+
+    /**
+     * List of keys that the tranaction has acquired locks.
+     * Theses should be resolved when the txn finalizes.
+     */
+    pub lock_spans: RwLock<Vec<Key>>,
 }
 
 impl Txn {
-    pub fn new(
-        transaction_id: Uuid,
-        read_timestamp: Timestamp,
-        write_timestamp: Timestamp,
-    ) -> Self {
+    pub fn new(transaction_id: Uuid, timestamp: Timestamp) -> Self {
         Txn {
             txn_id: transaction_id,
             metadata: TxnMetadata {
                 txn_id: transaction_id.to_owned(),
-                write_timestamp: write_timestamp,
+                write_timestamp: timestamp,
             },
-            read_timestamp: read_timestamp,
+            read_timestamp: timestamp,
+            lock_spans: RwLock::new(Vec::new()),
         }
     }
 
-    pub fn new_link(
-        transaction_id: Uuid,
-        read_timestamp: Timestamp,
-        write_timestamp: Timestamp,
-    ) -> TxnLink {
-        Arc::new(RwLock::new(Txn::new(
-            transaction_id,
-            read_timestamp,
-            write_timestamp,
-        )))
+    pub fn new_link(transaction_id: Uuid, timestamp: Timestamp) -> TxnLink {
+        Arc::new(RwLock::new(Txn::new(transaction_id, timestamp)))
     }
 
     pub fn to_intent(&self, key: Key) -> TxnIntent {
@@ -69,6 +63,11 @@ impl Txn {
             txn_meta: self.metadata.clone(),
             key,
         }
+    }
+
+    pub fn append_lock_span(&self, key: Key) {
+        let mut lock_spans = self.lock_spans.write().unwrap();
+        lock_spans.push(key);
     }
 }
 

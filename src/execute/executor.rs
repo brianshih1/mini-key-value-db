@@ -17,8 +17,13 @@ pub struct Executor {
 }
 
 impl Executor {
-    pub fn new() -> Self {
-        todo!()
+    // path example: "./tmp/data";
+    pub fn new(path: &str) -> Self {
+        Executor {
+            concr_manager: ConcurrencyManager::new(),
+            writer: KVStore::new(path),
+            timestamp_oracle: RwLock::new(TimestampOracle::new()),
+        }
     }
 
     pub async fn execute_request_with_concurrency_retries(

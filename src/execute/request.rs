@@ -36,17 +36,17 @@ pub struct WriteIntentErrorData {
 }
 
 pub enum ResponseUnion {
-    BeginTransaction(BeginTransactionResponse),
-    EndTransaction(EndTransactionResponse),
-    AbortTransaction(AbortTransactionResponse),
+    BeginTransaction(BeginTxnResponse),
+    CommitTxn(CommitTxnResponse),
+    AbortTxn(AbortTxnResponse),
     Get(GetResponse),
     Put(PutResponse),
 }
 
 pub enum RequestUnion {
-    BeginTransaction(BeginTransactionRequest),
-    EndTransaction(EndTransactionRequest),
-    AbortTransaction(AbortTransactionRequest),
+    BeginTxn(BeginTxnRequest),
+    CommitTxn(CommitTxnRequest),
+    AbortTxn(AbortTxnRequest),
     Get(GetRequest),
     Put(PutRequest),
     // TODO: ConditionalPut
@@ -79,13 +79,13 @@ pub struct RequestMetadata {
     pub txn: TxnLink,
 }
 
-pub struct BeginTransactionRequest {
-    txn_id: Uuid,
+pub struct BeginTxnRequest {
+    pub txn_id: Uuid,
 }
 
-pub struct BeginTransactionResponse {}
+pub struct BeginTxnResponse {}
 
-impl Command for BeginTransactionRequest {
+impl Command for BeginTxnRequest {
     fn is_read_only(&self) -> bool {
         true
     }
@@ -98,15 +98,15 @@ impl Command for BeginTransactionRequest {
         let txn = header.txn.read().unwrap();
         let write_timestamp = txn.metadata.write_timestamp;
         writer.create_pending_transaction_record(&self.txn_id, write_timestamp);
-        Ok(ResponseUnion::BeginTransaction(BeginTransactionResponse {}))
+        Ok(ResponseUnion::BeginTransaction(BeginTxnResponse {}))
     }
 }
 
-pub struct AbortTransactionRequest {}
+pub struct AbortTxnRequest {}
 
-pub struct AbortTransactionResponse {}
+pub struct AbortTxnResponse {}
 
-impl Command for AbortTransactionRequest {
+impl Command for AbortTxnRequest {
     fn is_read_only(&self) -> bool {
         todo!()
     }
@@ -119,15 +119,15 @@ impl Command for AbortTransactionRequest {
         let txn = header.txn.read().unwrap();
         let write_timestamp = txn.metadata.write_timestamp;
         writer.abort_transaction(&txn.txn_id, write_timestamp);
-        Ok(ResponseUnion::AbortTransaction(AbortTransactionResponse {}))
+        Ok(ResponseUnion::AbortTxn(AbortTxnResponse {}))
     }
 }
 
-pub struct EndTransactionRequest {}
+pub struct CommitTxnRequest {}
 
-pub struct EndTransactionResponse {}
+pub struct CommitTxnResponse {}
 
-impl Command for EndTransactionRequest {
+impl Command for CommitTxnRequest {
     fn is_read_only(&self) -> bool {
         true
     }
@@ -141,7 +141,7 @@ impl Command for EndTransactionRequest {
         let write_timestamp = txn.metadata.write_timestamp;
 
         writer.commit_transaction(&txn.txn_id, write_timestamp);
-        Ok(ResponseUnion::EndTransaction(EndTransactionResponse {}))
+        Ok(ResponseUnion::CommitTxn(CommitTxnResponse {}))
     }
 }
 
@@ -212,9 +212,13 @@ impl<'a> Command for PutRequest {
             Some(txn.metadata.write_timestamp),
             Some(&txn),
             self.value.clone(),
-        ); // TODO: Remove value.clone()
+        );
         match res {
-            Ok(_) => Ok(ResponseUnion::Put(PutResponse {})),
+            Ok(_) => {
+                // update the txn's lock spans to account for the intent being written
+                txn.append_lock_span(self.key.clone());
+                Ok(ResponseUnion::Put(PutResponse {}))
+            }
             Err(err) => Err(ExecuteError::WriteIntentError(WriteIntentErrorData {
                 intent: err.intent,
             })),
@@ -225,29 +229,29 @@ impl<'a> Command for PutRequest {
 impl Command for RequestUnion {
     fn is_read_only(&self) -> bool {
         match self {
-            RequestUnion::BeginTransaction(command) => command.is_read_only(),
-            RequestUnion::EndTransaction(command) => command.is_read_only(),
+            RequestUnion::BeginTxn(command) => command.is_read_only(),
+            RequestUnion::CommitTxn(command) => command.is_read_only(),
             RequestUnion::Get(command) => command.is_read_only(),
             RequestUnion::Put(command) => command.is_read_only(),
-            RequestUnion::AbortTransaction(command) => command.is_read_only(),
+            RequestUnion::AbortTxn(command) => command.is_read_only(),
         }
     }
 
     fn collect_spans(&self) -> SpanSet<Key> {
         match self {
-            RequestUnion::BeginTransaction(command) => command.collect_spans(),
-            RequestUnion::EndTransaction(command) => command.collect_spans(),
+            RequestUnion::BeginTxn(command) => command.collect_spans(),
+            RequestUnion::CommitTxn(command) => command.collect_spans(),
             RequestUnion::Get(command) => command.collect_spans(),
             RequestUnion::Put(command) => command.collect_spans(),
-            RequestUnion::AbortTransaction(command) => command.collect_spans(),
+            RequestUnion::AbortTxn(command) => command.collect_spans(),
         }
     }
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         match self {
-            RequestUnion::BeginTransaction(command) => command.execute(header, writer),
-            RequestUnion::EndTransaction(command) => todo!(),
-            RequestUnion::AbortTransaction(command) => todo!(),
+            RequestUnion::BeginTxn(command) => command.execute(header, writer),
+            RequestUnion::CommitTxn(command) => todo!(),
+            RequestUnion::AbortTxn(command) => todo!(),
             RequestUnion::Get(command) => todo!(),
             RequestUnion::Put(command) => todo!(),
         }

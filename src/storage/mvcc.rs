@@ -338,7 +338,7 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Txn::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
+            let transaction = Txn::new(txn1_id, timestamp.to_owned());
             kv_store
                 .mvcc_put(str_to_key(key), None, Some(&transaction), 12)
                 .unwrap();
@@ -360,7 +360,7 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Txn::new(txn1_id, timestamp.to_owned(), timestamp.to_owned());
+            let transaction = Txn::new(txn1_id, timestamp);
 
             kv_store.create_pending_transaction_record(&txn1_id, timestamp.to_owned());
             let current_keys = kv_store.collect_all_mvcc_kvs();
@@ -373,10 +373,6 @@ mod tests {
 
             let second_transaction = Txn::new(
                 txn2_id,
-                Timestamp {
-                    wall_time: 12,
-                    logical_time: 14,
-                },
                 Timestamp {
                     wall_time: 12,
                     logical_time: 14,
@@ -458,7 +454,7 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Txn::new(txn1_id, timestamp, timestamp);
+            let transaction = Txn::new(txn1_id, timestamp);
 
             kv_store.create_pending_transaction_record(&txn1_id, timestamp);
 

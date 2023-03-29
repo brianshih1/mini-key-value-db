@@ -75,11 +75,11 @@ mod test {
     }
 
     pub fn create_test_txn() -> Txn {
-        Txn::new(Uuid::new_v4(), Timestamp::new(1, 1), Timestamp::new(1, 1))
+        Txn::new(Uuid::new_v4(), Timestamp::new(1, 1))
     }
 
     pub fn create_test_txn_with_timestamp(timestamp: Timestamp) -> Txn {
-        Txn::new(Uuid::new_v4(), timestamp, timestamp)
+        Txn::new(Uuid::new_v4(), timestamp)
     }
 
     pub fn create_test_lock_table_guard(
@@ -95,7 +95,7 @@ mod test {
         keys: Vec<Key>,
     ) -> (Uuid, TxnLink, LockTableGuardLink) {
         let txn_id = Uuid::new_v4();
-        let txn = Txn::new_link(txn_id, timestamp, timestamp);
+        let txn = Txn::new_link(txn_id, timestamp);
         let spans = keys
             .iter()
             .map(|k| Range {
@@ -114,7 +114,7 @@ mod test {
         });
         let txn_id = Uuid::new_v4();
         let timestamp = Timestamp::new(1, 2);
-        let txn = Txn::new_link(txn_id, timestamp, timestamp);
+        let txn = Txn::new_link(txn_id, timestamp);
         (
             Request {
                 metadata: RequestMetadata { txn: txn.clone() },
@@ -129,7 +129,7 @@ mod test {
             key: str_to_key(key),
         });
         let txn_id = Uuid::new_v4();
-        let txn = Txn::new_link(txn_id, timestamp, timestamp);
+        let txn = Txn::new_link(txn_id, timestamp);
         (
             Request {
                 metadata: RequestMetadata { txn: txn.clone() },
