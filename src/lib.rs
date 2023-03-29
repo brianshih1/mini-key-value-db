@@ -1,7 +1,7 @@
 pub mod concurrency;
 pub mod db;
 pub mod execute;
-mod hlc;
+pub mod hlc;
 mod interval;
 mod latch_manager;
 mod llrb;

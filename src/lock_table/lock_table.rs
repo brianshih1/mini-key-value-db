@@ -213,6 +213,31 @@ impl LockTable {
     }
 
     /**
+     * Informs the lockTable that that a new lock was acquired. This is called after a write
+     * intent is written. Either the lockTable doesn't have an entry for the key, otherwise
+     * the txn must have reserved.
+     *
+     * This method must be called during evaluation phase before Dequeue is called, which
+     * means all the latches are held.
+     */
+    pub async fn acquire_lock(&self, key: Key, txn: TxnLink) {
+        let lock_state = self.get_lock_state(&key);
+        match lock_state {
+            Some(_) => todo!(),
+            None => {
+                // TODO: We should just pass the holder in as a constructor parameter
+                let lock_state = LockState::new();
+                // lock_state.update_holder(new_holder);
+            }
+        }
+    }
+
+    fn insert_lock_state(&self, key: Key, lock_state: LockStateLink) {
+        let mut locks = self.locks.write().unwrap();
+        locks.insert(key, lock_state);
+    }
+
+    /**
      * This function tells the lockTable that an existing lock was updated/released (e.g. the transaction
      * has committed / aborted).
      *

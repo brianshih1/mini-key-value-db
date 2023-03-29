@@ -3,6 +3,6 @@ mod test {
 
     #[tokio::test]
     async fn test() {
-        let db = DB::new("./tmp/data");
+        let db = DB::new("./tmp/data", 10);
     }
 }

@@ -15,7 +15,10 @@ use crate::{
             RequestMetadata, RequestUnion, ResponseUnion,
         },
     },
-    hlc::timestamp::Timestamp as HLCTimestamp,
+    hlc::{
+        clock::{Clock, ManualClock},
+        timestamp::Timestamp as HLCTimestamp,
+    },
     storage::{str_to_key, txn::Txn},
 };
 
@@ -25,6 +28,7 @@ pub struct DB {
     executor: Executor,
     current_time: RwLock<Timestamp>,
     txns: RwLock<HashMap<Uuid, TxnLink>>,
+    clock: RwLock<ManualClock>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -47,20 +51,26 @@ impl Timestamp {
 impl DB {
     // TODO: Should we have a new_cleaned and keep a new?
     // path example: "./tmp/data";
-    pub fn new(path: &str) -> Self {
+    pub fn new(path: &str, initial_time: u64) -> Self {
         DB {
             executor: Executor::new(path),
             current_time: RwLock::new(Timestamp { value: 10 }),
             txns: RwLock::new(HashMap::new()),
+            clock: RwLock::new(Clock::manual(initial_time)),
         }
     }
 
     pub fn set_time(&self, timestamp: Timestamp) {
-        *self.current_time.write().unwrap() = timestamp;
+        let mut clock = self.clock.write().unwrap();
+        clock.receive_timestamp(HLCTimestamp::new(timestamp.value, 0));
     }
 
     pub fn now(&self) -> Timestamp {
-        *self.current_time.read().unwrap()
+        let mut clock = self.clock.write().unwrap();
+        let hlc_timestamp = clock.get_timestamp();
+        Timestamp {
+            value: hlc_timestamp.wall_time,
+        }
     }
 
     // TODO: Return potential error

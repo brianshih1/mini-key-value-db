@@ -3,15 +3,17 @@ use super::wall_clock::{manual::Manual, WallClock};
 use std::cmp::max;
 
 // TODO: How do we make sure this is thread-safe?
-pub struct HLC<S: WallClock> {
+pub struct Clock<S: WallClock> {
     wall_clock: S,
     pub latest_timestamp: Timestamp,
 }
 
-impl<S: WallClock> HLC<S> {
-    fn new(clock: S) -> HLC<S> {
+pub type ManualClock = Clock<Manual>;
+
+impl<S: WallClock> Clock<S> {
+    pub fn new(clock: S) -> Clock<S> {
         let time = clock.current_time();
-        HLC {
+        Clock {
             wall_clock: clock,
             latest_timestamp: Timestamp {
                 wall_time: time,
@@ -29,7 +31,7 @@ impl<S: WallClock> HLC<S> {
      * If the current PT is the greatest, then use 0 as the logical clock.
      * If the previous latest_timestamp's PT is the greatest, then increment the clock by 1
      */
-    fn receive_timestamp(&mut self, incoming_timestamp: Timestamp) {
+    pub fn receive_timestamp(&mut self, incoming_timestamp: Timestamp) {
         let current_pt = self.wall_clock.current_time();
         let incoming_pt = incoming_timestamp.wall_time;
         let latest_pt = self.latest_timestamp.wall_time;
@@ -65,7 +67,7 @@ impl<S: WallClock> HLC<S> {
      * If the current PT is bigger than the latest PT, then use the current PT with logical clock of 0.
      * Otherwise, increment the latest_timestamp's logical timestamp by 1.
      */
-    fn get_timestamp(&mut self) -> &Timestamp {
+    pub fn get_timestamp(&mut self) -> &Timestamp {
         let current_pt = self.wall_clock.current_time();
         let max_pt = max(self.latest_timestamp.wall_time, current_pt);
         if self.latest_timestamp.wall_time == max_pt {
@@ -83,10 +85,10 @@ impl<S: WallClock> HLC<S> {
     }
 }
 
-impl HLC<Manual> {
-    pub fn manual(start_time: u64) -> HLC<Manual> {
+impl Clock<Manual> {
+    pub fn manual(start_time: u64) -> Clock<Manual> {
         let manual_clock = Manual::new(start_time);
-        HLC {
+        Clock {
             wall_clock: manual_clock,
             latest_timestamp: Timestamp {
                 wall_time: start_time,
@@ -100,7 +102,7 @@ impl HLC<Manual> {
 mod tests {
     use crate::hlc::{timestamp::Timestamp, wall_clock::manual::Manual};
 
-    use super::HLC;
+    use super::Clock;
 
     struct Foo {
         hello: String,
@@ -108,7 +110,7 @@ mod tests {
 
     #[test]
     fn received_timestamp_greater_than_latest_timestamp() {
-        let mut hlc = HLC::manual(12);
+        let mut hlc = Clock::manual(12);
 
         let incoming_timestamp = Timestamp {
             wall_time: 13,
