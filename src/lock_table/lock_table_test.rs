@@ -33,6 +33,7 @@ mod test {
         pub waiting_readers: Vec<Uuid>, // guard ids
         pub lock_holder: Option<Uuid>,  // txn_id
         pub reservation: Option<Uuid>,  // guard_id
+        pub last_commit_timestamp: Option<Timestamp>,
     }
 
     pub fn assert_lock_table_guard_wait_state(lg: LockTableGuardLink, waiting_state: WaitingState) {
@@ -70,6 +71,21 @@ mod test {
             }
             None => {
                 assert!(lock_state.reservation.read().unwrap().is_none())
+            }
+        }
+        match test_lock_state.last_commit_timestamp {
+            Some(last_timestamp) => {
+                assert_eq!(
+                    Some(last_timestamp),
+                    *lock_state.last_committed_timestamp.read().unwrap()
+                );
+            }
+            None => {
+                assert!(lock_state
+                    .last_committed_timestamp
+                    .read()
+                    .unwrap()
+                    .is_none());
             }
         }
     }
@@ -171,6 +187,7 @@ mod test {
                     waiting_readers: Vec::from([]),
                     lock_holder: Some(lock_holder_txn.txn_id),
                     reservation: None,
+                    last_commit_timestamp: None,
                 };
                 assert_lock_table_guard_wait_state(lg.clone(), WaitingState::Waiting);
                 assert_lock_state(&lock_table, key, test_lock_state);
@@ -193,6 +210,7 @@ mod test {
                     waiting_readers: Vec::from([get_guard_id(lg_1.clone())]),
                     lock_holder: Some(lock_holder_txn.txn_id),
                     reservation: None,
+                    last_commit_timestamp: None,
                 };
                 assert_lock_state(&lock_table, key, test_lock_state);
             }
@@ -259,6 +277,7 @@ mod test {
                         waiting_readers: Vec::from([]),
                         lock_holder: Some(lock_holder_txn.txn_id),
                         reservation: None,
+                        last_commit_timestamp: None,
                     };
                     assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
 
@@ -277,6 +296,7 @@ mod test {
                         waiting_readers: Vec::from([]),
                         lock_holder: Some(lock_holder_txn.txn_id),
                         reservation: None,
+                        last_commit_timestamp: None,
                     };
                     assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state_2);
                 }
@@ -328,6 +348,7 @@ mod test {
                         waiting_readers: Vec::from([get_guard_id(lg), get_guard_id(read_lg)]),
                         lock_holder: Some(lock_holder_txn.txn_id),
                         reservation: None,
+                        last_commit_timestamp: None,
                     };
                     assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
                 }
@@ -361,6 +382,7 @@ mod test {
                         waiting_readers: Vec::from([]),
                         lock_holder: Some(lock_holder_txn.txn_id),
                         reservation: None,
+                        last_commit_timestamp: None,
                     };
                     assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
                 }
@@ -374,11 +396,12 @@ mod test {
 
             use crate::hlc::timestamp::Timestamp;
             use crate::lock_table;
-            use crate::lock_table::lock_table::LockTable;
+            use crate::lock_table::lock_table::{AbortUpdateLock, LockTable, UpdateLock};
             use crate::lock_table::lock_table_test::test::{
                 create_test_lock_table_guard, create_test_txn_with_timestamp,
             };
             use crate::storage::str_to_key;
+            use crate::storage::txn::TxnMetadata;
 
             #[tokio::test]
             async fn test() {
@@ -405,8 +428,14 @@ mod test {
                     sleep(Duration::from_millis(900)).await;
 
                     println!("Updating!");
+
                     lock_table_3
-                        .update_locks(str_to_key("foo"), lock_holder_txn.txn_id)
+                        .update_locks(
+                            str_to_key("foo"),
+                            UpdateLock::Abort(AbortUpdateLock {
+                                txn_id: lock_holder_txn.txn_id,
+                            }),
+                        )
                         .await;
                 });
                 tokio::try_join!(task_1, task_2).unwrap();
@@ -417,7 +446,7 @@ mod test {
             use crate::{
                 hlc::timestamp::Timestamp,
                 lock_table::{
-                    lock_table::LockTable,
+                    lock_table::{AbortUpdateLock, LockTable, UpdateLock},
                     lock_table_test::test::{
                         assert_lock_state, create_test_lock_table_guard, create_test_put_request,
                         create_test_txn_with_timestamp, get_guard_id, TestLockState,
@@ -443,7 +472,12 @@ mod test {
                     )
                     .await;
                 lock_table
-                    .update_locks(str_to_key(key_str), lock_holder_txn.txn_id)
+                    .update_locks(
+                        str_to_key(key_str),
+                        UpdateLock::Abort(AbortUpdateLock {
+                            txn_id: lock_holder_txn.txn_id,
+                        }),
+                    )
                     .await;
 
                 let test_lock_state_before_dequeue = TestLockState {
@@ -451,6 +485,7 @@ mod test {
                     waiting_readers: Vec::from([]),
                     lock_holder: None,
                     reservation: Some(lg_1.guard_id),
+                    last_commit_timestamp: None,
                 };
                 assert_lock_state(
                     &lock_table,
@@ -465,6 +500,7 @@ mod test {
                     waiting_readers: Vec::from([]),
                     lock_holder: None,
                     reservation: None,
+                    last_commit_timestamp: None,
                 };
                 assert_lock_state(
                     &lock_table,
@@ -502,6 +538,7 @@ mod test {
                     waiting_readers: Vec::from([]),
                     lock_holder: Some(lock_holder_txn.txn_id),
                     reservation: None,
+                    last_commit_timestamp: None,
                 };
                 assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
 
@@ -512,6 +549,7 @@ mod test {
                     waiting_readers: Vec::from([]),
                     lock_holder: Some(lock_holder_txn.txn_id),
                     reservation: None,
+                    last_commit_timestamp: None,
                 };
                 assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
             }
@@ -524,7 +562,9 @@ mod test {
             use crate::{
                 hlc::timestamp::Timestamp,
                 lock_table::{
-                    lock_table::{LockTable, WaitingState},
+                    lock_table::{
+                        AbortUpdateLock, CommitUpdateLock, LockTable, UpdateLock, WaitingState,
+                    },
                     lock_table_test::test::{
                         assert_lock_state, assert_lock_table_guard_wait_state,
                         create_test_lock_table_guard, create_test_put_request,
@@ -541,15 +581,23 @@ mod test {
                 let lock_table = LockTable::new();
                 let (_, _, lg) =
                     create_test_lock_table_guard(false, Vec::from([str_to_key(key_str)]));
-                let lock_holder_txn = create_test_txn_with_timestamp(Timestamp::new(1, 1));
+                let lock_holder_timestamp = Timestamp::new(1, 1);
+                let lock_holder_txn = create_test_txn_with_timestamp(lock_holder_timestamp);
 
                 lock_table
                     .add_discovered_lock(lg.clone(), lock_holder_txn.to_intent(str_to_key(key_str)))
                     .await;
                 assert_lock_table_guard_wait_state(lg.clone(), WaitingState::Waiting);
 
+                let commit_timestamp = lock_holder_timestamp.advance_by(2);
                 let can_gc_lock = lock_table
-                    .update_locks(str_to_key(key_str), lock_holder_txn.txn_id)
+                    .update_locks(
+                        str_to_key(key_str),
+                        UpdateLock::Commit(CommitUpdateLock {
+                            txn_id: lock_holder_txn.txn_id,
+                            commit_timestamp,
+                        }),
+                    )
                     .await;
                 assert!(!can_gc_lock);
                 assert_lock_table_guard_wait_state(lg.clone(), WaitingState::DoneWaiting);
@@ -559,6 +607,7 @@ mod test {
                     waiting_readers: Vec::from([]),
                     lock_holder: None,
                     reservation: Some(get_guard_id(lg)),
+                    last_commit_timestamp: Some(commit_timestamp),
                 };
                 assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
             }
@@ -591,7 +640,12 @@ mod test {
 
                 // update_locks called
                 let can_gc_lock = lock_table
-                    .update_locks(str_to_key(key_str), lock_holder_txn.txn_id)
+                    .update_locks(
+                        str_to_key(key_str),
+                        UpdateLock::Abort(AbortUpdateLock {
+                            txn_id: lock_holder_txn.txn_id,
+                        }),
+                    )
                     .await;
                 assert!(can_gc_lock);
                 assert_lock_table_guard_wait_state(lg_1.clone(), WaitingState::DoneWaiting);
@@ -602,6 +656,7 @@ mod test {
                     waiting_readers: Vec::from([]),
                     lock_holder: None,
                     reservation: None,
+                    last_commit_timestamp: None,
                 };
                 assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
             }
@@ -632,7 +687,12 @@ mod test {
                 assert_lock_table_guard_wait_state(lg_2.clone(), WaitingState::Waiting);
 
                 let can_gc_lock = lock_table
-                    .update_locks(str_to_key(key_str), lock_holder_txn.txn_id)
+                    .update_locks(
+                        str_to_key(key_str),
+                        UpdateLock::Abort(AbortUpdateLock {
+                            txn_id: lock_holder_txn.txn_id,
+                        }),
+                    )
                     .await;
                 assert!(!can_gc_lock);
                 assert_lock_table_guard_wait_state(lg_1.clone(), WaitingState::DoneWaiting);
@@ -643,6 +703,7 @@ mod test {
                     waiting_readers: Vec::from([]),
                     lock_holder: None,
                     reservation: Some(get_guard_id(lg_1)),
+                    last_commit_timestamp: None,
                 };
                 assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
             }

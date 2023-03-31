@@ -269,10 +269,14 @@ impl KVStore {
             .unwrap()
     }
 
-    pub fn mvcc_resolve_intent(&self, key: Key, commit_timestamp: Timestamp) {
+    pub fn mvcc_resolve_intent(&self, key: Key, commit_timestamp: Timestamp, txn_id: Uuid) {
         let intent_key = MVCCKey::create_intent_key(&key);
 
         if let Some(uncommitted_value) = self.get_uncommitted_value(&intent_key) {
+            if uncommitted_value.txn_metadata.txn_id != txn_id {
+                println!("MVCC intent owned by another transaction. Failed to resolve");
+                return;
+            }
             self.storage.delete_mvcc(&intent_key);
             let value = uncommitted_value.value;
 

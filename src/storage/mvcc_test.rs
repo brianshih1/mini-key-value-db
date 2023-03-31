@@ -242,7 +242,7 @@ mod tests {
 
             let commit_timestamp = Timestamp::new(12, 0);
 
-            kv_store.mvcc_resolve_intent(key.clone(), commit_timestamp);
+            kv_store.mvcc_resolve_intent(key.clone(), commit_timestamp, txn_id);
 
             let uncommitted_value_option_2 = kv_store
                 .storage
@@ -258,6 +258,47 @@ mod tests {
                 })
                 .unwrap();
             assert_eq!(resolved_value, Some(put_value));
+        }
+
+        #[test]
+        fn resolve_intent_owned_by_another_txn() {
+            let kv_store = KVStore::new("./tmp/dataa");
+            let uncommitted_timestamp = Timestamp::new(10, 10);
+
+            let key = str_to_key("apple");
+
+            let txn_id = Uuid::new_v4();
+            let txn = Txn::new(txn_id, uncommitted_timestamp);
+            let put_value = 1000;
+
+            kv_store
+                .mvcc_put(
+                    key.clone(),
+                    Some(uncommitted_timestamp),
+                    Some(&txn),
+                    put_value,
+                )
+                .unwrap();
+
+            let uncommitted_value_option = kv_store
+                .storage
+                .get_serialized_with_mvcc_key::<UncommittedValue>(&create_intent_key(&key))
+                .unwrap();
+
+            assert!(uncommitted_value_option.is_some());
+
+            let commit_timestamp = Timestamp::new(12, 0);
+
+            let txn_2_id = Uuid::new_v4();
+
+            kv_store.mvcc_resolve_intent(key.clone(), commit_timestamp, txn_2_id);
+
+            // uncommitted intent not deleted as it's owned by another txn
+            let uncommitted_value_option_2 = kv_store
+                .storage
+                .get_serialized_with_mvcc_key::<UncommittedValue>(&create_intent_key(&key))
+                .unwrap();
+            assert!(uncommitted_value_option_2.is_some());
         }
     }
 }

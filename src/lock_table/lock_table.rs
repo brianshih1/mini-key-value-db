@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::{
     db::db::TxnLink,
     execute::request::{Command, Request, SpanSet},
+    hlc::timestamp::Timestamp,
     storage::{
         txn::{Txn, TxnIntent, TxnMetadata},
         Key,
@@ -84,7 +85,16 @@ pub struct LockState {
     pub queued_writers: Arc<RwLock<Vec<LockTableGuardLink>>>,
 
     pub waiting_readers: Arc<RwLock<Vec<LockTableGuardLink>>>,
-    // TODO: Do we need a timestamp here?
+
+    /**
+     * According to CRDB, if a write runs into a committed value at a higher timestamp, it advances
+     * past it. When an uncommitted intent gets committed, a queued writer becomes the reservation before
+     * executing the request. The request must advance its timestamp there.
+     *
+     * So the last_committed_timestamp is the last committed timestamp for the key.We need to update this timestamp
+     * whenever an uncommitted timestamp gets committed.
+     */
+    pub last_committed_timestamp: RwLock<Option<Timestamp>>,
 }
 
 impl LockTable {
@@ -250,7 +260,7 @@ impl LockTable {
      *
      * Returns whether the lock can be garbage collected.
      */
-    pub async fn update_locks(&self, key: Key, txn_id: Uuid) -> bool {
+    pub async fn update_locks(&self, key: Key, update_lock: UpdateLock) -> bool {
         let lock_state_option = self.get_lock_state(&key);
 
         if lock_state_option.is_none() {
@@ -265,6 +275,11 @@ impl LockTable {
         if reservation.is_none() && holder_option.is_none() {
             return true;
         }
+        let txn_id = match &update_lock {
+            UpdateLock::Commit(commit) => commit.txn_id,
+            UpdateLock::Abort(abort) => abort.txn_id,
+        };
+
         if let Some(holder) = holder_option {
             if holder.txn_id != txn_id {
                 return false;
@@ -272,8 +287,26 @@ impl LockTable {
         }
         lock_state.update_holder(None);
 
+        if let UpdateLock::Commit(ref commit) = update_lock {
+            lock_state.update_last_commit_timestamp(commit.commit_timestamp);
+        }
+
         lock_state_link.lock_is_free().await
     }
+}
+
+pub enum UpdateLock {
+    Commit(CommitUpdateLock),
+    Abort(AbortUpdateLock),
+}
+
+pub struct CommitUpdateLock {
+    pub txn_id: Uuid,
+    pub commit_timestamp: Timestamp,
+}
+
+pub struct AbortUpdateLock {
+    pub txn_id: Uuid,
 }
 
 impl LockState {
@@ -283,10 +316,11 @@ impl LockState {
             lock_holder: Arc::new(RwLock::new(None)),
             queued_writers: Arc::new(RwLock::new(Vec::new())),
             waiting_readers: Arc::new(RwLock::new(Vec::new())),
+            last_committed_timestamp: RwLock::new(None),
         }
     }
     /**
-     * The lock has transitioned from locked/reserved to unlocked. Ther could be waiters,
+     * The lock has transitioned from locked/reserved to unlocked. There could be waiters,
      * but there cannot be a reservation.
      *
      * All readers are freed and if there are queued writers, the first writer gets the reservation.
@@ -447,6 +481,11 @@ impl LockState {
     pub fn update_holder(&self, new_holder: Option<TxnMetadata>) {
         let mut holder = self.lock_holder.write().unwrap();
         *holder = new_holder;
+    }
+
+    pub fn update_last_commit_timestamp(&self, new_timestamp: Timestamp) {
+        let mut last_committed_timestamp = self.last_committed_timestamp.write().unwrap();
+        *last_committed_timestamp = Some(new_timestamp);
     }
 
     pub fn get_reservation(&self) -> Option<LockTableGuardLink> {

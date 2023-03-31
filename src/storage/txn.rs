@@ -13,6 +13,15 @@ pub struct TxnMetadata {
     pub write_timestamp: Timestamp,
 }
 
+impl TxnMetadata {
+    pub fn new(txn_id: Uuid, write_timestamp: Timestamp) -> Self {
+        TxnMetadata {
+            txn_id,
+            write_timestamp,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TxnIntent {
     pub txn_meta: TxnMetadata,
