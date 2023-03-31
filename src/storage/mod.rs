@@ -8,6 +8,7 @@ pub mod mvcc;
 pub mod mvcc_iterator;
 pub mod mvcc_key;
 pub mod mvcc_scanner;
+mod mvcc_test;
 pub mod storage;
 pub mod txn;
 

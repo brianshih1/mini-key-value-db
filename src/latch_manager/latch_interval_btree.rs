@@ -24,9 +24,9 @@ impl NodeKey for i32 {}
 impl NodeKey for MVCCKey {}
 impl NodeKey for Key {}
 
-pub type NodeLink<K: NodeKey> = RwLock<Option<LatchNode<K>>>;
-pub type WeakNodeLink<K: NodeKey> = RwLock<Option<Weak<RwLock<Node<K>>>>>;
-pub type LatchNode<K: NodeKey> = Arc<RwLock<Node<K>>>;
+pub type NodeLink<K> = RwLock<Option<LatchNode<K>>>;
+pub type WeakNodeLink<K> = RwLock<Option<Weak<RwLock<Node<K>>>>>;
+pub type LatchNode<K> = Arc<RwLock<Node<K>>>;
 
 #[derive(Debug)]
 pub enum Node<K: NodeKey> {

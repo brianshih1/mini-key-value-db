@@ -406,7 +406,7 @@ mod test {
 
                     println!("Updating!");
                     lock_table_3
-                        .update_locks(str_to_key("foo"), lock_holder_txn.clone())
+                        .update_locks(str_to_key("foo"), lock_holder_txn.txn_id)
                         .await;
                 });
                 tokio::try_join!(task_1, task_2).unwrap();
@@ -443,7 +443,7 @@ mod test {
                     )
                     .await;
                 lock_table
-                    .update_locks(str_to_key(key_str), lock_holder_txn)
+                    .update_locks(str_to_key(key_str), lock_holder_txn.txn_id)
                     .await;
 
                 let test_lock_state_before_dequeue = TestLockState {
@@ -549,7 +549,7 @@ mod test {
                 assert_lock_table_guard_wait_state(lg.clone(), WaitingState::Waiting);
 
                 let can_gc_lock = lock_table
-                    .update_locks(str_to_key(key_str), lock_holder_txn)
+                    .update_locks(str_to_key(key_str), lock_holder_txn.txn_id)
                     .await;
                 assert!(!can_gc_lock);
                 assert_lock_table_guard_wait_state(lg.clone(), WaitingState::DoneWaiting);
@@ -591,7 +591,7 @@ mod test {
 
                 // update_locks called
                 let can_gc_lock = lock_table
-                    .update_locks(str_to_key(key_str), lock_holder_txn)
+                    .update_locks(str_to_key(key_str), lock_holder_txn.txn_id)
                     .await;
                 assert!(can_gc_lock);
                 assert_lock_table_guard_wait_state(lg_1.clone(), WaitingState::DoneWaiting);
@@ -632,7 +632,7 @@ mod test {
                 assert_lock_table_guard_wait_state(lg_2.clone(), WaitingState::Waiting);
 
                 let can_gc_lock = lock_table
-                    .update_locks(str_to_key(key_str), lock_holder_txn)
+                    .update_locks(str_to_key(key_str), lock_holder_txn.txn_id)
                     .await;
                 assert!(!can_gc_lock);
                 assert_lock_table_guard_wait_state(lg_1.clone(), WaitingState::DoneWaiting);

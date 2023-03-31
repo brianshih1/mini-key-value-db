@@ -63,7 +63,11 @@ impl Storage {
                         if first_mvcc.is_intent_key() {
                             // intent keys (keys with empty timestamps) are always sorted
                             // on top of timestamped keys
-                            Ordering::Less
+                            if second_mvcc.is_intent_key() {
+                                Ordering::Equal
+                            } else {
+                                Ordering::Less
+                            }
                         } else if second_mvcc.is_intent_key() {
                             Ordering::Greater
                         } else {
@@ -95,6 +99,15 @@ impl Storage {
             .map_err(|e| StorageError::from(e))
     }
 
+    fn delete(&self, cf_name: &str, key: &str) {
+        let cf = self.get_column_family(cf_name);
+        self.db.delete_cf(cf, key).unwrap();
+    }
+
+    pub fn delete_mvcc(&self, key: &MVCCKey) {
+        self.delete(MVCC_COLUMN_FAMILY, &key.to_string())
+    }
+
     pub fn put_serialized<T: Serialize>(
         &self,
         cf_name: &str,
@@ -106,6 +119,10 @@ impl Storage {
             Ok(serialized) => self.put_raw(cf_name, &key, serialized.into_bytes()),
             Err(err) => Err(StorageError::new("put_error".to_owned(), err.to_string())),
         }
+    }
+
+    pub fn put_raw_with_mvcc_key(&self, key: &MVCCKey, value: Vec<u8>) -> StorageResult<()> {
+        self.put_raw(MVCC_COLUMN_FAMILY, &key.to_string(), value)
     }
 
     pub fn put_serialized_with_mvcc_key<T: Serialize>(
@@ -212,7 +229,7 @@ mod Test {
 
     #[test]
     fn put_mvcc() {
-        let mut storage = Storage::new_cleaned("./tmp/foo");
+        let storage = Storage::new_cleaned("./tmp/foo");
         let mvcc_key = MVCCKey::new(
             str_to_key("hello"),
             Timestamp {
@@ -240,7 +257,7 @@ mod Test {
 
         #[test]
         fn check_order_no_intent() {
-            let mut storage = Storage::new_cleaned("./tmp/foo");
+            let storage = Storage::new_cleaned("./tmp/foo");
             let first_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(1, 0));
             let second_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(2, 0));
 
@@ -334,6 +351,23 @@ mod Test {
                 &encode_mvcc_key(&intent_key),
             );
             assert_eq!(ordering, Ordering::Greater)
+        }
+
+        #[test]
+        fn two_intent_keys() {
+            let intent_key = MVCCKey::create_intent_key_with_str("a");
+            let second_intent_key = MVCCKey::create_intent_key_with_str("a");
+            let ordering = Storage::compare(
+                &encode_mvcc_key(&intent_key),
+                &encode_mvcc_key(&second_intent_key),
+            );
+            assert_eq!(ordering, Ordering::Equal);
+
+            let ordering = Storage::compare(
+                &encode_mvcc_key(&second_intent_key),
+                &encode_mvcc_key(&intent_key),
+            );
+            assert_eq!(ordering, Ordering::Equal)
         }
 
         #[test]

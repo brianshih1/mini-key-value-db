@@ -84,6 +84,7 @@ pub struct LockState {
     pub queued_writers: Arc<RwLock<Vec<LockTableGuardLink>>>,
 
     pub waiting_readers: Arc<RwLock<Vec<LockTableGuardLink>>>,
+    // TODO: Do we need a timestamp here?
 }
 
 impl LockTable {
@@ -213,6 +214,9 @@ impl LockTable {
     }
 
     /**
+     *
+     * Latches are held when this method is called.
+     *
      * Informs the lockTable that that a new lock was acquired. This is called after a write
      * intent is written. Either the lockTable doesn't have an entry for the key, otherwise
      * the txn must have reserved.
@@ -246,7 +250,7 @@ impl LockTable {
      *
      * Returns whether the lock can be garbage collected.
      */
-    pub async fn update_locks(&self, key: Key, txn: Txn) -> bool {
+    pub async fn update_locks(&self, key: Key, txn_id: Uuid) -> bool {
         let lock_state_option = self.get_lock_state(&key);
 
         if lock_state_option.is_none() {
@@ -262,7 +266,7 @@ impl LockTable {
             return true;
         }
         if let Some(holder) = holder_option {
-            if holder.txn_id != txn.txn_id {
+            if holder.txn_id != txn_id {
                 return false;
             }
         }
@@ -321,6 +325,7 @@ impl LockState {
         let first_writer = self.remove_first_writer();
         match first_writer {
             Some(writer) => {
+                // TODO: Bump the txn's timestamp
                 self.update_reservation(Some(writer.clone()));
                 writer.done_waiting_at_lock().await;
             }
@@ -404,6 +409,10 @@ impl LockState {
             lg.update_wait_state(WaitingState::Waiting);
             // TODO: Do we need to handle the case where the guard is already in the queue?
             // In our MVP how might that even happen?
+
+            // TODO: if the lock holder or reservation's writeTimestamp is greater, we should try and bump
+            // the guard txn's writeTimestamp
+            // Tho a better place might be when the request actually reserves the lock
             self.queued_writers.write().unwrap().push(guard.clone());
         }
         drop(lg_txn);

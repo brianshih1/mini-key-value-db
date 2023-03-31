@@ -84,5 +84,10 @@ mod tests {
         let back = serde_json::from_slice::<&str>(&vec).unwrap();
         println!("value: {:?}", back);
         // serde_json::from_slice(value)
+
+        let str = 12;
+        let vec = serde_json::to_string(&str).unwrap().into_bytes();
+        let back = serde_json::from_slice::<i32>(&vec).unwrap();
+        println!("value: {:?}", back);
     }
 }

@@ -65,6 +65,11 @@ impl DB {
         clock.receive_timestamp(HLCTimestamp::new(timestamp.value, 0));
     }
 
+    pub fn now_hlc(&self) -> HLCTimestamp {
+        let mut clock = self.clock.write().unwrap();
+        *clock.get_timestamp()
+    }
+
     pub fn now(&self) -> Timestamp {
         let mut clock = self.clock.write().unwrap();
         let hlc_timestamp = clock.get_timestamp();
@@ -126,8 +131,8 @@ impl DB {
         todo!()
     }
 
-    pub async fn begin_txn_with_timestamp(&self, timestamp: Timestamp) -> Uuid {
-        let (txn_id, txn) = self.create_txn_internal(timestamp);
+    pub async fn begin_txn(&self) -> Uuid {
+        let (txn_id, txn) = self.create_txn_internal();
         let request_metadata = RequestMetadata { txn };
         let txn_request = RequestUnion::BeginTxn(BeginTxnRequest { txn_id });
         let request = Request {
@@ -145,12 +150,9 @@ impl DB {
         txn_id
     }
 
-    pub async fn begin_txn(&self) -> Uuid {
-        self.begin_txn_with_timestamp(self.now()).await
-    }
-
     pub async fn abort_txn(&self) {}
 
+    // TODO: We should return the final timestamps if possible - easier for testing
     pub async fn commit_txn(&self, txn_id: Uuid) {
         let txn = self.get_txn(txn_id);
         let request_metadata = RequestMetadata { txn };
@@ -169,9 +171,9 @@ impl DB {
         };
     }
 
-    fn create_txn_internal(&self, timestamp: Timestamp) -> (Uuid, TxnLink) {
+    fn create_txn_internal(&self) -> (Uuid, TxnLink) {
         let txn_id = Uuid::new_v4();
-        let txn = Txn::new_link(txn_id, timestamp.to_hlc_timestamp());
+        let txn = Txn::new_link(txn_id, self.now_hlc());
         let mut txns = self.txns.write().unwrap();
         txns.insert(txn_id, txn.clone());
         (txn_id, txn)
