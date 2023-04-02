@@ -171,7 +171,9 @@ impl LockTable {
      * and call ScanAndEnqueue again to continue finding other conflicts.
      */
     pub async fn scan_and_enqueue<'a>(&'a self, request: &Request) -> (bool, LockTableGuardLink) {
-        let spans = request.request_union.collect_spans();
+        let spans = request
+            .request_union
+            .collect_spans(request.metadata.txn.clone());
         let is_read_only = request.request_union.is_read_only();
         let txn = request.metadata.txn.clone();
 

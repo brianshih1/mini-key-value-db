@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_order_of_iteration_with_intent_timestamp() {
-        let mut storage = Storage::new_cleaned("./tmp/testt");
+        let storage = Storage::new_cleaned("./tmp/testt");
         let key = "hello";
 
         let mvcc_key_2 = MVCCKey::new(
@@ -266,7 +266,7 @@ mod tests {
 
         #[test]
         fn test_multiple_timestamps_with_same_prefix() {
-            let mut storage = Storage::new_cleaned("./tmp/testt");
+            let storage = Storage::new_cleaned("./tmp/testt");
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
                 str_to_key(key),

@@ -48,6 +48,8 @@ pub struct Txn {
      * Theses should be resolved when the txn finalizes.
      */
     pub lock_spans: RwLock<Vec<Key>>,
+
+    pub read_set: RwLock<Vec<Key>>,
 }
 
 impl Txn {
@@ -57,6 +59,7 @@ impl Txn {
             write_timestamp: timestamp,
             read_timestamp: timestamp,
             lock_spans: RwLock::new(Vec::new()),
+            read_set: RwLock::new(Vec::new()),
         }
     }
 
@@ -84,6 +87,11 @@ impl Txn {
     pub fn append_lock_span(&self, key: Key) {
         let mut lock_spans = self.lock_spans.write().unwrap();
         lock_spans.push(key);
+    }
+
+    pub fn append_read_sets(&self, key: Key) {
+        let mut read_set = self.read_set.write().unwrap();
+        read_set.push(key);
     }
 
     pub fn bump_write_timestamp(&mut self, new_timestamp: Timestamp) {

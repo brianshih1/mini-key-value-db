@@ -150,8 +150,7 @@ mod tests {
                 .put_serialized_with_mvcc_key(&MVCCKey::new(str_to_key(key2), key2_timestamp), 10)
                 .unwrap();
 
-            let res =
-                kv_store.mvcc_get(&key1, &read_timestamp, MVCCGetParams { transaction: None });
+            let res = kv_store.mvcc_get(&key1, read_timestamp, MVCCGetParams { transaction: None });
             assert!(res.intent.is_none());
             assert_eq!(
                 res.value,
@@ -182,7 +181,7 @@ mod tests {
 
             let res = kv_store.mvcc_get(
                 &str_to_key(key),
-                &timestamp.advance_by(2),
+                timestamp.advance_by(2),
                 MVCCGetParams { transaction: None },
             );
 

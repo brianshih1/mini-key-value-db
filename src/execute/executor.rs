@@ -6,17 +6,23 @@ use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard},
     db::db::{TxnLink, TxnMap},
     hlc::timestamp::Timestamp,
-    storage::mvcc::KVStore,
+    storage::mvcc::{KVStore, MVCCGetParams},
     timestamp_oracle::oracle::TimestampOracle,
 };
 
 use super::request::{
-    Command, ExecuteError, ExecuteResult, Request, ResponseUnion, SpansToAcquire,
+    Command, Request, ResponseError, ResponseResult, ResponseUnion, SpansToAcquire,
 };
+
+pub type ExecuteResult = Result<ResponseUnion, ExecuteError>;
+
+pub enum ExecuteError {
+    FailedToCommit,
+}
 
 pub struct Executor {
     pub concr_manager: ConcurrencyManager,
-    pub writer: KVStore,
+    pub store: KVStore,
     pub timestamp_oracle: RwLock<TimestampOracle>,
 }
 
@@ -25,7 +31,7 @@ impl Executor {
     pub fn new(path: &str, txns: TxnMap) -> Self {
         Executor {
             concr_manager: ConcurrencyManager::new(txns),
-            writer: KVStore::new(path),
+            store: KVStore::new(path),
             timestamp_oracle: RwLock::new(TimestampOracle::new()),
         }
     }
@@ -33,15 +39,10 @@ impl Executor {
     pub async fn execute_request_with_concurrency_retries(
         &self,
         request: Request,
-    ) -> ResponseUnion {
+    ) -> ExecuteResult {
         // TODO: This should return some form of Result<...>
         loop {
             let request_union = &request.request_union;
-            let spans = request_union.collect_spans();
-            let spans_to_acquire = SpansToAcquire {
-                latch_spans: spans.clone(),
-                lock_spans: spans.clone(),
-            };
             let guard = self.concr_manager.sequence_req(&request).await;
 
             let result = if request_union.is_read_only() {
@@ -54,13 +55,17 @@ impl Executor {
                 Ok(result) => {
                     // release latches and dequeue request from lockTable
                     self.concr_manager.finish_req(guard).await;
-                    return result;
+                    return Ok(result);
                 }
                 Err(err) => {
                     match err {
-                        ExecuteError::WriteIntentError(_) => {
+                        ResponseError::WriteIntentError(_) => {
                             // TODO: When do we call finish_req in this case?
                             self.handle_write_intent_error();
+                            todo!()
+                        }
+                        ResponseError::ReadRefreshError => {
+                            return Err(ExecuteError::FailedToCommit)
                         }
                     }
                 }
@@ -70,10 +75,12 @@ impl Executor {
 
     pub fn handle_write_intent_error(&self) {}
 
-    pub async fn execute_write_request(&self, request: &Request, guard: &Guard) -> ExecuteResult {
+    pub async fn execute_write_request(&self, request: &Request, guard: &Guard) -> ResponseResult {
         // TODO: applyTimestampCache - we need to make sure we bump the
         // txn.writeTimestamp before we lay any intents
-        let spans = request.request_union.collect_spans();
+        let spans = request
+            .request_union
+            .collect_spans(request.metadata.txn.clone());
         let timestamp_oracle = self.timestamp_oracle.read().unwrap();
         let timestamps = spans
             .iter()
@@ -101,7 +108,7 @@ impl Executor {
         &self,
         request: &Request,
         guard: &Guard,
-    ) -> ExecuteResult {
+    ) -> ResponseResult {
         let result = request
             .request_union
             .execute(&request.metadata, &self)
@@ -119,8 +126,52 @@ impl Executor {
         let keys = txn.lock_spans.read().unwrap();
 
         for key in keys.iter() {
-            self.writer
+            self.store
                 .mvcc_resolve_intent(key.clone(), write_timestamp, txn.txn_id);
         }
+    }
+
+    /**
+     * Updates the txn's readTimestamp to its writeTimestamp and return true.
+     * If it's not possible, return false.
+     *
+     * Advancing a transaction’s read timestamp from a to b is possible if we
+     * can prove that none of the data that the transaction has read at a
+     * has been updated to the interval (a,b].
+     */
+    pub fn refresh_read_timestamp(&self, txn_link: TxnLink) -> bool {
+        let txn = txn_link.read().unwrap();
+        let txn_id = txn.txn_id;
+        // TODO: Remove clone
+        let read_set = txn.read_set.read().unwrap().clone();
+        let to_timestamp = txn.write_timestamp;
+        let from_timestamp = txn.read_timestamp;
+        drop(txn);
+        for key in read_set.iter() {
+            let res = self.store.mvcc_get(
+                &key,
+                to_timestamp,
+                MVCCGetParams {
+                    transaction: Some(txn_link.clone()),
+                },
+            );
+            if let Some((mvcc_key, _)) = res.value {
+                let mvcc_timestamp = mvcc_key.timestamp;
+                if mvcc_timestamp < from_timestamp {
+                    return false;
+                }
+            }
+
+            // Check if an intent which is not owned by this transaction was written
+            // at or beneath the refresh timestamp.
+            if let Some(intent) = res.intent {
+                let intent_timestamp = intent.txn_meta.write_timestamp;
+                if intent.txn_meta.txn_id != txn_id && intent_timestamp < to_timestamp {
+                    return false;
+                }
+            }
+        }
+        txn_link.write().unwrap().write_timestamp = to_timestamp;
+        true
     }
 }

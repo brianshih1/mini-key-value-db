@@ -1,18 +1,18 @@
 use rocksdb::DBIterator;
 
-use crate::hlc::timestamp::Timestamp;
+use crate::{db::db::TxnLink, hlc::timestamp::Timestamp};
 
 use super::{
     mvcc_iterator::MVCCIterator,
     mvcc_key::{create_intent_key, MVCCKey},
-    txn::{Txn, TxnIntent, TxnMetadata, UncommittedValue},
+    txn::{Txn, TxnIntent, UncommittedValue},
     Key, Value,
 };
 
 pub struct MVCCScanner<'a> {
     it: MVCCIterator<'a>,
 
-    pub transaction: Option<&'a Txn>,
+    pub txn: Option<TxnLink>,
 
     // TODO: lockTable
 
@@ -47,7 +47,7 @@ impl<'a> MVCCScanner<'a> {
         end_key: Option<Key>,
         timestamp: Timestamp,
         max_records_count: usize,
-        transaction: Option<&'a Txn>,
+        transaction: Option<TxnLink>,
     ) -> Self {
         MVCCScanner {
             it,
@@ -57,7 +57,7 @@ impl<'a> MVCCScanner<'a> {
             found_intents: Vec::new(),
             results: Vec::new(),
             max_records_count,
-            transaction,
+            txn: transaction,
         }
     }
 
@@ -108,8 +108,8 @@ impl<'a> MVCCScanner<'a> {
         if current_key.is_intent_key() {
             let current_value = self.it.current_value_serialized::<UncommittedValue>();
 
-            if let Some(scanner_transaction) = self.transaction {
-                if current_value.txn_metadata.txn_id == scanner_transaction.txn_id {
+            if let Some(scanner_transaction) = &self.txn {
+                if current_value.txn_metadata.txn_id == scanner_transaction.read().unwrap().txn_id {
                     // TODO: Resolve based on epoch
                 } else {
                     self.found_intents.push(TxnIntent {
@@ -208,11 +208,9 @@ mod tests {
             },
         };
 
-        use super::scan;
-
         #[test]
         fn no_intent_and_no_end_key() {
-            let mut storage = Storage::new_cleaned("./tmp/test");
+            let storage = Storage::new_cleaned("./tmp/test");
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
                 str_to_key(key),
@@ -256,7 +254,7 @@ mod tests {
 
         #[test]
         fn intent_found() {
-            let mut kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new("./tmp/data");
             let timestamp = Timestamp::new(12, 0);
             let txn_id = Uuid::new_v4();
             let transaction = Txn::new(txn_id, timestamp);
@@ -306,7 +304,7 @@ mod tests {
 
         #[test]
         fn advances_to_next_key() {
-            let mut kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new("./tmp/data");
             let first_key = "apple";
             let first_key_timestamp1 = Timestamp::new(2, 3);
             let first_key_timestamp2 = Timestamp::new(3, 0);
@@ -373,19 +371,18 @@ mod tests {
         use crate::{
             hlc::timestamp::Timestamp,
             storage::{
-                boxed_byte_to_byte_vec,
                 mvcc::KVStore,
                 mvcc_iterator::{IterOptions, MVCCIterator},
                 mvcc_key::MVCCKey,
                 mvcc_scanner::MVCCScanner,
                 serialized_to_value, str_to_key,
-                txn::{Txn, TxnIntent},
+                txn::Txn,
             },
         };
 
         #[test]
         fn multiple_timestamps_for_same_keys() {
-            let mut kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new("./tmp/data");
 
             let scan_timestamp = Timestamp::new(12, 3);
 

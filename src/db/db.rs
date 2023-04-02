@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    future::Future,
     sync::{Arc, RwLock},
 };
 
@@ -37,6 +38,10 @@ pub struct Timestamp {
 }
 
 impl Timestamp {
+    pub fn new(time: u64) -> Self {
+        Timestamp { value: time }
+    }
+
     pub fn advance_by(&self, step: u64) -> Timestamp {
         Timestamp {
             value: self.value + step,
@@ -94,10 +99,11 @@ impl DB {
             .executor
             .execute_request_with_concurrency_retries(write_request)
             .await;
-        match response {
-            ResponseUnion::Put(_) => {}
-            _ => unreachable!(),
-        };
+        // match response {
+        //     ResponseUnion::Put(_) => {}
+        //     _ => unreachable!(),
+        // };
+        todo!()
     }
 
     // TODO: Result
@@ -115,12 +121,13 @@ impl DB {
             .executor
             .execute_request_with_concurrency_retries(read_request)
             .await;
-        let (_, value) = match response {
-            ResponseUnion::Get(r) => r.value,
-            _ => unreachable!(),
-        };
+        // let (_, value) = match response {
+        //     ResponseUnion::Get(r) => r.value,
+        //     _ => unreachable!(),
+        // };
 
-        serde_json::from_slice::<T>(&value).unwrap()
+        // serde_json::from_slice::<T>(&value).unwrap()
+        todo!()
     }
 
     pub async fn read_without_txn<T: DeserializeOwned>(
@@ -130,6 +137,15 @@ impl DB {
     ) -> T {
         todo!()
     }
+
+    pub async fn run_txn<Fut>(&self, f: impl FnOnce(&Self) -> Fut)
+    where
+        Fut: Future<Output = bool>,
+    {
+    }
+
+    // pub async fn run_txn<Fut>(&self, f: impl FnOnce(db: &Self) -> Fut () where
+    // Fut: Future<Output = bool>) {}
 
     pub async fn begin_txn(&self) -> Uuid {
         let (txn_id, txn) = self.create_txn_internal();
@@ -143,17 +159,18 @@ impl DB {
             .executor
             .execute_request_with_concurrency_retries(request)
             .await;
-        match response {
-            ResponseUnion::BeginTransaction(_) => {}
-            _ => unreachable!(),
-        };
+        // match response {
+        //     ResponseUnion::BeginTransaction(_) => {}
+        //     _ => unreachable!(),
+        // };
         txn_id
     }
 
     pub async fn abort_txn(&self) {}
 
     // TODO: We should return the final timestamps if possible - easier for testing
-    pub async fn commit_txn(&self, txn_id: Uuid) {
+    // Returns whether the commit was successful or if a retry was necessary
+    pub async fn commit_txn(&self, txn_id: Uuid) -> bool {
         let txn = self.get_txn(txn_id);
         let request_metadata = RequestMetadata { txn };
         let txn_request = RequestUnion::CommitTxn(CommitTxnRequest {});
@@ -165,10 +182,11 @@ impl DB {
             .executor
             .execute_request_with_concurrency_retries(request)
             .await;
-        match response {
-            ResponseUnion::CommitTxn(_) => {}
-            _ => unreachable!(),
-        };
+        // match response {
+        //     ResponseUnion::CommitTxn(_) => {}
+        //     _ => unreachable!(),
+        // };
+        todo!()
     }
 
     fn create_txn_internal(&self) -> (Uuid, TxnLink) {

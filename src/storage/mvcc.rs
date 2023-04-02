@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::hlc::timestamp::Timestamp;
+use crate::{db::db::TxnLink, hlc::timestamp::Timestamp};
 
 use super::{
     mvcc_iterator::{IterOptions, MVCCIterator},
@@ -17,13 +17,13 @@ pub struct KVStore {
     pub storage: Storage,
 }
 
-pub struct MVCCScanParams<'a> {
+pub struct MVCCScanParams {
     max_result_count: usize,
-    transaction: Option<&'a Txn>,
+    transaction: Option<TxnLink>,
 }
 
-pub struct MVCCGetParams<'a> {
-    pub transaction: Option<&'a Txn>,
+pub struct MVCCGetParams {
+    pub transaction: Option<TxnLink>,
 }
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
@@ -61,8 +61,8 @@ impl KVStore {
     pub fn mvcc_get<'a>(
         &self,
         key: &'a Key,
-        timestamp: &Timestamp,
-        params: MVCCGetParams<'a>,
+        timestamp: Timestamp,
+        params: MVCCGetParams,
     ) -> MVCCGetResult {
         // implement mvcc_get as a scan with 1 element max and start_key = end_key
         let scan_params = MVCCScanParams {
@@ -90,7 +90,7 @@ impl KVStore {
         &self,
         start_key: Key,
         end_key: Key,
-        timestamp: &Timestamp,
+        timestamp: Timestamp,
         scan_params: MVCCScanParams,
     ) -> MVCCScanResult {
         let iterator = MVCCIterator::new(&self.storage, IterOptions { prefix: true });

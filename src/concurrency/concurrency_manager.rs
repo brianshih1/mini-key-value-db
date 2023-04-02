@@ -28,7 +28,9 @@ impl ConcurrencyManager {
     }
 
     pub async fn sequence_req(&self, request: &Request) -> Guard {
-        let spans_to_acquire = request.request_union.collect_spans();
+        let spans_to_acquire = request
+            .request_union
+            .collect_spans(request.metadata.txn.clone());
         loop {
             let latch_guard = self
                 .latch_manager
@@ -57,9 +59,15 @@ impl ConcurrencyManager {
         self.lock_table.dequeue(guard.lock_guard.clone()).await;
     }
 
-    pub async fn update_txn_locks(&self, txn: TxnLink, update_lock: UpdateLock) {
-        let txn = txn.read().unwrap();
+    fn get_txn_lock_spans(txn_link: TxnLink) -> Vec<Key> {
+        let txn = txn_link.read().unwrap();
         let keys = txn.lock_spans.read().unwrap();
+        keys.clone()
+        // TODO: Remove clone
+    }
+
+    pub async fn update_txn_locks(&self, txn: TxnLink, update_lock: UpdateLock) {
+        let keys = ConcurrencyManager::get_txn_lock_spans(txn.clone());
 
         for key in keys.iter() {
             self.lock_table
@@ -69,7 +77,7 @@ impl ConcurrencyManager {
     }
 }
 
-mod Test {
+mod test {
     use std::thread;
 
     use tokio::{

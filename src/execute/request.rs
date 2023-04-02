@@ -29,10 +29,11 @@ pub struct Request {
     pub request_union: RequestUnion,
 }
 
-pub type ExecuteResult = Result<ResponseUnion, ExecuteError>;
+pub type ResponseResult = Result<ResponseUnion, ResponseError>;
 
-pub enum ExecuteError {
+pub enum ResponseError {
     WriteIntentError(WriteIntentErrorData),
+    ReadRefreshError,
 }
 
 pub struct WriteIntentErrorData {
@@ -70,9 +71,15 @@ pub struct SpansToAcquire {
 pub trait Command {
     fn is_read_only(&self) -> bool;
 
-    fn collect_spans(&self) -> SpanSet<Key>;
+    /**
+     * The spans that the request touches. This will be used for latches and locks.
+     *
+     * TODO: Should we separate latch spans from lock spans. Specifically, for read refresh,
+     * do we need to scan_and_enqueue?
+     */
+    fn collect_spans(&self, txn_link: TxnLink) -> SpanSet<Key>;
 
-    async fn execute(&self, header: &RequestMetadata, writer: &Executor) -> ExecuteResult;
+    async fn execute(&self, header: &RequestMetadata, writer: &Executor) -> ResponseResult;
 }
 
 // Similar to CRDB's RequestHeader
@@ -96,15 +103,15 @@ impl Command for BeginTxnRequest {
         true
     }
 
-    fn collect_spans(&self) -> SpanSet<Key> {
+    fn collect_spans(&self, _: TxnLink) -> SpanSet<Key> {
         Vec::new()
     }
 
-    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
         let txn = header.txn.read().unwrap();
         let write_timestamp = txn.write_timestamp;
         executor
-            .writer
+            .store
             .create_pending_transaction_record(self.txn_id, write_timestamp);
         Ok(ResponseUnion::BeginTransaction(BeginTxnResponse {}))
     }
@@ -120,15 +127,15 @@ impl Command for AbortTxnRequest {
         todo!()
     }
 
-    fn collect_spans(&self) -> SpanSet<Key> {
+    fn collect_spans(&self, _: TxnLink) -> SpanSet<Key> {
         todo!()
     }
 
-    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
         let txn = header.txn.read().unwrap();
         let write_timestamp = txn.write_timestamp;
         executor
-            .writer
+            .store
             .abort_transaction(txn.txn_id, write_timestamp);
         Ok(ResponseUnion::AbortTxn(AbortTxnResponse {}))
     }
@@ -144,28 +151,41 @@ impl Command for CommitTxnRequest {
         true
     }
 
-    fn collect_spans(&self) -> SpanSet<Key> {
-        Vec::new()
+    fn collect_spans(&self, txn: TxnLink) -> SpanSet<Key> {
+        let txn = txn.read().unwrap();
+        let read_set = txn.read_set.read().unwrap();
+        read_set
+            .iter()
+            .map(|k| Range {
+                start_key: k.clone(),
+                end_key: k.clone(),
+            })
+            .collect::<SpanSet<Key>>()
     }
 
-    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
-        let txn = header.txn.read().unwrap();
-        let txn_id = txn.txn_id;
-        let write_timestamp = txn.write_timestamp;
-        drop(txn);
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
+        // read refresh
+        let did_refresh = executor.refresh_read_timestamp(header.txn.clone());
+        if !did_refresh {
+            return Err(ResponseError::ReadRefreshError);
+        }
+        let (txn_id, write_timestamp) = self.get_txn_id_timestamp(header.txn.clone());
         executor
-            .writer
+            .store
             .commit_transaction_record(txn_id, write_timestamp);
 
         //  Resolve intents so blocked requests won't run into uncommitted intents
         executor.resolve_intents_for_txn(header.txn.clone());
-        executor.concr_manager.update_txn_locks(
-            header.txn.clone(),
-            UpdateLock::Commit(CommitUpdateLock {
-                txn_id: txn_id,
-                commit_timestamp: write_timestamp,
-            }),
-        );
+        executor
+            .concr_manager
+            .update_txn_locks(
+                header.txn.clone(),
+                UpdateLock::Commit(CommitUpdateLock {
+                    txn_id: txn_id,
+                    commit_timestamp: write_timestamp,
+                }),
+            )
+            .await;
         //   The order that we resolve intents or update the lockTable doesn't have to be strictly
         //   synchronous because if we updated the lockTable but haven't resolved the intent,
         //   the subsequent request will run into an uncommitted record and will add it to the lockTable
@@ -173,6 +193,12 @@ impl Command for CommitTxnRequest {
         //   or detect that the uncommitted intent is already cleaned up
 
         Ok(ResponseUnion::CommitTxn(CommitTxnResponse {}))
+    }
+}
+
+impl CommitTxnRequest {
+    pub fn get_txn_id_timestamp(&self, txn: TxnLink) -> (Uuid, Timestamp) {
+        todo!()
     }
 }
 
@@ -190,30 +216,37 @@ impl Command for GetRequest {
         true
     }
 
-    fn collect_spans(&self) -> SpanSet<Key> {
+    fn collect_spans(&self, _: TxnLink) -> SpanSet<Key> {
         Vec::from([Range {
             start_key: self.key.clone(),
             end_key: self.key.clone(),
         }])
     }
 
-    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
-        let txn = header.txn.read().unwrap();
-        let result = executor.writer.mvcc_get(
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
+        let read_timestamp = header.txn.read().unwrap().read_timestamp;
+        let result = executor.store.mvcc_get(
             &self.key,
-            &txn.read_timestamp,
+            read_timestamp,
             MVCCGetParams {
-                transaction: Some(&txn),
+                transaction: Some(header.txn.clone()),
             },
         );
 
         match result.intent {
-            Some(intent) => Err(ExecuteError::WriteIntentError(WriteIntentErrorData {
+            Some(intent) => Err(ResponseError::WriteIntentError(WriteIntentErrorData {
                 intent: intent.clone(),
             })),
-            None => Ok(ResponseUnion::Get(GetResponse {
-                value: result.value.unwrap(),
-            })),
+            None => {
+                header
+                    .txn
+                    .read()
+                    .unwrap()
+                    .append_read_sets(self.key.clone());
+                return Ok(ResponseUnion::Get(GetResponse {
+                    value: result.value.unwrap(),
+                }));
+            }
         }
     }
 }
@@ -231,16 +264,16 @@ impl<'a> Command for PutRequest {
         false
     }
 
-    fn collect_spans(&self) -> SpanSet<Key> {
+    fn collect_spans(&self, _: TxnLink) -> SpanSet<Key> {
         Vec::from([Range {
             start_key: self.key.clone(),
             end_key: self.key.clone(),
         }])
     }
 
-    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
         let txn = header.txn.read().unwrap();
-        let res = executor.writer.mvcc_put(
+        let res = executor.store.mvcc_put(
             self.key.clone(),
             Some(txn.write_timestamp),
             Some(&txn),
@@ -252,7 +285,7 @@ impl<'a> Command for PutRequest {
                 txn.append_lock_span(self.key.clone());
                 Ok(ResponseUnion::Put(PutResponse {}))
             }
-            Err(err) => Err(ExecuteError::WriteIntentError(WriteIntentErrorData {
+            Err(err) => Err(ResponseError::WriteIntentError(WriteIntentErrorData {
                 intent: err.intent,
             })),
         }
@@ -271,23 +304,23 @@ impl Command for RequestUnion {
         }
     }
 
-    fn collect_spans(&self) -> SpanSet<Key> {
+    fn collect_spans(&self, txn_link: TxnLink) -> SpanSet<Key> {
         match self {
-            RequestUnion::BeginTxn(command) => command.collect_spans(),
-            RequestUnion::CommitTxn(command) => command.collect_spans(),
-            RequestUnion::Get(command) => command.collect_spans(),
-            RequestUnion::Put(command) => command.collect_spans(),
-            RequestUnion::AbortTxn(command) => command.collect_spans(),
+            RequestUnion::BeginTxn(command) => command.collect_spans(txn_link),
+            RequestUnion::CommitTxn(command) => command.collect_spans(txn_link),
+            RequestUnion::Get(command) => command.collect_spans(txn_link),
+            RequestUnion::Put(command) => command.collect_spans(txn_link),
+            RequestUnion::AbortTxn(command) => command.collect_spans(txn_link),
         }
     }
 
-    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
         match self {
             RequestUnion::BeginTxn(command) => command.execute(header, executor).await,
-            RequestUnion::CommitTxn(command) => todo!(),
-            RequestUnion::AbortTxn(command) => todo!(),
-            RequestUnion::Get(command) => todo!(),
-            RequestUnion::Put(command) => todo!(),
+            RequestUnion::CommitTxn(command) => command.execute(header, executor).await,
+            RequestUnion::AbortTxn(command) => command.execute(header, executor).await,
+            RequestUnion::Get(command) => command.execute(header, executor).await,
+            RequestUnion::Put(command) => command.execute(header, executor).await,
         }
     }
 }
