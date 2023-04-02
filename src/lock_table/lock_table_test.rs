@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod test {
+pub mod test {
 
     use uuid::Uuid;
 
@@ -432,7 +432,7 @@ mod test {
                     lock_table_3
                         .update_locks(
                             str_to_key("foo"),
-                            UpdateLock::Abort(AbortUpdateLock {
+                            &UpdateLock::Abort(AbortUpdateLock {
                                 txn_id: lock_holder_txn.txn_id,
                             }),
                         )
@@ -474,7 +474,7 @@ mod test {
                 lock_table
                     .update_locks(
                         str_to_key(key_str),
-                        UpdateLock::Abort(AbortUpdateLock {
+                        &UpdateLock::Abort(AbortUpdateLock {
                             txn_id: lock_holder_txn.txn_id,
                         }),
                     )
@@ -593,7 +593,7 @@ mod test {
                 let can_gc_lock = lock_table
                     .update_locks(
                         str_to_key(key_str),
-                        UpdateLock::Commit(CommitUpdateLock {
+                        &UpdateLock::Commit(CommitUpdateLock {
                             txn_id: lock_holder_txn.txn_id,
                             commit_timestamp,
                         }),
@@ -646,7 +646,7 @@ mod test {
                 let can_gc_lock = lock_table
                     .update_locks(
                         str_to_key(key_str),
-                        UpdateLock::Abort(AbortUpdateLock {
+                        &UpdateLock::Abort(AbortUpdateLock {
                             txn_id: lock_holder_txn.txn_id,
                         }),
                     )
@@ -693,7 +693,7 @@ mod test {
                 let can_gc_lock = lock_table
                     .update_locks(
                         str_to_key(key_str),
-                        UpdateLock::Abort(AbortUpdateLock {
+                        &UpdateLock::Abort(AbortUpdateLock {
                             txn_id: lock_holder_txn.txn_id,
                         }),
                     )

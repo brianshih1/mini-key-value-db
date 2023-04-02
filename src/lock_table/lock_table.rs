@@ -1,7 +1,5 @@
 use std::{
-    borrow::Borrow,
     collections::HashMap,
-    hash::Hash,
     sync::{Arc, RwLock},
 };
 
@@ -17,7 +15,7 @@ use uuid::Uuid;
 use crate::{
     db::db::{TxnLink, TxnMap},
     execute::request::{Command, Request, SpanSet},
-    hlc::timestamp::{self, Timestamp},
+    hlc::timestamp::Timestamp,
     storage::{
         txn::{TxnIntent, TxnMetadata},
         Key,
@@ -272,7 +270,7 @@ impl LockTable {
      *
      * Returns whether the lock can be garbage collected.
      */
-    pub async fn update_locks(&self, key: Key, update_lock: UpdateLock) -> bool {
+    pub async fn update_locks(&self, key: Key, update_lock: &UpdateLock) -> bool {
         let lock_state_option = self.get_lock_state(&key);
 
         if lock_state_option.is_none() {

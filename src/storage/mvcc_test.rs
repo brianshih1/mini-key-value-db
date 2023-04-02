@@ -18,7 +18,7 @@ mod tests {
             wall_time: 0,
             logical_time: 0,
         };
-        kv_store.create_pending_transaction_record(&transaction_id, write_timestamp);
+        kv_store.create_pending_transaction_record(transaction_id, write_timestamp);
         let transaction_record = kv_store.get_transaction_record(&transaction_id).unwrap();
         assert_eq!(
             transaction_record,
@@ -81,7 +81,7 @@ mod tests {
             };
             let transaction = Txn::new(txn1_id, timestamp);
 
-            kv_store.create_pending_transaction_record(&txn1_id, timestamp.to_owned());
+            kv_store.create_pending_transaction_record(txn1_id, timestamp.to_owned());
             let current_keys = kv_store.collect_all_mvcc_kvs();
 
             kv_store
@@ -174,7 +174,7 @@ mod tests {
             };
             let transaction = Txn::new(txn1_id, timestamp);
 
-            kv_store.create_pending_transaction_record(&txn1_id, timestamp);
+            kv_store.create_pending_transaction_record(txn1_id, timestamp);
 
             kv_store
                 .mvcc_put(str_to_key(key), None, Some(&transaction), 12)

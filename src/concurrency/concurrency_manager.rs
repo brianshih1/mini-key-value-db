@@ -2,10 +2,10 @@ use core::time;
 use std::collections::HashSet;
 use std::thread;
 
-use crate::db::db::TxnMap;
+use crate::db::db::{TxnLink, TxnMap};
 use crate::execute::request::{Command, Request};
 use crate::latch_manager::latch_manager::{LatchGuard, LatchManager};
-use crate::lock_table::lock_table::{LockTable, LockTableGuardLink};
+use crate::lock_table::lock_table::{LockTable, LockTableGuardLink, UpdateLock};
 use crate::storage::Key;
 
 pub struct ConcurrencyManager {
@@ -55,6 +55,17 @@ impl ConcurrencyManager {
     pub async fn finish_req(&self, guard: Guard) -> () {
         self.latch_manager.release(guard.latch_guard);
         self.lock_table.dequeue(guard.lock_guard.clone()).await;
+    }
+
+    pub async fn update_txn_locks(&self, txn: TxnLink, update_lock: UpdateLock) {
+        let txn = txn.read().unwrap();
+        let keys = txn.lock_spans.read().unwrap();
+
+        for key in keys.iter() {
+            self.lock_table
+                .update_locks(key.clone(), &update_lock)
+                .await;
+        }
     }
 }
 

@@ -1,8 +1,11 @@
 use std::sync::RwLock;
 
+use uuid::Uuid;
+
 use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard},
-    db::db::TxnMap,
+    db::db::{TxnLink, TxnMap},
+    hlc::timestamp::Timestamp,
     storage::mvcc::KVStore,
     timestamp_oracle::oracle::TimestampOracle,
 };
@@ -12,9 +15,9 @@ use super::request::{
 };
 
 pub struct Executor {
-    concr_manager: ConcurrencyManager,
-    writer: KVStore,
-    timestamp_oracle: RwLock<TimestampOracle>,
+    pub concr_manager: ConcurrencyManager,
+    pub writer: KVStore,
+    pub timestamp_oracle: RwLock<TimestampOracle>,
 }
 
 impl Executor {
@@ -42,9 +45,9 @@ impl Executor {
             let guard = self.concr_manager.sequence_req(&request).await;
 
             let result = if request_union.is_read_only() {
-                self.execute_read_only_request(&request, &guard)
+                self.execute_read_only_request(&request, &guard).await
             } else {
-                self.execute_read_write_request(&request, &guard)
+                self.execute_write_request(&request, &guard).await
             };
 
             match result {
@@ -67,22 +70,57 @@ impl Executor {
 
     pub fn handle_write_intent_error(&self) {}
 
-    pub fn execute_read_write_request(&self, request: &Request, guard: &Guard) -> ExecuteResult {
+    pub async fn execute_write_request(&self, request: &Request, guard: &Guard) -> ExecuteResult {
         // TODO: applyTimestampCache - we need to make sure we bump the
         // txn.writeTimestamp before we lay any intents
+        let spans = request.request_union.collect_spans();
+        let timestamp_oracle = self.timestamp_oracle.read().unwrap();
+        let timestamps = spans
+            .iter()
+            .map(|s| {
+                let res =
+                    timestamp_oracle.get_max_timestamp(s.start_key.clone(), s.end_key.clone());
+                res.and_then(|(timestamp, _)| Some(timestamp))
+            })
+            .filter_map(|t| t)
+            .collect::<Vec<Timestamp>>();
+        let max_timestamp_option = timestamps.iter().max();
+        if let Some(max_timestamp) = max_timestamp_option {
+            // bump the txn
+            let txn_arc = request.metadata.txn.clone();
+            let mut txn = txn_arc.write().unwrap();
+            txn.write_timestamp = *max_timestamp;
+        }
         request
             .request_union
-            .execute(&request.metadata, &self.writer)
+            .execute(&request.metadata, &self)
+            .await
     }
 
-    pub fn execute_read_only_request(&self, request: &Request, guard: &Guard) -> ExecuteResult {
+    pub async fn execute_read_only_request(
+        &self,
+        request: &Request,
+        guard: &Guard,
+    ) -> ExecuteResult {
         let result = request
             .request_union
-            .execute(&request.metadata, &self.writer);
+            .execute(&request.metadata, &self)
+            .await;
 
         // TODO: Should we still update the cache if it failed?
         let oracle_guard = self.timestamp_oracle.write().unwrap();
         oracle_guard.update_cache(request);
         result
+    }
+
+    pub fn resolve_intents_for_txn(&self, txn: TxnLink) {
+        let txn = txn.read().unwrap();
+        let write_timestamp = txn.write_timestamp;
+        let keys = txn.lock_spans.read().unwrap();
+
+        for key in keys.iter() {
+            self.writer
+                .mvcc_resolve_intent(key.clone(), write_timestamp, txn.txn_id);
+        }
     }
 }

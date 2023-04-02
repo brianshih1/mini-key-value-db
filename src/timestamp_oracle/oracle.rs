@@ -77,11 +77,7 @@ impl TimestampOracle {
      *
      * Start and end are both inclusive
      */
-    pub fn get_max_timestamp(
-        &self,
-        start: crate::storage::Key,
-        end: crate::storage::Key,
-    ) -> Option<(Timestamp, Option<Uuid>)> {
+    pub fn get_max_timestamp(&self, start: Key, end: Key) -> Option<(Timestamp, Option<Uuid>)> {
         let g = self.interval_tree.read().unwrap();
         let overlaps = g.get_overlap(start, end);
         let mut max: Option<(Timestamp, Option<Uuid>)> = None;

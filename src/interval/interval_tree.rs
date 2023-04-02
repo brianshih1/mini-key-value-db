@@ -52,12 +52,12 @@ impl<K: NodeKey, V: NodeValue> IntervalTree<K, V> {
 
     pub fn get_overlap(&self, start_key: K, end_key: K) -> Vec<RangeValue<K, V>> {
         let mut vec = Vec::new();
-        self.add_overlapping_nodes(start_key, end_key, self.rbtree.root, &mut vec);
+        self.collect_overlapping_nodes(start_key, end_key, self.rbtree.root, &mut vec);
         vec
     }
 
     // Returns true if overlap is done. This prevents visiting nodes that doesn't need to be visited
-    fn add_overlapping_nodes(
+    fn collect_overlapping_nodes(
         &self,
         start_key: K,
         end_key: K,
@@ -68,7 +68,7 @@ impl<K: NodeKey, V: NodeValue> IntervalTree<K, V> {
             return false;
         }
 
-        let is_left_done = self.add_overlapping_nodes(
+        let is_left_done = self.collect_overlapping_nodes(
             start_key.to_owned(),
             end_key.to_owned(),
             self.rbtree.nodes[node].left_node,
@@ -94,7 +94,7 @@ impl<K: NodeKey, V: NodeValue> IntervalTree<K, V> {
             return true;
         }
 
-        return self.add_overlapping_nodes(
+        return self.collect_overlapping_nodes(
             start_key.to_owned(),
             end_key.to_owned(),
             self.rbtree.nodes[node].right_node,

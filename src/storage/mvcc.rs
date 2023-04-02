@@ -210,7 +210,7 @@ impl KVStore {
 
     pub fn create_pending_transaction_record(
         &self,
-        txn_id: &Uuid,
+        txn_id: Uuid,
         write_timestamp: Timestamp,
     ) -> () {
         let record = TxnRecord {
@@ -228,13 +228,13 @@ impl KVStore {
     }
 
     // This can be used to create or overwrite transaction record.
-    pub fn put_transaction_record(&self, transaction_id: &Uuid, record: &TxnRecord) {
+    pub fn put_transaction_record(&self, transaction_id: Uuid, record: &TxnRecord) {
         self.storage
             .put_transaction_record(&transaction_id, record)
             .unwrap();
     }
 
-    pub fn commit_transaction(&self, transaction_id: &Uuid, write_timestamp: Timestamp) {
+    pub fn commit_transaction_record(&self, transaction_id: Uuid, write_timestamp: Timestamp) {
         let record = TxnRecord {
             status: TransactionStatus::COMMITTED,
             metadata: TxnMetadata {
@@ -246,7 +246,7 @@ impl KVStore {
     }
 
     // TODO: Do we really need a write_timestamp here?
-    pub fn abort_transaction(&self, transaction_id: &Uuid, write_timestamp: Timestamp) {
+    pub fn abort_transaction(&self, transaction_id: Uuid, write_timestamp: Timestamp) {
         // TODO: What else do we need to do here?
         self.put_transaction_record(
             transaction_id,
@@ -277,7 +277,6 @@ impl KVStore {
             self.storage.delete_mvcc(&intent_key);
             let value = uncommitted_value.value;
 
-            // let key = MVCCKey::new(intent_key.to_encoded(), commit_timestamp);
             self.storage
                 .put_raw_with_mvcc_key(&MVCCKey::new(key, commit_timestamp), value)
                 .unwrap();

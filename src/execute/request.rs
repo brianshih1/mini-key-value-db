@@ -1,11 +1,13 @@
 use std::{collections::HashMap, default};
 
+use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::{
     db::db::TxnLink,
     hlc::timestamp::Timestamp,
     latch_manager::latch_interval_btree::{NodeKey, Range},
+    lock_table::lock_table::{CommitUpdateLock, UpdateLock},
     storage::{
         mvcc::{KVStore, MVCCGetParams, WriteIntentError},
         mvcc_key::MVCCKey,
@@ -15,6 +17,8 @@ use crate::{
     },
     StorageResult,
 };
+
+use super::executor::Executor;
 
 /**
  * Request is the input to SequenceReq. The struct contains all the information necessary
@@ -62,12 +66,13 @@ pub struct SpansToAcquire {
     pub lock_spans: SpanSet<Key>,
 }
 
+#[async_trait]
 pub trait Command {
     fn is_read_only(&self) -> bool;
 
     fn collect_spans(&self) -> SpanSet<Key>;
 
-    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult;
+    async fn execute(&self, header: &RequestMetadata, writer: &Executor) -> ExecuteResult;
 }
 
 // Similar to CRDB's RequestHeader
@@ -85,6 +90,7 @@ pub struct BeginTxnRequest {
 
 pub struct BeginTxnResponse {}
 
+#[async_trait]
 impl Command for BeginTxnRequest {
     fn is_read_only(&self) -> bool {
         true
@@ -94,10 +100,12 @@ impl Command for BeginTxnRequest {
         Vec::new()
     }
 
-    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
         let txn = header.txn.read().unwrap();
         let write_timestamp = txn.write_timestamp;
-        writer.create_pending_transaction_record(&self.txn_id, write_timestamp);
+        executor
+            .writer
+            .create_pending_transaction_record(self.txn_id, write_timestamp);
         Ok(ResponseUnion::BeginTransaction(BeginTxnResponse {}))
     }
 }
@@ -106,6 +114,7 @@ pub struct AbortTxnRequest {}
 
 pub struct AbortTxnResponse {}
 
+#[async_trait]
 impl Command for AbortTxnRequest {
     fn is_read_only(&self) -> bool {
         todo!()
@@ -115,10 +124,12 @@ impl Command for AbortTxnRequest {
         todo!()
     }
 
-    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
         let txn = header.txn.read().unwrap();
         let write_timestamp = txn.write_timestamp;
-        writer.abort_transaction(&txn.txn_id, write_timestamp);
+        executor
+            .writer
+            .abort_transaction(txn.txn_id, write_timestamp);
         Ok(ResponseUnion::AbortTxn(AbortTxnResponse {}))
     }
 }
@@ -127,6 +138,7 @@ pub struct CommitTxnRequest {}
 
 pub struct CommitTxnResponse {}
 
+#[async_trait]
 impl Command for CommitTxnRequest {
     fn is_read_only(&self) -> bool {
         true
@@ -136,11 +148,30 @@ impl Command for CommitTxnRequest {
         Vec::new()
     }
 
-    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
         let txn = header.txn.read().unwrap();
+        let txn_id = txn.txn_id;
         let write_timestamp = txn.write_timestamp;
+        drop(txn);
+        executor
+            .writer
+            .commit_transaction_record(txn_id, write_timestamp);
 
-        writer.commit_transaction(&txn.txn_id, write_timestamp);
+        //  Resolve intents so blocked requests won't run into uncommitted intents
+        executor.resolve_intents_for_txn(header.txn.clone());
+        executor.concr_manager.update_txn_locks(
+            header.txn.clone(),
+            UpdateLock::Commit(CommitUpdateLock {
+                txn_id: txn_id,
+                commit_timestamp: write_timestamp,
+            }),
+        );
+        //   The order that we resolve intents or update the lockTable doesn't have to be strictly
+        //   synchronous because if we updated the lockTable but haven't resolved the intent,
+        //   the subsequent request will run into an uncommitted record and will add it to the lockTable
+        //   again. And it will then timeout and push the transaction to either resolve the intent
+        //   or detect that the uncommitted intent is already cleaned up
+
         Ok(ResponseUnion::CommitTxn(CommitTxnResponse {}))
     }
 }
@@ -153,6 +184,7 @@ pub struct GetResponse {
     pub value: (MVCCKey, Value),
 }
 
+#[async_trait]
 impl Command for GetRequest {
     fn is_read_only(&self) -> bool {
         true
@@ -165,9 +197,9 @@ impl Command for GetRequest {
         }])
     }
 
-    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
         let txn = header.txn.read().unwrap();
-        let result = writer.mvcc_get(
+        let result = executor.writer.mvcc_get(
             &self.key,
             &txn.read_timestamp,
             MVCCGetParams {
@@ -193,6 +225,7 @@ pub struct PutRequest {
 
 pub struct PutResponse {}
 
+#[async_trait]
 impl<'a> Command for PutRequest {
     fn is_read_only(&self) -> bool {
         false
@@ -205,9 +238,9 @@ impl<'a> Command for PutRequest {
         }])
     }
 
-    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
         let txn = header.txn.read().unwrap();
-        let res = writer.mvcc_put(
+        let res = executor.writer.mvcc_put(
             self.key.clone(),
             Some(txn.write_timestamp),
             Some(&txn),
@@ -226,6 +259,7 @@ impl<'a> Command for PutRequest {
     }
 }
 
+#[async_trait]
 impl Command for RequestUnion {
     fn is_read_only(&self) -> bool {
         match self {
@@ -247,9 +281,9 @@ impl Command for RequestUnion {
         }
     }
 
-    fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
+    async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ExecuteResult {
         match self {
-            RequestUnion::BeginTxn(command) => command.execute(header, writer),
+            RequestUnion::BeginTxn(command) => command.execute(header, executor).await,
             RequestUnion::CommitTxn(command) => todo!(),
             RequestUnion::AbortTxn(command) => todo!(),
             RequestUnion::Get(command) => todo!(),
