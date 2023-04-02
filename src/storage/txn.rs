@@ -37,7 +37,7 @@ pub struct UncommittedValue {
 #[derive(Debug)]
 pub struct Txn {
     pub txn_id: Uuid,
-    pub metadata: TxnMetadata,
+    pub write_timestamp: Timestamp,
     // All reads are performed on this read_timestamp
     // Writes are performed on metadata.write_timestamp.
     // If the write runs into timestamp oracle, then the write timestamp will be bumped.
@@ -54,10 +54,7 @@ impl Txn {
     pub fn new(transaction_id: Uuid, timestamp: Timestamp) -> Self {
         Txn {
             txn_id: transaction_id,
-            metadata: TxnMetadata {
-                txn_id: transaction_id.to_owned(),
-                write_timestamp: timestamp,
-            },
+            write_timestamp: timestamp,
             read_timestamp: timestamp,
             lock_spans: RwLock::new(Vec::new()),
         }
@@ -69,14 +66,28 @@ impl Txn {
 
     pub fn to_intent(&self, key: Key) -> TxnIntent {
         TxnIntent {
-            txn_meta: self.metadata.clone(),
+            txn_meta: TxnMetadata {
+                txn_id: self.txn_id,
+                write_timestamp: self.write_timestamp,
+            },
             key,
+        }
+    }
+
+    pub fn to_txn_metadata(&self) -> TxnMetadata {
+        TxnMetadata {
+            txn_id: self.txn_id,
+            write_timestamp: self.write_timestamp,
         }
     }
 
     pub fn append_lock_span(&self, key: Key) {
         let mut lock_spans = self.lock_spans.write().unwrap();
         lock_spans.push(key);
+    }
+
+    pub fn bump_write_timestamp(&mut self, new_timestamp: Timestamp) {
+        self.write_timestamp = self.write_timestamp.advance_to(new_timestamp);
     }
 }
 

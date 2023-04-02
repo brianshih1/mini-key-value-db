@@ -1,4 +1,3 @@
-use core::time;
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -11,8 +10,8 @@ use crate::{
     execute::{
         executor::Executor,
         request::{
-            BeginTxnRequest, CommitTxnRequest, GetRequest, GetResponse, PutRequest, Request,
-            RequestMetadata, RequestUnion, ResponseUnion,
+            BeginTxnRequest, CommitTxnRequest, GetRequest, PutRequest, Request, RequestMetadata,
+            RequestUnion, ResponseUnion,
         },
     },
     hlc::{
@@ -24,10 +23,11 @@ use crate::{
 
 pub type TxnLink = Arc<RwLock<Txn>>;
 
+pub type TxnMap = Arc<RwLock<HashMap<Uuid, TxnLink>>>;
+
 pub struct DB {
     executor: Executor,
-    current_time: RwLock<Timestamp>,
-    txns: RwLock<HashMap<Uuid, TxnLink>>,
+    txns: Arc<RwLock<HashMap<Uuid, TxnLink>>>,
     clock: RwLock<ManualClock>,
 }
 
@@ -52,10 +52,10 @@ impl DB {
     // TODO: Should we have a new_cleaned and keep a new?
     // path example: "./tmp/data";
     pub fn new(path: &str, initial_time: u64) -> Self {
+        let txns = Arc::new(RwLock::new(HashMap::new()));
         DB {
-            executor: Executor::new(path),
-            current_time: RwLock::new(Timestamp { value: 10 }),
-            txns: RwLock::new(HashMap::new()),
+            executor: Executor::new(path, txns.clone()),
+            txns: Arc::new(RwLock::new(HashMap::new())),
             clock: RwLock::new(Clock::manual(initial_time)),
         }
     }

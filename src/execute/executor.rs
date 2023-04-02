@@ -2,6 +2,7 @@ use std::sync::RwLock;
 
 use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard},
+    db::db::TxnMap,
     storage::mvcc::KVStore,
     timestamp_oracle::oracle::TimestampOracle,
 };
@@ -18,9 +19,9 @@ pub struct Executor {
 
 impl Executor {
     // path example: "./tmp/data";
-    pub fn new(path: &str) -> Self {
+    pub fn new(path: &str, txns: TxnMap) -> Self {
         Executor {
-            concr_manager: ConcurrencyManager::new(),
+            concr_manager: ConcurrencyManager::new(txns),
             writer: KVStore::new(path),
             timestamp_oracle: RwLock::new(TimestampOracle::new()),
         }

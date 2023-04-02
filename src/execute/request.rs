@@ -96,7 +96,7 @@ impl Command for BeginTxnRequest {
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let txn = header.txn.read().unwrap();
-        let write_timestamp = txn.metadata.write_timestamp;
+        let write_timestamp = txn.write_timestamp;
         writer.create_pending_transaction_record(&self.txn_id, write_timestamp);
         Ok(ResponseUnion::BeginTransaction(BeginTxnResponse {}))
     }
@@ -117,7 +117,7 @@ impl Command for AbortTxnRequest {
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let txn = header.txn.read().unwrap();
-        let write_timestamp = txn.metadata.write_timestamp;
+        let write_timestamp = txn.write_timestamp;
         writer.abort_transaction(&txn.txn_id, write_timestamp);
         Ok(ResponseUnion::AbortTxn(AbortTxnResponse {}))
     }
@@ -138,7 +138,7 @@ impl Command for CommitTxnRequest {
 
     fn execute(&self, header: &RequestMetadata, writer: &KVStore) -> ExecuteResult {
         let txn = header.txn.read().unwrap();
-        let write_timestamp = txn.metadata.write_timestamp;
+        let write_timestamp = txn.write_timestamp;
 
         writer.commit_transaction(&txn.txn_id, write_timestamp);
         Ok(ResponseUnion::CommitTxn(CommitTxnResponse {}))
@@ -209,7 +209,7 @@ impl<'a> Command for PutRequest {
         let txn = header.txn.read().unwrap();
         let res = writer.mvcc_put(
             self.key.clone(),
-            Some(txn.metadata.write_timestamp),
+            Some(txn.write_timestamp),
             Some(&txn),
             self.value.clone(),
         );

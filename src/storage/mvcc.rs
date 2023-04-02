@@ -159,10 +159,7 @@ impl KVStore {
         // TODO: Storage::new_iterator(...)
 
         let (_, write_timestamp) = match txn {
-            Some(transaction) => (
-                transaction.read_timestamp,
-                transaction.metadata.write_timestamp,
-            ),
+            Some(transaction) => (transaction.read_timestamp, transaction.write_timestamp),
             None => (timestamp.unwrap().to_owned(), timestamp.unwrap().to_owned()),
         };
 

@@ -173,7 +173,7 @@ mod test {
 
             #[tokio::test]
             async fn empty_lock_table() {
-                let lock_table = LockTable::new();
+                let lock_table = LockTable::new_with_defaults();
                 let key = str_to_key("foo");
 
                 let lock_holder_txn = create_test_txn_with_timestamp(Timestamp::new(1, 1));
@@ -195,7 +195,7 @@ mod test {
 
             #[tokio::test]
             async fn two_guards_add_same_key() {
-                let lock_table = LockTable::new();
+                let lock_table = LockTable::new_with_defaults();
                 let key = str_to_key("foo");
                 let (_, _, lg_1) = create_test_lock_table_guard(true, Vec::from([key.clone()]));
                 let lock_holder_txn = create_test_txn_with_timestamp(Timestamp::new(1, 1));
@@ -236,7 +236,7 @@ mod test {
                 async fn no_lock_state_for_key() {
                     let key_str = "foo";
                     let key = str_to_key(key_str);
-                    let lock_table = LockTable::new();
+                    let lock_table = LockTable::new_with_defaults();
 
                     let (request, _) = create_test_put_request(key_str);
                     let (should_wait, lg) = lock_table.scan_and_enqueue(&request).await;
@@ -250,7 +250,7 @@ mod test {
                 #[tokio::test]
                 async fn queue_write_request_to_held_lock() {
                     let key_str = "foo";
-                    let lock_table = LockTable::new();
+                    let lock_table = LockTable::new_with_defaults();
 
                     // add discovered lock
                     let (_, _, lg) =
@@ -319,7 +319,7 @@ mod test {
                 #[tokio::test]
                 async fn queue_read_request_to_held_lock() {
                     let key_str = "foo";
-                    let lock_table = LockTable::new();
+                    let lock_table = LockTable::new_with_defaults();
 
                     // add discovered lock
                     let lock_timestamp = Timestamp::new(2, 2);
@@ -356,7 +356,7 @@ mod test {
                 #[tokio::test]
                 async fn read_request_with_smaller_timestamp_than_lock_holder() {
                     let key_str = "foo";
-                    let lock_table = LockTable::new();
+                    let lock_table = LockTable::new_with_defaults();
 
                     // add discovered lock
                     let lock_timestamp = Timestamp::new(2, 2);
@@ -405,7 +405,7 @@ mod test {
 
             #[tokio::test]
             async fn test() {
-                let lock_table = Arc::new(LockTable::new());
+                let lock_table = Arc::new(LockTable::new_with_defaults());
                 // add discovered lock
                 let lock_timestamp = Timestamp::new(2, 2);
                 let key_str = "foo";
@@ -458,7 +458,7 @@ mod test {
             #[tokio::test]
             async fn dequeue_reservation() {
                 let key_str = "foo";
-                let lock_table = LockTable::new();
+                let lock_table = LockTable::new_with_defaults();
                 let write_timestamp = Timestamp::new(12, 12);
 
                 let lock_holder_txn = create_test_txn_with_timestamp(write_timestamp);
@@ -512,7 +512,7 @@ mod test {
             #[tokio::test]
             async fn multiple_writers() {
                 let key_str = "foo";
-                let lock_table = LockTable::new();
+                let lock_table = LockTable::new_with_defaults();
                 let write_timestamp = Timestamp::new(12, 12);
 
                 let lock_holder_txn = create_test_txn_with_timestamp(write_timestamp);
@@ -578,8 +578,8 @@ mod test {
             #[tokio::test]
             async fn one_queued_writer() {
                 let key_str = "foo";
-                let lock_table = LockTable::new();
-                let (_, _, lg) =
+                let lock_table = LockTable::new_with_defaults();
+                let (_, queued_txn, lg) =
                     create_test_lock_table_guard(false, Vec::from([str_to_key(key_str)]));
                 let lock_holder_timestamp = Timestamp::new(1, 1);
                 let lock_holder_txn = create_test_txn_with_timestamp(lock_holder_timestamp);
@@ -610,12 +610,16 @@ mod test {
                     last_commit_timestamp: Some(commit_timestamp),
                 };
                 assert_lock_state(&lock_table, str_to_key(key_str), test_lock_state);
+
+                // Assert that the queued writer that now reserves has its timestamp bumped
+                let queued_txn_write_timestamp = queued_txn.read().unwrap().write_timestamp;
+                assert_eq!(queued_txn_write_timestamp, commit_timestamp);
             }
 
             #[tokio::test]
             async fn multiple_queued_readers() {
                 let key_str = "foo";
-                let lock_table = LockTable::new();
+                let lock_table = LockTable::new_with_defaults();
                 let write_timestamp = Timestamp::new(12, 12);
 
                 let lock_holder_txn = create_test_txn_with_timestamp(write_timestamp);
@@ -664,7 +668,7 @@ mod test {
             #[tokio::test]
             async fn multiple_queued_writers() {
                 let key_str = "foo";
-                let lock_table = LockTable::new();
+                let lock_table = LockTable::new_with_defaults();
                 let write_timestamp = Timestamp::new(12, 12);
 
                 let lock_holder_txn = create_test_txn_with_timestamp(write_timestamp);

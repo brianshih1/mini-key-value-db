@@ -284,7 +284,7 @@ mod tests {
             assert_eq!(
                 scanner.found_intents[0],
                 TxnIntent {
-                    txn_meta: transaction.metadata,
+                    txn_meta: transaction.to_txn_metadata(),
                     key: str_to_key(key)
                 }
             );
@@ -450,7 +450,7 @@ mod tests {
 
         #[test]
         fn multiple_intents() {
-            let mut kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new("./tmp/data");
             let txn_id = Uuid::new_v4();
             let transaction_timestamp = Timestamp::new(12, 0);
             let transaction = Txn::new(txn_id, transaction_timestamp);
@@ -500,18 +500,9 @@ mod tests {
             scanner.scan();
             assert_eq!(scanner.found_intents.len(), 2);
             let mut vec = Vec::new();
-            TxnIntent {
-                txn_meta: transaction.metadata,
-                key: str_to_key(key1),
-            };
-            vec.push(TxnIntent {
-                txn_meta: transaction.metadata,
-                key: str_to_key(key1),
-            });
-            vec.push(TxnIntent {
-                txn_meta: transaction.metadata,
-                key: str_to_key(key2),
-            });
+
+            vec.push(transaction.to_intent(str_to_key(key1)));
+            vec.push(transaction.to_intent(str_to_key(key2)));
             assert_eq!(scanner.found_intents, vec);
         }
     }

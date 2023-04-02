@@ -2,6 +2,7 @@ use core::time;
 use std::collections::HashSet;
 use std::thread;
 
+use crate::db::db::TxnMap;
 use crate::execute::request::{Command, Request};
 use crate::latch_manager::latch_manager::{LatchGuard, LatchManager};
 use crate::lock_table::lock_table::{LockTable, LockTableGuardLink};
@@ -19,10 +20,10 @@ pub struct Guard {
 }
 
 impl ConcurrencyManager {
-    pub fn new() -> Self {
+    pub fn new(txns: TxnMap) -> Self {
         ConcurrencyManager {
             latch_manager: LatchManager::new(),
-            lock_table: LockTable::new(),
+            lock_table: LockTable::new(txns),
         }
     }
 

@@ -48,6 +48,14 @@ impl Timestamp {
         }
     }
 
+    pub fn advance_to(&self, timestamp: Timestamp) -> Timestamp {
+        if self > &timestamp {
+            self.clone()
+        } else {
+            timestamp
+        }
+    }
+
     pub fn decrement_by(&self, amount: u64) -> Timestamp {
         Timestamp {
             wall_time: self.wall_time - amount,
@@ -83,6 +91,26 @@ pub fn get_intent_timestamp() -> Timestamp {
 
 #[cfg(test)]
 mod test {
+
+    mod advance_to {
+        use crate::hlc::timestamp::Timestamp;
+
+        #[test]
+        fn advance_to_higher() {
+            let first = Timestamp::new(12, 12);
+            let second = Timestamp::new(100, 12);
+            let advanced = first.advance_to(second);
+            assert_eq!(advanced, second);
+        }
+
+        #[test]
+        fn advance_to_lower_timestamp() {
+            let first = Timestamp::new(12, 12);
+            let second = Timestamp::new(1, 12);
+            let advanced = first.advance_to(second);
+            assert_eq!(advanced, first);
+        }
+    }
     mod compare_timestamp {
         use crate::hlc::timestamp::Timestamp;
 

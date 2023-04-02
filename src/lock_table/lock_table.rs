@@ -1,5 +1,7 @@
 use std::{
+    borrow::Borrow,
     collections::HashMap,
+    hash::Hash,
     sync::{Arc, RwLock},
 };
 
@@ -13,11 +15,11 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    db::db::TxnLink,
+    db::db::{TxnLink, TxnMap},
     execute::request::{Command, Request, SpanSet},
-    hlc::timestamp::Timestamp,
+    hlc::timestamp::{self, Timestamp},
     storage::{
-        txn::{Txn, TxnIntent, TxnMetadata},
+        txn::{TxnIntent, TxnMetadata},
         Key,
     },
 };
@@ -27,8 +29,6 @@ pub struct LockTableGuard {
     // queued to a conflicting lock
     pub should_wait: RwLock<bool>,
 
-    // TODO: Does this Txn need to be in RwLock? Are we going to mutate it somewhere?
-    // (i.e. bump the readTimestmap)
     pub txn: TxnLink,
 
     pub sender: Arc<Sender<()>>,
@@ -67,6 +67,7 @@ pub enum WaitingState {
 pub struct LockTable {
     // TODO: Use a concurent btree instead of a hash map
     pub locks: RwLock<HashMap<Key, LockStateLink>>,
+    pub txn_map: TxnMap,
 }
 
 pub type LockStateLink = Arc<LockState>;
@@ -95,12 +96,23 @@ pub struct LockState {
      * whenever an uncommitted timestamp gets committed.
      */
     pub last_committed_timestamp: RwLock<Option<Timestamp>>,
+
+    pub txns: TxnMap,
 }
 
 impl LockTable {
-    pub fn new() -> Self {
+    pub fn new(txns: TxnMap) -> Self {
         LockTable {
             locks: RwLock::new(HashMap::new()),
+            txn_map: txns,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_with_defaults() -> Self {
+        LockTable {
+            locks: RwLock::new(HashMap::new()),
+            txn_map: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -117,7 +129,7 @@ impl LockTable {
         let lock_state = if locks.contains_key(&intent.key) {
             Arc::clone(locks.get(&intent.key).unwrap())
         } else {
-            Arc::new(LockState::new())
+            Arc::new(LockState::new(self.txn_map.clone()))
         };
         locks.insert(intent.key, lock_state.clone());
         let state = lock_state.as_ref();
@@ -240,7 +252,7 @@ impl LockTable {
             Some(_) => todo!(),
             None => {
                 // TODO: We should just pass the holder in as a constructor parameter
-                let lock_state = LockState::new();
+                let lock_state = LockState::new(self.txn_map.clone());
                 // lock_state.update_holder(new_holder);
             }
         }
@@ -310,13 +322,14 @@ pub struct AbortUpdateLock {
 }
 
 impl LockState {
-    pub fn new() -> Self {
+    pub fn new(txns: TxnMap) -> Self {
         LockState {
             reservation: Arc::new(RwLock::new(None)),
             lock_holder: Arc::new(RwLock::new(None)),
             queued_writers: Arc::new(RwLock::new(Vec::new())),
             waiting_readers: Arc::new(RwLock::new(Vec::new())),
             last_committed_timestamp: RwLock::new(None),
+            txns,
         }
     }
     /**
@@ -359,7 +372,7 @@ impl LockState {
         let first_writer = self.remove_first_writer();
         match first_writer {
             Some(writer) => {
-                // TODO: Bump the txn's timestamp
+                self.bump_txn_write_timestamp(writer.txn.clone());
                 self.update_reservation(Some(writer.clone()));
                 writer.done_waiting_at_lock().await;
             }
@@ -369,6 +382,16 @@ impl LockState {
         }
 
         return false;
+    }
+
+    pub fn bump_txn_write_timestamp(&self, txn: TxnLink) {
+        let last_commit_timestamp_option = self.last_committed_timestamp.read().unwrap();
+        if let Some(last_commit_timestamp) = *last_commit_timestamp_option {
+            let mut txn = txn.write().unwrap();
+            txn.write_timestamp = last_commit_timestamp;
+        } else {
+            println!("No last commit timestamp on lockState")
+        }
     }
 
     pub fn clear_readers(&self) {
@@ -393,7 +416,7 @@ impl LockState {
         let txn = lg.txn.read().unwrap();
         let mut lock_holder = self.lock_holder.write().unwrap();
         if lock_holder.is_none() {
-            *lock_holder = Some(txn.metadata)
+            *lock_holder = Some(txn.to_txn_metadata())
         }
 
         if self.reservation.read().unwrap().is_some() {
@@ -569,7 +592,7 @@ impl LockTableGuard {
     pub fn get_txn_meta(guard_link: &LockTableGuardLink) -> TxnMetadata {
         let read_guard = guard_link.as_ref();
         let txn_guard = read_guard.txn.read().unwrap();
-        txn_guard.metadata.clone()
+        txn_guard.to_txn_metadata()
     }
 
     #[cfg(test)]
