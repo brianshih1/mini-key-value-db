@@ -125,7 +125,7 @@ impl KVStore {
         &self,
         key: Key,
         timestamp: Option<Timestamp>,
-        txn: Option<&Txn>,
+        txn: Option<TxnLink>,
         value: T,
     ) -> Result<MVCCKey, WriteIntentError> {
         let intent = self.mvcc_get_uncommited_value(&key);
@@ -135,7 +135,7 @@ impl KVStore {
                 Some(put_txn) => {
                     // this means we're overwriting our own transaction
                     // TODO: epoch - transaction retries
-                    if metadata.txn_id == put_txn.txn_id {
+                    if metadata.txn_id == put_txn.read().unwrap().txn_id {
                     } else {
                         match transaction_record.status {
                             TransactionStatus::PENDING => {
@@ -159,20 +159,24 @@ impl KVStore {
         // TODO: Storage::new_iterator(...)
 
         let (_, write_timestamp) = match txn {
-            Some(transaction) => (transaction.read_timestamp, transaction.write_timestamp),
+            Some(ref transaction) => (
+                transaction.read().unwrap().read_timestamp,
+                // TODO: reading multiple times is inefficient, move to helper function
+                transaction.read().unwrap().write_timestamp,
+            ),
             None => (timestamp.unwrap().to_owned(), timestamp.unwrap().to_owned()),
         };
 
         let version_key = MVCCKey::new(key.clone(), write_timestamp.to_owned());
 
-        if let Some(transaction) = txn {
+        if let Some(ref transaction) = txn {
             self.storage
                 .put_serialized_with_mvcc_key(
                     &create_intent_key(&key),
                     UncommittedValue {
                         value: serialized_to_value(value), // is this correct?
                         txn_metadata: TxnMetadata {
-                            txn_id: transaction.txn_id,
+                            txn_id: transaction.read().unwrap().txn_id,
                             write_timestamp: write_timestamp.to_owned(),
                         },
                     },

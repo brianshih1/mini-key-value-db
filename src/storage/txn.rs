@@ -97,6 +97,11 @@ impl Txn {
     pub fn bump_write_timestamp(&mut self, new_timestamp: Timestamp) {
         self.write_timestamp = self.write_timestamp.advance_to(new_timestamp);
     }
+
+    pub fn get_txn_properties(txn_link: TxnLink) -> (Uuid, Timestamp, Timestamp) {
+        let txn = txn_link.read().unwrap();
+        (txn.txn_id, txn.read_timestamp, txn.write_timestamp)
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     execute::{
-        executor::Executor,
+        executor::{ExecuteError, Executor},
         request::{
             BeginTxnRequest, CommitTxnRequest, GetRequest, PutRequest, Request, RequestMetadata,
             RequestUnion, ResponseUnion,
@@ -56,12 +56,15 @@ impl Timestamp {
 impl DB {
     // TODO: Should we have a new_cleaned and keep a new?
     // path example: "./tmp/data";
-    pub fn new(path: &str, initial_time: u64) -> Self {
+    pub fn new(path: &str, initial_time: Timestamp) -> Self {
         let txns = Arc::new(RwLock::new(HashMap::new()));
+        if initial_time.value == 0 {
+            panic!("DB time cannot start from 0 as it is reserved for intents")
+        }
         DB {
             executor: Executor::new(path, txns.clone()),
             txns: Arc::new(RwLock::new(HashMap::new())),
-            clock: RwLock::new(Clock::manual(initial_time)),
+            clock: RwLock::new(Clock::manual(initial_time.value)),
         }
     }
 
@@ -95,19 +98,19 @@ impl DB {
             metadata: request_metadata,
             request_union,
         };
-        let response = self
+        let res = self
             .executor
             .execute_request_with_concurrency_retries(write_request)
             .await;
+        res.unwrap();
         // match response {
         //     ResponseUnion::Put(_) => {}
         //     _ => unreachable!(),
         // };
-        todo!()
     }
 
     // TODO: Result
-    pub async fn read<T: DeserializeOwned>(&self, key: &str, txn_id: Uuid) -> T {
+    pub async fn read<T: DeserializeOwned>(&self, key: &str, txn_id: Uuid) -> Option<T> {
         let request_union = RequestUnion::Get(GetRequest {
             key: str_to_key(key),
         });
@@ -121,13 +124,18 @@ impl DB {
             .executor
             .execute_request_with_concurrency_retries(read_request)
             .await;
-        // let (_, value) = match response {
-        //     ResponseUnion::Get(r) => r.value,
-        //     _ => unreachable!(),
-        // };
 
-        // serde_json::from_slice::<T>(&value).unwrap()
-        todo!()
+        match response {
+            Ok(res) => match res {
+                ResponseUnion::Get(get_result) => get_result
+                    .value
+                    .and_then(|(_, value)| Some(serde_json::from_slice::<T>(&value).unwrap())),
+                _ => unreachable!(),
+            },
+            Err(err) => match err {
+                ExecuteError::FailedToCommit => unreachable!(),
+            },
+        }
     }
 
     pub async fn read_without_txn<T: DeserializeOwned>(
@@ -182,11 +190,10 @@ impl DB {
             .executor
             .execute_request_with_concurrency_retries(request)
             .await;
-        // match response {
-        //     ResponseUnion::CommitTxn(_) => {}
-        //     _ => unreachable!(),
-        // };
-        todo!()
+        match response {
+            Ok(_) => true,
+            Err(_) => false,
+        }
     }
 
     fn create_txn_internal(&self) -> (Uuid, TxnLink) {

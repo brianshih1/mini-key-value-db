@@ -39,8 +39,7 @@ impl<K: NodeKey> LatchManager<K> {
                         end_key: span.end_key.clone(),
                     });
 
-                    let mut rng = rand::thread_rng();
-                    let duration: u64 = rng.gen_range(50..150);
+                    let duration: u64 = rand::thread_rng().gen_range(50..150);
                     let sleep = time::sleep(Duration::from_millis(duration));
                     tokio::pin!(sleep);
 
@@ -76,7 +75,7 @@ impl<K: NodeKey> LatchManager<K> {
                 }
             }
             if acquired_indices.len() == spans.len() {
-                println!("Finished acquiring");
+                println!("Finished acquiring latch");
                 return LatchGuard { spans };
             }
         }

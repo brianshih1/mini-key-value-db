@@ -16,6 +16,7 @@ use super::request::{
 
 pub type ExecuteResult = Result<ResponseUnion, ExecuteError>;
 
+#[derive(Debug)]
 pub enum ExecuteError {
     FailedToCommit,
 }
@@ -81,12 +82,14 @@ impl Executor {
         let spans = request
             .request_union
             .collect_spans(request.metadata.txn.clone());
-        let timestamp_oracle = self.timestamp_oracle.read().unwrap();
         let timestamps = spans
             .iter()
             .map(|s| {
-                let res =
-                    timestamp_oracle.get_max_timestamp(s.start_key.clone(), s.end_key.clone());
+                let res = self
+                    .timestamp_oracle
+                    .read()
+                    .unwrap()
+                    .get_max_timestamp(s.start_key.clone(), s.end_key.clone());
                 res.and_then(|(timestamp, _)| Some(timestamp))
             })
             .filter_map(|t| t)

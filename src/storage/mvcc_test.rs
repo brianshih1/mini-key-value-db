@@ -57,9 +57,9 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Txn::new(txn1_id, timestamp.to_owned());
+            let txn = Txn::new_link(txn1_id, timestamp.to_owned());
             kv_store
-                .mvcc_put(str_to_key(key), None, Some(&transaction), 12)
+                .mvcc_put(str_to_key(key), None, Some(txn.clone()), 12)
                 .unwrap();
             let mut it = kv_store
                 .storage
@@ -79,18 +79,18 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Txn::new(txn1_id, timestamp);
+            let txn = Txn::new_link(txn1_id, timestamp);
 
             kv_store.create_pending_transaction_record(txn1_id, timestamp.to_owned());
             let current_keys = kv_store.collect_all_mvcc_kvs();
 
             kv_store
-                .mvcc_put(str_to_key(key), None, Some(&transaction), 12)
+                .mvcc_put(str_to_key(key), None, Some(txn.clone()), 12)
                 .unwrap();
 
             let txn2_id = Uuid::new_v4();
 
-            let second_transaction = Txn::new(
+            let second_txn = Txn::new_link(
                 txn2_id,
                 Timestamp {
                     wall_time: 12,
@@ -98,7 +98,7 @@ mod tests {
                 },
             );
 
-            let res = kv_store.mvcc_put(str_to_key(key), None, Some(&second_transaction), 12);
+            let res = kv_store.mvcc_put(str_to_key(key), None, Some(second_txn.clone()), 12);
             assert!(res.is_err());
         }
     }
@@ -171,12 +171,12 @@ mod tests {
                 wall_time: 10,
                 logical_time: 12,
             };
-            let transaction = Txn::new(txn1_id, timestamp);
+            let txn = Txn::new_link(txn1_id, timestamp);
 
             kv_store.create_pending_transaction_record(txn1_id, timestamp);
 
             kv_store
-                .mvcc_put(str_to_key(key), None, Some(&transaction), 12)
+                .mvcc_put(str_to_key(key), None, Some(txn.clone()), 12)
                 .unwrap();
 
             let res = kv_store.mvcc_get(
@@ -220,14 +220,14 @@ mod tests {
             let key = str_to_key("apple");
 
             let txn_id = Uuid::new_v4();
-            let txn = Txn::new(txn_id, uncommitted_timestamp);
+            let txn = Txn::new_link(txn_id, uncommitted_timestamp);
             let put_value = 1000;
 
             kv_store
                 .mvcc_put(
                     key.clone(),
                     Some(uncommitted_timestamp),
-                    Some(&txn),
+                    Some(txn.clone()),
                     put_value,
                 )
                 .unwrap();
@@ -267,14 +267,14 @@ mod tests {
             let key = str_to_key("apple");
 
             let txn_id = Uuid::new_v4();
-            let txn = Txn::new(txn_id, uncommitted_timestamp);
+            let txn = Txn::new_link(txn_id, uncommitted_timestamp);
             let put_value = 1000;
 
             kv_store
                 .mvcc_put(
                     key.clone(),
                     Some(uncommitted_timestamp),
-                    Some(&txn),
+                    Some(txn),
                     put_value,
                 )
                 .unwrap();

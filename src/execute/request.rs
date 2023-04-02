@@ -169,7 +169,7 @@ impl Command for CommitTxnRequest {
         if !did_refresh {
             return Err(ResponseError::ReadRefreshError);
         }
-        let (txn_id, write_timestamp) = self.get_txn_id_timestamp(header.txn.clone());
+        let (txn_id, write_timestamp) = self.get_txn_id_write_timestamp(header.txn.clone());
         executor
             .store
             .commit_transaction_record(txn_id, write_timestamp);
@@ -197,8 +197,9 @@ impl Command for CommitTxnRequest {
 }
 
 impl CommitTxnRequest {
-    pub fn get_txn_id_timestamp(&self, txn: TxnLink) -> (Uuid, Timestamp) {
-        todo!()
+    pub fn get_txn_id_write_timestamp(&self, txn: TxnLink) -> (Uuid, Timestamp) {
+        let txn = txn.read().unwrap();
+        (txn.txn_id, txn.write_timestamp)
     }
 }
 
@@ -207,7 +208,7 @@ pub struct GetRequest {
 }
 
 pub struct GetResponse {
-    pub value: (MVCCKey, Value),
+    pub value: Option<(MVCCKey, Value)>,
 }
 
 #[async_trait]
@@ -244,7 +245,7 @@ impl Command for GetRequest {
                     .unwrap()
                     .append_read_sets(self.key.clone());
                 return Ok(ResponseUnion::Get(GetResponse {
-                    value: result.value.unwrap(),
+                    value: result.value,
                 }));
             }
         }
@@ -259,7 +260,7 @@ pub struct PutRequest {
 pub struct PutResponse {}
 
 #[async_trait]
-impl<'a> Command for PutRequest {
+impl Command for PutRequest {
     fn is_read_only(&self) -> bool {
         false
     }
@@ -272,17 +273,25 @@ impl<'a> Command for PutRequest {
     }
 
     async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
-        let txn = header.txn.read().unwrap();
         let res = executor.store.mvcc_put(
             self.key.clone(),
-            Some(txn.write_timestamp),
-            Some(&txn),
+            None, // TODO: Allow put without transaction
+            Some(header.txn.clone()),
             self.value.clone(),
         );
+        // add to lockTable
+        executor
+            .concr_manager
+            .lock_table
+            .acquire_lock(self.key.clone(), header.txn.clone());
         match res {
             Ok(_) => {
                 // update the txn's lock spans to account for the intent being written
-                txn.append_lock_span(self.key.clone());
+                header
+                    .txn
+                    .read()
+                    .unwrap()
+                    .append_lock_span(self.key.clone());
                 Ok(ResponseUnion::Put(PutResponse {}))
             }
             Err(err) => Err(ResponseError::WriteIntentError(WriteIntentErrorData {

@@ -17,7 +17,7 @@ use crate::{
     execute::request::{Command, Request, SpanSet},
     hlc::timestamp::Timestamp,
     storage::{
-        txn::{TxnIntent, TxnMetadata},
+        txn::{Txn, TxnIntent, TxnMetadata},
         Key,
     },
 };
@@ -248,12 +248,22 @@ impl LockTable {
      */
     pub async fn acquire_lock(&self, key: Key, txn: TxnLink) {
         let lock_state = self.get_lock_state(&key);
+        let (txn_id, _, write_timestamp) = Txn::get_txn_properties(txn.clone());
         match lock_state {
-            Some(_) => todo!(),
+            Some(state) => {
+                if let Some(holder_txn_id) = state.get_holder_txn_id() {
+                    if holder_txn_id != txn_id {
+                        panic!("trying to acquire lock held by another transaction")
+                    }
+                }
+            }
             None => {
                 // TODO: We should just pass the holder in as a constructor parameter
                 let lock_state = LockState::new(self.txn_map.clone());
-                // lock_state.update_holder(new_holder);
+                lock_state.update_holder(Some(TxnMetadata {
+                    txn_id,
+                    write_timestamp,
+                }));
             }
         }
     }
@@ -536,7 +546,6 @@ impl LockState {
         ids
     }
 
-    #[cfg(test)]
     pub fn get_holder_txn_id(&self) -> Option<Uuid> {
         let holder = self.lock_holder.read().unwrap();
         holder.and_then(|txn_meta| Some(txn_meta.txn_id))

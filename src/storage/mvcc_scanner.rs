@@ -257,10 +257,10 @@ mod tests {
             let kv_store = KVStore::new("./tmp/data");
             let timestamp = Timestamp::new(12, 0);
             let txn_id = Uuid::new_v4();
-            let transaction = Txn::new(txn_id, timestamp);
+            let txn = Txn::new_link(txn_id, timestamp);
             let key = "foo";
             kv_store
-                .mvcc_put(str_to_key(key), Some(timestamp), Some(&transaction), 12)
+                .mvcc_put(str_to_key(key), Some(timestamp), Some(txn.clone()), 12)
                 .unwrap();
 
             let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
@@ -282,7 +282,7 @@ mod tests {
             assert_eq!(
                 scanner.found_intents[0],
                 TxnIntent {
-                    txn_meta: transaction.to_txn_metadata(),
+                    txn_meta: txn.read().unwrap().to_txn_metadata(),
                     key: str_to_key(key)
                 }
             );
@@ -450,13 +450,13 @@ mod tests {
             let kv_store = KVStore::new("./tmp/data");
             let txn_id = Uuid::new_v4();
             let transaction_timestamp = Timestamp::new(12, 0);
-            let transaction = Txn::new(txn_id, transaction_timestamp);
+            let txn = Txn::new_link(txn_id, transaction_timestamp);
             let key1 = "apple";
             kv_store
                 .mvcc_put(
                     str_to_key(key1),
                     Some(transaction_timestamp),
-                    Some(&transaction),
+                    Some(txn.clone()),
                     12,
                 )
                 .unwrap();
@@ -466,7 +466,7 @@ mod tests {
                 .mvcc_put(
                     str_to_key(key2),
                     Some(transaction_timestamp),
-                    Some(&transaction),
+                    Some(txn.clone()),
                     "world",
                 )
                 .unwrap();
@@ -476,7 +476,7 @@ mod tests {
                 .mvcc_put(
                     str_to_key(key3),
                     Some(transaction_timestamp),
-                    Some(&transaction),
+                    Some(txn.clone()),
                     "hello",
                 )
                 .unwrap();
@@ -498,8 +498,8 @@ mod tests {
             assert_eq!(scanner.found_intents.len(), 2);
             let mut vec = Vec::new();
 
-            vec.push(transaction.to_intent(str_to_key(key1)));
-            vec.push(transaction.to_intent(str_to_key(key2)));
+            vec.push(txn.read().unwrap().to_intent(str_to_key(key1)));
+            vec.push(txn.read().unwrap().to_intent(str_to_key(key2)));
             assert_eq!(scanner.found_intents, vec);
         }
     }
