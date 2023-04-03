@@ -246,17 +246,11 @@ mod tests {
                     key: str_to_key(key2),
                     timestamp: second_key_timestamp1,
                 },
-                serialized_to_value(13),
+                serialized_to_value(12),
             ));
-            // let (k1, v1) = vec.get(0).unwrap();
-            let (k, v) = scanner.results.get(0).unwrap().to_owned();
-            let expected_v = serialized_to_value(12);
-            assert_eq!(v, expected_v);
-            // let serialized_v = serde_json::from_slice::<i32>(&v).unwrap();
 
-            // println!("Scanner results: {:?}", &scanner.results);
-            // assert_eq!(scanner.results, vec);
-            // assert_eq!(scanner.found_intents.len(), 0);
+            assert_eq!(scanner.results, vec);
+            assert_eq!(scanner.found_intents.len(), 0);
         }
 
         #[test]
