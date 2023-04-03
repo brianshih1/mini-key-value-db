@@ -174,10 +174,10 @@ impl KVStore {
                 // TODO: reading multiple times is inefficient, move to helper function
                 transaction.read().unwrap().write_timestamp,
             ),
-            None => (timestamp.unwrap().to_owned(), timestamp.unwrap().to_owned()),
+            None => (timestamp.unwrap(), timestamp.unwrap()),
         };
 
-        let version_key = MVCCKey::new(key.clone(), write_timestamp.to_owned());
+        let version_key = MVCCKey::new(key.clone(), write_timestamp);
 
         if let Some(ref transaction) = txn {
             self.storage
@@ -187,14 +187,14 @@ impl KVStore {
                         value: value.clone(), // is this correct?
                         txn_metadata: TxnMetadata {
                             txn_id: transaction.read().unwrap().txn_id,
-                            write_timestamp: write_timestamp.to_owned(),
+                            write_timestamp: write_timestamp,
                         },
                     },
                 )
                 .unwrap();
         } else {
             self.storage
-                .put_serialized_with_mvcc_key(&version_key, value.clone())
+                .put_raw_with_mvcc_key(&version_key, value.clone())
                 .unwrap()
         }
 
