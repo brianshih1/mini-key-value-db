@@ -613,7 +613,10 @@ pub mod test {
 
                 // Assert that the queued writer that now reserves has its timestamp bumped
                 let queued_txn_write_timestamp = queued_txn.read().unwrap().write_timestamp;
-                assert_eq!(queued_txn_write_timestamp, commit_timestamp);
+                assert_eq!(
+                    queued_txn_write_timestamp,
+                    commit_timestamp.next_logical_timestamp()
+                );
             }
 
             #[tokio::test]

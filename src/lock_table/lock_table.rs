@@ -180,11 +180,11 @@ impl LockTable {
         let lock_guard =
             LockTableGuard::new_lock_table_guard_link(txn.clone(), is_read_only, spans.clone());
         for span in spans.iter() {
-            let locks = self.locks.read().unwrap();
-            let lock = locks.get(&span.start_key);
+            let lock = self.get_lock_state(&span.start_key);
             if let Some(write_lock_state) = lock {
-                let should_wait =
-                    write_lock_state.try_active_wait(lock_guard.clone(), is_read_only);
+                let should_wait = write_lock_state
+                    .try_active_wait(lock_guard.clone(), is_read_only)
+                    .await;
                 println!("Should wait: {}", should_wait);
                 if should_wait {
                     *lock_guard.as_ref().should_wait.write().unwrap() = true;
@@ -387,9 +387,7 @@ impl LockState {
         let first_writer = self.remove_first_writer();
         match first_writer {
             Some(writer) => {
-                self.bump_txn_write_timestamp(writer.txn.clone());
-                self.update_reservation(Some(writer.clone()));
-                writer.done_waiting_at_lock().await;
+                self.claim_reservation(writer.clone()).await;
             }
             None => {
                 return true;
@@ -399,11 +397,23 @@ impl LockState {
         return false;
     }
 
+    /**
+     * The guard claims the reservation. If the lockState has a last_commit_timestamp,
+     * we will also try to bump the txn's writeTimestamp.
+     */
+    pub async fn claim_reservation(&self, guard: LockTableGuardLink) {
+        self.bump_txn_write_timestamp(guard.txn.clone());
+        self.update_reservation(Some(guard.clone()));
+        guard.done_waiting_at_lock().await;
+    }
+
     pub fn bump_txn_write_timestamp(&self, txn: TxnLink) {
         let last_commit_timestamp_option = self.last_committed_timestamp.read().unwrap();
         if let Some(last_commit_timestamp) = *last_commit_timestamp_option {
+            println!("Last commit timestamp is: {:?}", last_commit_timestamp);
+
             let mut txn = txn.write().unwrap();
-            txn.write_timestamp = last_commit_timestamp;
+            txn.write_timestamp = last_commit_timestamp.next_logical_timestamp();
         } else {
             println!("No last commit timestamp on lockState")
         }
@@ -445,23 +455,22 @@ impl LockState {
      *
      * Note that this method does not actually wait.
      */
-    pub fn try_active_wait<'b>(&self, guard: LockTableGuardLink, is_read_only: bool) -> bool {
+    pub async fn try_active_wait<'b>(&self, guard: LockTableGuardLink, is_read_only: bool) -> bool {
+        self.print();
         let lg = guard.as_ref();
 
-        let lg_txn = lg.txn.read().unwrap();
-        let lock_holder = self.lock_holder.read().unwrap();
-        // let mut reservation = self.lock_holder.write().unwrap();
+        let (lg_txn_id, lg_read_timestamp, lg_write_timestamp) =
+            Txn::get_txn_properties(lg.txn.clone());
+        let is_reservation = self.reservation.read().unwrap().is_some();
 
-        // if lock_holder.is_none() && reservation.is_none() {
-        //     // *reservation = Some(lg_txn.to_txn_metadata());
-        //     // return false;
-        //     println!("Not")
-        // }
-        // ^is this correct...?
+        if self.lock_holder.read().unwrap().is_none() && !is_reservation {
+            self.claim_reservation(guard.clone()).await;
+            return false;
+        }
 
-        if let Some(ref holder) = *lock_holder {
+        if let Some(ref holder) = *self.lock_holder.read().unwrap() {
             // the request already holds the lock
-            if holder.txn_id == lg_txn.txn_id {
+            if holder.txn_id == lg_txn_id {
                 return false;
             }
         }
@@ -471,9 +480,9 @@ impl LockState {
         // A read running into an uncommitted intent with a higher timestamp ignores
         // the intent and does not need to wait.
         if is_read_only {
-            match &*lock_holder {
+            match &*self.lock_holder.read().unwrap() {
                 Some(ref holder) => {
-                    if lg_txn.read_timestamp < holder.write_timestamp {
+                    if lg_read_timestamp < holder.write_timestamp {
                         return false;
                     }
                     lg.update_wait_state(WaitingState::Waiting);
@@ -496,7 +505,6 @@ impl LockState {
             // Tho a better place might be when the request actually reserves the lock
             self.queued_writers.write().unwrap().push(guard.clone());
         }
-        drop(lg_txn);
         *lg.should_wait.write().unwrap() = true;
         true
     }
@@ -540,7 +548,38 @@ impl LockState {
         reservation.clone()
     }
 
-    #[cfg(test)]
+    pub fn print(&self) {
+        println!("Printing LockState");
+        let lock_holder = self.lock_holder.read().unwrap();
+        match *lock_holder {
+            Some(holder) => {
+                println!("Lock holder: {}", holder.txn_id);
+            }
+            None => {
+                println!("No lock holder")
+            }
+        };
+
+        let reservation = self.reservation.read().unwrap();
+        match &*reservation {
+            Some(reservation) => {
+                println!(
+                    "Reservation txnId: {}",
+                    reservation.txn.read().unwrap().txn_id
+                );
+            }
+            None => {
+                println!("No reservation")
+            }
+        };
+
+        let queried_writers = self.get_queued_writer_ids();
+        println!("Writers: {:?}", queried_writers);
+
+        let waiting_readers = self.get_waiting_readers_ids();
+        println!("Readers: {:?}", waiting_readers);
+    }
+
     pub fn get_queued_writer_ids(&self) -> Vec<Uuid> {
         let writers = self.queued_writers.read().unwrap();
         let ids = writers
@@ -550,7 +589,6 @@ impl LockState {
         ids
     }
 
-    #[cfg(test)]
     pub fn get_waiting_readers_ids(&self) -> Vec<Uuid> {
         let writers = self.waiting_readers.read().unwrap();
         let ids = writers

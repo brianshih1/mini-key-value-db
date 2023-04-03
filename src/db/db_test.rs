@@ -22,25 +22,25 @@ mod test {
 
             #[tokio::test]
             async fn read_waits_for_uncommitted_write() {
-                // let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
-                // let write_txn = db.begin_txn().await;
-                // let key = "foo";
-                // db.write(key, 12, write_txn).await;
-                // db.set_time(Timestamp::new(12));
-                // let read_txn = db.begin_txn().await;
+                let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                let write_txn = db.begin_txn().await;
+                let key = "foo";
+                db.write(key, 12, write_txn).await;
+                db.set_time(Timestamp::new(12));
+                let read_txn = db.begin_txn().await;
 
-                // let db_1 = db.clone();
-                // let task_1 = tokio::spawn(async move {
-                //     let read_res = db_1.read::<i32>(key, read_txn).await;
-                //     db_1.commit_txn(write_txn).await;
-                //     assert_eq!(read_res, Some(12));
-                // });
+                let db_1 = db.clone();
+                let task_1 = tokio::spawn(async move {
+                    let read_res = db_1.read::<i32>(key, read_txn).await;
+                    db_1.commit_txn(write_txn).await;
+                    assert_eq!(read_res, Some(12));
+                });
 
-                // let db_2 = db.clone();
-                // let task_2 = tokio::spawn(async move {
-                //     db_2.commit_txn(write_txn).await;
-                // });
-                // tokio::try_join!(task_1, task_2).unwrap();
+                let db_2 = db.clone();
+                let task_2 = tokio::spawn(async move {
+                    db_2.commit_txn(write_txn).await;
+                });
+                tokio::try_join!(task_1, task_2).unwrap();
             }
         }
 
@@ -53,15 +53,15 @@ mod test {
 
             #[tokio::test]
             async fn ignores_intent_with_higher_timestamp() {
-                // let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
-                // let read_txn = db.begin_txn().await;
-                // let key = "foo";
+                let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                let read_txn = db.begin_txn().await;
+                let key = "foo";
 
-                // db.set_time(Timestamp::new(12));
-                // let write_txn = db.begin_txn().await;
-                // db.write(key, 12, write_txn).await;
-                // let read_res = db.read::<i32>(key, read_txn).await;
-                // assert!(read_res.is_none());
+                db.set_time(Timestamp::new(12));
+                let write_txn = db.begin_txn().await;
+                db.write(key, 12, write_txn).await;
+                let read_res = db.read::<i32>(key, read_txn).await;
+                assert!(read_res.is_none());
             }
         }
     }
@@ -80,35 +80,45 @@ mod test {
                 },
             };
 
-            // #[tokio::test]
-            // async fn test() {
-            //     let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
-            //     let key = "foo";
+            #[tokio::test]
+            async fn bump_write_timestamp_before_committing() {
+                let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                let key = "foo";
 
-            //     // begin txn1
-            //     let write_txn_1 = db.begin_txn().await;
+                // begin txn1
+                let write_txn_1 = db.begin_txn().await;
 
-            //     // time = 12
-            //     db.set_time(Timestamp::new(12));
+                // time = 12
+                db.set_time(Timestamp::new(12));
 
-            //     // begin txn2. txn2 writes and commits
-            //     let write_txn_2 = db.begin_txn().await;
-            //     db.write(key, 12, write_txn_2).await;
-            //     db.commit_txn(write_txn_2).await;
+                // begin txn2. txn2 writes and commits
+                let write_txn_2 = db.begin_txn().await;
+                db.write(key, 12, write_txn_2).await;
+                let txn_2_commit_res = db.commit_txn(write_txn_2).await;
+                let txn_2_commit_timestamp = match txn_2_commit_res {
+                    CommitTxnResult::Success(res) => {
+                        assert_eq!(res.commit_timestamp.wall_time, 12);
+                        res.commit_timestamp
+                    }
+                    CommitTxnResult::Fail => panic!("failed to commit"),
+                };
 
-            //     // txn1 writes
-            //     db.write(key, 15, write_txn_1).await;
+                // txn1 writes
+                db.write(key, 15, write_txn_1).await;
 
-            //     // txn1 attempts to commit - it should advance
-            //     let commit_res = db.commit_txn(write_txn_1).await;
+                // txn1 attempts to commit - it should advance
+                let commit_res = db.commit_txn(write_txn_1).await;
 
-            //     match commit_res {
-            //         CommitTxnResult::Success(res) => {
-            //             assert_eq!(res.commit_timestamp, HLCTimestamp::new(12, 1));
-            //         }
-            //         CommitTxnResult::Fail => panic!("failed to commit"),
-            //     }
-            // }
+                match commit_res {
+                    CommitTxnResult::Success(res) => {
+                        assert_eq!(
+                            res.commit_timestamp,
+                            txn_2_commit_timestamp.next_logical_timestamp()
+                        );
+                    }
+                    CommitTxnResult::Fail => panic!("failed to commit"),
+                }
+            }
         }
     }
 
@@ -123,38 +133,4 @@ mod test {
 
         // println!("Result is: {}", did_commit)
     }
-
-    #[tokio::test]
-    async fn test_2() {
-        // let db = DB::new("./tmp/data", Timestamp::new(10));
-        // let txn_1 = db.begin_txn().await;
-        // db.write("foo", 12, txn_1).await;
-        // db.read::<i32>("hello", txn_1).await;
-
-        // db.set_time(Timestamp::new(12));
-        // let txn_2 = db.begin_txn().await;
-        // db.write("hello", 100, txn_2).await;
-        // db.write("bar", 100, txn_2).await;
-        // db.commit_txn(txn_2).await;
-
-        // db.write("bar", 12, txn_1).await;
-
-        // let did_txn_1_commit = db.commit_txn(txn_1).await;
-
-        // println!("txn_1 commit status: {}", did_txn_1_commit)
-    }
-
-    // #[tokio::test]
-    // async fn test_run_txn() {
-    //     let db = DB::new("./tmp/data", 10);
-    //     let txn_1 = db.begin_txn().await;
-    //     db.write("foo", 12, txn_1).await;
-    //     db.commit_txn(txn_1).await;
-
-    //     let res = db
-    //         .read_without_txn::<i32>("hello", Timestamp::new(11))
-    //         .await;
-    //     println!("Result is: {}", res);
-    //     db.run_txn(|db| async { true }).await;
-    // }
 }

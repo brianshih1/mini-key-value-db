@@ -48,6 +48,13 @@ impl Timestamp {
         }
     }
 
+    pub fn next_logical_timestamp(&self) -> Timestamp {
+        Timestamp {
+            wall_time: self.wall_time,
+            logical_time: self.logical_time + 1,
+        }
+    }
+
     pub fn advance_to(&self, timestamp: Timestamp) -> Timestamp {
         if self > &timestamp {
             self.clone()
