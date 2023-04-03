@@ -66,8 +66,61 @@ mod test {
         }
     }
 
+    // A write running into an uncommitted intent with a lower timestamp will wait for the transaction
+    // to finish.
+    // A write running into a committed value with a higher tiestamp will bump its timestamp.
     mod write_write {
-        mod run_into_uncommitted_intent {}
+        mod run_into_uncommitted_intent {
+            use std::sync::Arc;
+
+            use crate::{
+                db::db::{CommitTxnResult, Timestamp, DB},
+                hlc::{
+                    clock::{Clock, ManualClock},
+                    timestamp::Timestamp as HLCTimestamp,
+                },
+            };
+
+            #[tokio::test]
+            async fn write_waits_for_uncommitted_write() {
+                let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                let txn_1 = db.begin_txn().await;
+                let txn_2 = db.begin_txn().await;
+                let key = "baz";
+                db.write(key, 12, txn_1).await;
+                db.set_time(Timestamp::new(15));
+
+                let db_1 = db.clone();
+                // txn_2 writes and commits (waits until txn_1 commits)
+                let task_1 = tokio::spawn(async move {
+                    db_1.write(key, 100, txn_2).await;
+                    let commit_res = db_1.commit_txn(txn_2).await;
+                    match commit_res {
+                        CommitTxnResult::Success(res) => {
+                            assert_eq!(res.commit_timestamp, HLCTimestamp::new(10, 2));
+                            res.commit_timestamp
+                        }
+                        CommitTxnResult::Fail => panic!("failed to commit"),
+                    };
+                });
+
+                // txn_1 commits
+                let db_2 = db.clone();
+                let task_2 = tokio::spawn(async move {
+                    let commit_res = db_2.commit_txn(txn_1).await;
+                    match commit_res {
+                        CommitTxnResult::Success(res) => {
+                            assert_eq!(res.commit_timestamp, HLCTimestamp::new(10, 1));
+                            res.commit_timestamp
+                        }
+                        CommitTxnResult::Fail => panic!("failed to commit"),
+                    };
+                    println!("Finished committing txn_1");
+                });
+
+                tokio::try_join!(task_1, task_2).unwrap();
+            }
+        }
 
         mod run_into_committed_intent {
             use std::sync::Arc;

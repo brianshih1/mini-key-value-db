@@ -257,6 +257,18 @@ impl LockTable {
                         panic!("trying to acquire lock held by another transaction")
                     }
                 }
+
+                if let Some(reservation_txn_id) = state.get_reservation_txn_id() {
+                    if reservation_txn_id != txn_id {
+                        panic!("trying to acquire lock reserved by another transaction")
+                    }
+                }
+
+                state.update_reservation(None);
+                state.update_holder(Some(TxnMetadata {
+                    txn_id,
+                    write_timestamp,
+                }));
             }
             None => {
                 // TODO: We should just pass the holder in as a constructor parameter
@@ -312,6 +324,7 @@ impl LockTable {
                 return false;
             }
         }
+        // somehow there's holder but not reservation
         lock_state.update_holder(None);
 
         if let UpdateLock::Commit(ref commit) = update_lock {
@@ -461,9 +474,17 @@ impl LockState {
 
         let (lg_txn_id, lg_read_timestamp, lg_write_timestamp) =
             Txn::get_txn_properties(lg.txn.clone());
-        let is_reservation = self.reservation.read().unwrap().is_some();
+        let is_reserved = self.reservation.read().unwrap().is_some();
 
-        if self.lock_holder.read().unwrap().is_none() && !is_reservation {
+        if is_reserved {
+            let reservation_txn_id = self.get_reservation_txn_id();
+
+            // if the reservation and the lock guard belongs to the same transaction,
+            // then no need to wait.
+            if lg_txn_id == reservation_txn_id.unwrap() {
+                return false;
+            }
+        } else if self.lock_holder.read().unwrap().is_none() && !is_reserved {
             self.claim_reservation(guard.clone()).await;
             return false;
         }
@@ -546,6 +567,11 @@ impl LockState {
     pub fn get_reservation(&self) -> Option<LockTableGuardLink> {
         let reservation = self.reservation.read().unwrap();
         reservation.clone()
+    }
+
+    pub fn get_reservation_txn_id(&self) -> Option<Uuid> {
+        self.get_reservation()
+            .and_then(|reservation| Some(reservation.txn.read().unwrap().txn_id))
     }
 
     pub fn print(&self) {
