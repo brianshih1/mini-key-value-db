@@ -128,6 +128,16 @@ impl KVStore {
         txn: Option<TxnLink>,
         value: T,
     ) -> Result<MVCCKey, WriteIntentError> {
+        self.mvcc_put_raw(key, timestamp, txn, serialize(value))
+    }
+
+    pub fn mvcc_put_raw(
+        &self,
+        key: Key,
+        timestamp: Option<Timestamp>,
+        txn: Option<TxnLink>,
+        value: Value,
+    ) -> Result<MVCCKey, WriteIntentError> {
         let intent = self.mvcc_get_uncommited_value(&key);
 
         match intent {
@@ -174,7 +184,7 @@ impl KVStore {
                 .put_serialized_with_mvcc_key(
                     &create_intent_key(&key),
                     UncommittedValue {
-                        value: serialized_to_value(value), // is this correct?
+                        value: value.clone(), // is this correct?
                         txn_metadata: TxnMetadata {
                             txn_id: transaction.read().unwrap().txn_id,
                             write_timestamp: write_timestamp.to_owned(),
@@ -184,7 +194,7 @@ impl KVStore {
                 .unwrap();
         } else {
             self.storage
-                .put_serialized_with_mvcc_key(&version_key, value)
+                .put_serialized_with_mvcc_key(&version_key, value.clone())
                 .unwrap()
         }
 

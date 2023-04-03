@@ -32,6 +32,7 @@ impl ConcurrencyManager {
             .request_union
             .collect_spans(request.metadata.txn.clone());
         loop {
+            println!("Sequence req loop!");
             let latch_guard = self
                 .latch_manager
                 .acquire_and_wait(spans_to_acquire.clone())

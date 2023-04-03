@@ -37,6 +37,15 @@ pub struct Timestamp {
     pub value: u64,
 }
 
+pub enum CommitTxnResult {
+    Success(CommitTxnSuccess),
+    Fail,
+}
+
+pub struct CommitTxnSuccess {
+    pub commit_timestamp: HLCTimestamp,
+}
+
 impl Timestamp {
     pub fn new(time: u64) -> Self {
         Timestamp { value: time }
@@ -178,7 +187,7 @@ impl DB {
 
     // TODO: We should return the final timestamps if possible - easier for testing
     // Returns whether the commit was successful or if a retry was necessary
-    pub async fn commit_txn(&self, txn_id: Uuid) -> bool {
+    pub async fn commit_txn(&self, txn_id: Uuid) -> CommitTxnResult {
         let txn = self.get_txn(txn_id);
         let request_metadata = RequestMetadata { txn };
         let txn_request = RequestUnion::CommitTxn(CommitTxnRequest {});
@@ -191,8 +200,15 @@ impl DB {
             .execute_request_with_concurrency_retries(request)
             .await;
         match response {
-            Ok(_) => true,
-            Err(_) => false,
+            Ok(res) => match res {
+                ResponseUnion::CommitTxn(commit_res) => {
+                    CommitTxnResult::Success(CommitTxnSuccess {
+                        commit_timestamp: commit_res.commit_timestamp,
+                    })
+                }
+                _ => unreachable!(),
+            },
+            Err(_) => CommitTxnResult::Fail,
         }
     }
 

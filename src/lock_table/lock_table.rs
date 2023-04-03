@@ -185,6 +185,7 @@ impl LockTable {
             if let Some(write_lock_state) = lock {
                 let should_wait =
                     write_lock_state.try_active_wait(lock_guard.clone(), is_read_only);
+                println!("Should wait: {}", should_wait);
                 if should_wait {
                     *lock_guard.as_ref().should_wait.write().unwrap() = true;
                     return (true, lock_guard);
@@ -264,6 +265,10 @@ impl LockTable {
                     txn_id,
                     write_timestamp,
                 }));
+                self.locks
+                    .write()
+                    .unwrap()
+                    .insert(key.clone(), Arc::new(lock_state));
             }
         }
     }
@@ -445,6 +450,15 @@ impl LockState {
 
         let lg_txn = lg.txn.read().unwrap();
         let lock_holder = self.lock_holder.read().unwrap();
+        // let mut reservation = self.lock_holder.write().unwrap();
+
+        // if lock_holder.is_none() && reservation.is_none() {
+        //     // *reservation = Some(lg_txn.to_txn_metadata());
+        //     // return false;
+        //     println!("Not")
+        // }
+        // ^is this correct...?
+
         if let Some(ref holder) = *lock_holder {
             // the request already holds the lock
             if holder.txn_id == lg_txn.txn_id {

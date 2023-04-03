@@ -151,6 +151,7 @@ mod tests {
                 .unwrap();
 
             let res = kv_store.mvcc_get(&key1, read_timestamp, MVCCGetParams { transaction: None });
+
             assert!(res.intent.is_none());
             assert_eq!(
                 res.value,

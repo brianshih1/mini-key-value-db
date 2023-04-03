@@ -143,7 +143,9 @@ impl Command for AbortTxnRequest {
 
 pub struct CommitTxnRequest {}
 
-pub struct CommitTxnResponse {}
+pub struct CommitTxnResponse {
+    pub commit_timestamp: Timestamp,
+}
 
 #[async_trait]
 impl Command for CommitTxnRequest {
@@ -192,7 +194,9 @@ impl Command for CommitTxnRequest {
         //   again. And it will then timeout and push the transaction to either resolve the intent
         //   or detect that the uncommitted intent is already cleaned up
 
-        Ok(ResponseUnion::CommitTxn(CommitTxnResponse {}))
+        Ok(ResponseUnion::CommitTxn(CommitTxnResponse {
+            commit_timestamp: write_timestamp,
+        }))
     }
 }
 
@@ -234,21 +238,22 @@ impl Command for GetRequest {
             },
         );
 
-        match result.intent {
-            Some(intent) => Err(ResponseError::WriteIntentError(WriteIntentErrorData {
-                intent: intent.clone(),
-            })),
-            None => {
-                header
-                    .txn
-                    .read()
-                    .unwrap()
-                    .append_read_sets(self.key.clone());
-                return Ok(ResponseUnion::Get(GetResponse {
-                    value: result.value,
+        if let Some(ref intent) = result.intent {
+            if intent.txn_meta.write_timestamp <= read_timestamp {
+                return Err(ResponseError::WriteIntentError(WriteIntentErrorData {
+                    intent: intent.clone(),
                 }));
             }
         }
+
+        header
+            .txn
+            .read()
+            .unwrap()
+            .append_read_sets(self.key.clone());
+        return Ok(ResponseUnion::Get(GetResponse {
+            value: result.value,
+        }));
     }
 }
 
@@ -273,7 +278,7 @@ impl Command for PutRequest {
     }
 
     async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
-        let res = executor.store.mvcc_put(
+        let res = executor.store.mvcc_put_raw(
             self.key.clone(),
             None, // TODO: Allow put without transaction
             Some(header.txn.clone()),
@@ -283,7 +288,8 @@ impl Command for PutRequest {
         executor
             .concr_manager
             .lock_table
-            .acquire_lock(self.key.clone(), header.txn.clone());
+            .acquire_lock(self.key.clone(), header.txn.clone())
+            .await;
         match res {
             Ok(_) => {
                 // update the txn's lock spans to account for the intent being written
