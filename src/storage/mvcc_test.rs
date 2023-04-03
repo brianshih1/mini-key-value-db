@@ -49,7 +49,7 @@ mod tests {
 
         #[test]
         fn put_with_transaction() {
-            let mut kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new("./tmp/data");
             let key = "foo";
             let txn1_id = Uuid::new_v4();
 
@@ -71,7 +71,7 @@ mod tests {
 
         #[test]
         fn write_intent_error() {
-            let mut kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new("./tmp/data");
             let key = "foo";
             let txn1_id = Uuid::new_v4();
 
