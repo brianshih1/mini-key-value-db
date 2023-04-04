@@ -305,17 +305,62 @@ mod test {
     }
 
     mod run_txn {
+        use std::sync::Arc;
+
         use crate::db::db::{Timestamp, DB};
 
         #[tokio::test]
-        async fn foo() {
+        async fn reading_its_txn_own_write() {
             let db = DB::new("./tmp/data", Timestamp::new(10));
             db.run_txn(|txn_context| async move {
-                let read = txn_context.read::<i32>("fo").await;
-                println!("reading is: {}", read.unwrap());
-                false;
+                let key = "foo";
+                txn_context.write(key, 12).await;
+                let read = txn_context.read::<i32>(key).await;
+                assert_eq!(read, Some(12));
             })
             .await;
+        }
+
+        #[tokio::test]
+        async fn writing_its_own_write() {
+            let db = DB::new("./tmp/data", Timestamp::new(10));
+            db.run_txn(|txn_context| async move {
+                let key = "foo";
+                txn_context.write(key, 12).await;
+                txn_context.write(key, 100).await;
+                let read = txn_context.read::<i32>(key).await;
+                assert_eq!(read, Some(100));
+            })
+            .await;
+        }
+
+        #[tokio::test]
+        async fn two_concurrent_writes_to_same_key() {
+            let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+
+            let db_1 = db.clone();
+            let key = "foo";
+            let task_1 = tokio::spawn(async move {
+                db_1.run_txn(|txn_context| async move {
+                    txn_context.write(key, 88).await;
+                    let read = txn_context.read::<i32>(key).await;
+                    println!("txn1 finished");
+                    assert_eq!(read, Some(88));
+                })
+                .await
+            });
+
+            let db_2 = db.clone();
+            let task_2 = tokio::spawn(async move {
+                db_2.run_txn(|txn_context| async move {
+                    txn_context.write(key, 12).await;
+                    let read = txn_context.read::<i32>(key).await;
+                    println!("txn2 finished");
+                    assert_eq!(read, Some(12));
+                })
+                .await;
+            });
+            tokio::try_join!(task_1, task_2).unwrap();
         }
     }
 }

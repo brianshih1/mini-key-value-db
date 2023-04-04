@@ -25,7 +25,7 @@ pub struct MVCCScanner<'a> {
     // Timestamp that MVCCScan/MVCCGet was called
     pub timestamp: Timestamp,
 
-    pub found_intents: Vec<TxnIntent>,
+    pub found_intents: Vec<(TxnIntent, Value)>,
 
     // max number of tuples to add to the results
     pub max_records_count: usize,
@@ -66,10 +66,12 @@ impl<'a> MVCCScanner<'a> {
         let start_base = create_intent_key(&self.start_key);
         self.it.seek_ge(&start_base);
         loop {
+            println!("LOOP!");
             if self.results.len() == self.max_records_count {
                 return;
             }
             if !self.it.valid() {
+                println!("invalid!");
                 return;
             }
             match &self.end_key {
@@ -111,17 +113,30 @@ impl<'a> MVCCScanner<'a> {
             if let Some(scanner_transaction) = &self.txn {
                 if current_value.txn_metadata.txn_id == scanner_transaction.read().unwrap().txn_id {
                     // TODO: Resolve based on epoch
+                    self.found_intents.push((
+                        TxnIntent {
+                            txn_meta: current_value.txn_metadata,
+                            key: current_key.key.clone(),
+                        },
+                        current_value.value,
+                    ));
                 } else {
-                    self.found_intents.push(TxnIntent {
-                        txn_meta: current_value.txn_metadata,
-                        key: current_key.key.clone(),
-                    });
+                    self.found_intents.push((
+                        TxnIntent {
+                            txn_meta: current_value.txn_metadata,
+                            key: current_key.key.clone(),
+                        },
+                        current_value.value,
+                    ));
                 }
             } else {
-                self.found_intents.push(TxnIntent {
-                    txn_meta: current_value.txn_metadata,
-                    key: current_key.key.clone(),
-                });
+                self.found_intents.push((
+                    TxnIntent {
+                        txn_meta: current_value.txn_metadata,
+                        key: current_key.key.clone(),
+                    },
+                    current_value.value,
+                ));
             }
 
             return false;

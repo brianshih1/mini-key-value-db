@@ -89,7 +89,7 @@ mod tests {
             assert_eq!(scanner.results.len(), 0);
             assert_eq!(scanner.found_intents.len(), 1);
             assert_eq!(
-                scanner.found_intents[0],
+                scanner.found_intents[0].0,
                 TxnIntent {
                     txn_meta: txn.read().unwrap().to_txn_metadata(),
                     key: str_to_key(key)
@@ -306,8 +306,14 @@ mod tests {
             assert_eq!(scanner.found_intents.len(), 2);
             let mut vec = Vec::new();
 
-            vec.push(txn.read().unwrap().to_intent(str_to_key(key1)));
-            vec.push(txn.read().unwrap().to_intent(str_to_key(key2)));
+            vec.push((
+                txn.read().unwrap().to_intent(str_to_key(key1)),
+                serialized_to_value(12),
+            ));
+            vec.push((
+                txn.read().unwrap().to_intent(str_to_key(key2)),
+                serialized_to_value("world"),
+            ));
             assert_eq!(scanner.found_intents, vec);
         }
     }

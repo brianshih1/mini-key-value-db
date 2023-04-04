@@ -5,6 +5,7 @@ use std::{
 };
 
 use serde::{de::DeserializeOwned, Serialize};
+use std::panic;
 use uuid::Uuid;
 
 use crate::{
@@ -106,16 +107,29 @@ impl DB {
      *
      * If the transaction function finishes executing, the transaction will commit
      */
-    pub async fn run_txn<'a, Fut>(&self, f: impl FnOnce(Arc<TxnContext>) -> Fut)
+    pub async fn run_txn<'a, Fut>(&self, f: impl FnOnce(Arc<TxnContext>) -> Fut + std::marker::Copy)
     where
         Fut: Future<Output = ()>,
     {
-        let context = Arc::new(TxnContext {
-            txn_id: Uuid::new_v4(),
-            db: self.db.clone(),
-        });
-        f(context.clone()).await;
-        println!("foo");
+        loop {
+            let txn_id = self.db.begin_txn().await;
+            let context = Arc::new(TxnContext {
+                txn_id,
+                db: self.db.clone(),
+            });
+            let cloned = context.clone();
+
+            // TODO: What if this panics? We should abort if so
+            f(cloned).await;
+            let res = self.db.commit_txn(txn_id).await;
+            match res {
+                CommitTxnResult::Success(_) => break,
+                CommitTxnResult::Fail(_) => {
+                    // TODO: Should we abort before continuing?
+                    continue;
+                }
+            }
+        }
     }
 
     pub async fn begin_txn(&self) -> Uuid {
@@ -307,9 +321,11 @@ pub struct TxnContext {
 }
 
 impl TxnContext {
-    pub async fn write<T: Serialize>(&self, key: &str, value: T) {}
+    pub async fn write<T: Serialize>(&self, key: &str, value: T) {
+        self.db.write(key, value, self.txn_id).await
+    }
 
     pub async fn read<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
-        todo!()
+        self.db.read(key, self.txn_id).await
     }
 }

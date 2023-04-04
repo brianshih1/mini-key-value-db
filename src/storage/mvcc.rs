@@ -33,12 +33,12 @@ pub struct WriteIntentError {
 
 pub struct MVCCGetResult {
     pub value: Option<(MVCCKey, Value)>,
-    pub intent: Option<TxnIntent>,
+    pub intent: Option<(TxnIntent, Value)>,
 }
 
 pub struct MVCCScanResult {
     results: Vec<(MVCCKey, Value)>,
-    intents: Vec<TxnIntent>,
+    intents: Vec<(TxnIntent, Value)>,
 }
 
 pub fn serialize<T: Serialize>(value: T) -> Value {

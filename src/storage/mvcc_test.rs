@@ -188,13 +188,16 @@ mod tests {
 
             assert_eq!(
                 res.intent,
-                Some(TxnIntent {
-                    txn_meta: TxnMetadata {
-                        txn_id: txn1_id,
-                        write_timestamp: timestamp,
+                Some((
+                    TxnIntent {
+                        txn_meta: TxnMetadata {
+                            txn_id: txn1_id,
+                            write_timestamp: timestamp,
+                        },
+                        key: str_to_key(key),
                     },
-                    key: str_to_key(key),
-                })
+                    serialized_to_value(12)
+                ))
             )
         }
     }

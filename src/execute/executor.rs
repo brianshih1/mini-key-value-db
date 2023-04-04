@@ -171,7 +171,7 @@ impl Executor {
 
             // Check if an intent which is not owned by this transaction was written
             // at or beneath the refresh timestamp.
-            if let Some(intent) = res.intent {
+            if let Some((intent, _)) = res.intent {
                 let intent_timestamp = intent.txn_meta.write_timestamp;
                 if intent.txn_meta.txn_id != txn_id && intent_timestamp < to_timestamp {
                     return false;

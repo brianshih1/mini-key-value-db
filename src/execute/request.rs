@@ -10,7 +10,7 @@ use crate::{
     lock_table::lock_table::{CommitUpdateLock, UpdateLock},
     storage::{
         mvcc::{KVStore, MVCCGetParams, WriteIntentError},
-        mvcc_key::MVCCKey,
+        mvcc_key::{create_intent_key, MVCCKey},
         str_to_key,
         txn::{Txn, TxnIntent, TxnMetadata},
         Key, Value,
@@ -229,7 +229,9 @@ impl Command for GetRequest {
     }
 
     async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
+        // TODO: Don't need two reads
         let read_timestamp = header.txn.read().unwrap().read_timestamp;
+        let txn_id = header.txn.read().unwrap().txn_id;
         let result = executor.store.mvcc_get(
             &self.key,
             read_timestamp,
@@ -237,9 +239,12 @@ impl Command for GetRequest {
                 transaction: Some(header.txn.clone()),
             },
         );
-
-        if let Some(ref intent) = result.intent {
-            if intent.txn_meta.write_timestamp <= read_timestamp {
+        let mut value = result.value;
+        if let Some((ref intent, uncommitted_value)) = result.intent {
+            if txn_id == intent.txn_meta.txn_id {
+                // this means the txn is reading its own uncommitted write
+                value = Some((create_intent_key(&self.key.clone()), uncommitted_value))
+            } else if intent.txn_meta.write_timestamp <= read_timestamp {
                 return Err(ResponseError::WriteIntentError(WriteIntentErrorData {
                     intent: intent.clone(),
                 }));
@@ -251,9 +256,7 @@ impl Command for GetRequest {
             .read()
             .unwrap()
             .append_read_sets(self.key.clone());
-        return Ok(ResponseUnion::Get(GetResponse {
-            value: result.value,
-        }));
+        return Ok(ResponseUnion::Get(GetResponse { value }));
     }
 }
 
