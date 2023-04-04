@@ -18,7 +18,7 @@ pub type ExecuteResult = Result<ResponseUnion, ExecuteError>;
 
 #[derive(Debug)]
 pub enum ExecuteError {
-    FailedToCommit,
+    ReadRefreshFailure,
 }
 
 pub struct Executor {
@@ -66,7 +66,7 @@ impl Executor {
                             todo!()
                         }
                         ResponseError::ReadRefreshError => {
-                            return Err(ExecuteError::FailedToCommit)
+                            return Err(ExecuteError::ReadRefreshFailure)
                         }
                     }
                 }
@@ -77,8 +77,8 @@ impl Executor {
     pub fn handle_write_intent_error(&self) {}
 
     pub async fn execute_write_request(&self, request: &Request, guard: &Guard) -> ResponseResult {
-        // TODO: applyTimestampCache - we need to make sure we bump the
-        // txn.writeTimestamp before we lay any intents
+        // finds the max read timestamp from timestamp oracle for the spans
+        // and bump the write timestamp if necessary
         let spans = request
             .request_union
             .collect_spans(request.metadata.txn.clone());
@@ -99,7 +99,9 @@ impl Executor {
             // bump the txn
             let txn_arc = request.metadata.txn.clone();
             let mut txn = txn_arc.write().unwrap();
-            txn.write_timestamp = *max_timestamp;
+            if txn.write_timestamp < *max_timestamp {
+                txn.write_timestamp = *max_timestamp;
+            }
         }
         request
             .request_union
@@ -138,9 +140,11 @@ impl Executor {
      * Updates the txn's readTimestamp to its writeTimestamp and return true.
      * If it's not possible, return false.
      *
-     * Advancing a transaction’s read timestamp from a to b is possible if we
-     * can prove that none of the data that the transaction has read at a
-     * has been updated to the interval (a,b].
+     * Advancing a transaction’s read timestamp from ta to tb is possible if we
+     * can prove that none of the record that the transaction has read at ta
+     * has been updated to the interval (ta,tb].
+     *
+     * To prove it, we use MVCCGet and set tb as the higher bound.
      */
     pub fn refresh_read_timestamp(&self, txn_link: TxnLink) -> bool {
         let txn = txn_link.read().unwrap();

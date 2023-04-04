@@ -39,11 +39,15 @@ pub struct Timestamp {
 
 pub enum CommitTxnResult {
     Success(CommitTxnSuccess),
-    Fail,
+    Fail(CommitTxnFailureReason),
 }
 
 pub struct CommitTxnSuccess {
     pub commit_timestamp: HLCTimestamp,
+}
+
+pub enum CommitTxnFailureReason {
+    ReadRefreshFail,
 }
 
 impl Timestamp {
@@ -142,7 +146,7 @@ impl DB {
                 _ => unreachable!(),
             },
             Err(err) => match err {
-                ExecuteError::FailedToCommit => unreachable!(),
+                ExecuteError::ReadRefreshFailure => unreachable!(),
             },
         }
     }
@@ -208,7 +212,11 @@ impl DB {
                 }
                 _ => unreachable!(),
             },
-            Err(_) => CommitTxnResult::Fail,
+            Err(err) => match err {
+                ExecuteError::ReadRefreshFailure => {
+                    CommitTxnResult::Fail(CommitTxnFailureReason::ReadRefreshFail)
+                }
+            },
         }
     }
 
