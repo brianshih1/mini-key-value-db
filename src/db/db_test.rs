@@ -1,5 +1,4 @@
 mod test {
-    use crate::db::db::{Timestamp, DB};
 
     mod transaction_conflicts {
         // A read running into an uncommitted intent with a lower timestamp will wait for the
@@ -223,8 +222,6 @@ mod test {
 
         use tokio::time::{self, sleep, Duration};
 
-        use crate::db::db::{Timestamp, DB};
-
         mod read_refresh_success {
             use std::sync::Arc;
 
@@ -304,6 +301,21 @@ mod test {
                     CommitTxnResult::Fail(_) => panic!("failed to commit"),
                 };
             }
+        }
+    }
+
+    mod run_txn {
+        use crate::db::db::{Timestamp, DB};
+
+        #[tokio::test]
+        async fn foo() {
+            let db = DB::new("./tmp/data", Timestamp::new(10));
+            db.run_txn(|txn_context| async move {
+                let read = txn_context.read::<i32>("fo").await;
+                println!("reading is: {}", read.unwrap());
+                false;
+            })
+            .await;
         }
     }
 }

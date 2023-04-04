@@ -26,10 +26,14 @@ pub type TxnLink = Arc<RwLock<Txn>>;
 
 pub type TxnMap = Arc<RwLock<HashMap<Uuid, TxnLink>>>;
 
-pub struct DB {
+pub struct InternalDB {
     executor: Executor,
     txns: Arc<RwLock<HashMap<Uuid, TxnLink>>>,
     clock: RwLock<ManualClock>,
+}
+
+pub struct DB {
+    db: Arc<InternalDB>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -67,6 +71,69 @@ impl Timestamp {
 }
 
 impl DB {
+    pub fn new(path: &str, initial_time: Timestamp) -> Self {
+        DB {
+            db: Arc::new(InternalDB::new(path, initial_time)),
+        }
+    }
+
+    pub fn set_time(&self, timestamp: Timestamp) {
+        self.db.set_time(timestamp);
+    }
+
+    pub async fn write<T: Serialize>(&self, key: &str, value: T, txn_id: Uuid) {
+        self.db.write(key, value, txn_id).await;
+    }
+
+    pub async fn read<T: DeserializeOwned>(&self, key: &str, txn_id: Uuid) -> Option<T> {
+        self.db.read(key, txn_id).await
+    }
+
+    pub async fn read_without_txn<T: DeserializeOwned>(
+        &self,
+        key: &str,
+        timestamp: Timestamp,
+    ) -> T {
+        self.db.read_without_txn(key, timestamp).await
+    }
+
+    /**
+     * Creates a transaction. All reads and writes with the TxnContext will be using
+     * the created txn.
+     *
+     * An uncaught panic thrown from the transactional code will rollback the transaction
+     * to the start of the transaction scope.
+     *
+     * If the transaction function finishes executing, the transaction will commit
+     */
+    pub async fn run_txn<'a, Fut>(&self, f: impl FnOnce(Arc<TxnContext>) -> Fut)
+    where
+        Fut: Future<Output = ()>,
+    {
+        let context = Arc::new(TxnContext {
+            txn_id: Uuid::new_v4(),
+            db: self.db.clone(),
+        });
+        f(context.clone()).await;
+        println!("foo");
+    }
+
+    pub async fn begin_txn(&self) -> Uuid {
+        self.db.begin_txn().await
+    }
+
+    pub async fn abort_txn(&self) {
+        self.db.abort_txn().await
+    }
+
+    // TODO: We should return the final timestamps if possible - easier for testing
+    // Returns whether the commit was successful or if a retry was necessary
+    pub async fn commit_txn(&self, txn_id: Uuid) -> CommitTxnResult {
+        self.db.commit_txn(txn_id).await
+    }
+}
+
+impl InternalDB {
     // TODO: Should we have a new_cleaned and keep a new?
     // path example: "./tmp/data";
     pub fn new(path: &str, initial_time: Timestamp) -> Self {
@@ -74,7 +141,7 @@ impl DB {
         if initial_time.value == 0 {
             panic!("DB time cannot start from 0 as it is reserved for intents")
         }
-        DB {
+        InternalDB {
             executor: Executor::new(path, txns.clone()),
             txns: Arc::new(RwLock::new(HashMap::new())),
             clock: RwLock::new(Clock::manual(initial_time.value)),
@@ -159,12 +226,6 @@ impl DB {
         todo!()
     }
 
-    pub async fn run_txn<Fut>(&self, f: impl FnOnce(&Self) -> Fut)
-    where
-        Fut: Future<Output = bool>,
-    {
-    }
-
     // pub async fn run_txn<Fut>(&self, f: impl FnOnce(db: &Self) -> Fut () where
     // Fut: Future<Output = bool>) {}
 
@@ -237,5 +298,18 @@ impl DB {
                 panic!("No txn found for {}", txn_id)
             }
         }
+    }
+}
+
+pub struct TxnContext {
+    txn_id: Uuid,
+    db: Arc<InternalDB>,
+}
+
+impl TxnContext {
+    pub async fn write<T: Serialize>(&self, key: &str, value: T) {}
+
+    pub async fn read<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
+        todo!()
     }
 }
