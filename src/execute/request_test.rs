@@ -39,12 +39,35 @@ mod executor {
     #[tokio::test]
     async fn test() {
         let txns = Arc::new(RwLock::new(HashMap::new()));
-        let executor = Executor::new("./tmp/data", txns.clone());
+        let executor = Executor::new_cleaned("./tmp/data", txns.clone());
         let txn_link = create_test_txn(txns, Timestamp::new(1, 1));
         let key = str_to_key("foo");
         let (_, lg_txn_link, lg) = create_test_lock_table_guard(false, Vec::from([key.clone()]));
 
         // execute read request
         // then execute write request and see if the timestamp is bumped
+    }
+}
+
+mod dedupe {
+    use crate::{
+        execute::request::dedupe_spanset, latch_manager::latch_interval_btree::Range,
+        storage::str_to_key,
+    };
+
+    #[test]
+    fn deduplicates() {
+        let mut vec = Vec::from([
+            Range {
+                start_key: str_to_key("foo"),
+                end_key: str_to_key("foo"),
+            },
+            Range {
+                start_key: str_to_key("foo"),
+                end_key: str_to_key("foo"),
+            },
+        ]);
+        dedupe_spanset(&mut vec);
+        assert_eq!(vec.len(), 1);
     }
 }

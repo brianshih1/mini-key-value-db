@@ -1,7 +1,7 @@
 mod Test {
     use tokio::time::{self, sleep, Duration};
 
-    #[tokio::test]
+    // #[tokio::test]
     async fn try_join() {
         let task_1 = tokio::spawn(async move {
             for i in 1..10 {

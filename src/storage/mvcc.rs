@@ -48,9 +48,15 @@ pub fn serialize<T: Serialize>(value: T) -> Value {
 
 impl KVStore {
     // path example: "./tmp/data";
-    pub fn new(path: &str) -> Self {
+    pub fn new_cleaned(path: &str) -> Self {
         KVStore {
             storage: Storage::new_cleaned(path),
+        }
+    }
+
+    pub fn new(path: &str) -> Self {
+        KVStore {
+            storage: Storage::new(path),
         }
     }
 
@@ -84,6 +90,10 @@ impl KVStore {
                 None
             },
         }
+    }
+
+    pub fn mvcc_delete(&self, key: MVCCKey) {
+        self.storage.delete_mvcc(&key);
     }
 
     pub fn mvcc_scan(
@@ -260,8 +270,12 @@ impl KVStore {
     }
 
     // TODO: Do we really need a write_timestamp here?
-    pub fn abort_transaction(&self, transaction_id: Uuid, write_timestamp: Timestamp) {
-        // TODO: What else do we need to do here?
+    pub fn update_transaction_record_to_abort(
+        &self,
+        transaction_id: Uuid,
+        write_timestamp: Timestamp,
+    ) {
+        // TODO: Delete all uncomitted intents from DB
         self.put_transaction_record(
             transaction_id,
             &TxnRecord {

@@ -155,23 +155,7 @@ mod test {
         sender: Sender<u32>,
         receiver: Receiver<u32>,
     }
-    // #[test]
-    // fn learn_channel() {
-    //     let (tx, rx) = channel::<u32>(1);
-    //     let guard = TestGuard {
-    //         sender: tx,
-    //         receiver: rx,
-    //     };
-    //     let tx1 = mpsc::Sender::clone(&guard.sender);
-    //     thread::spawn(move || {
-    //         println!("sending!");
-    //         tx1.send(12).await;
-    //     });
-    //     guard.receiver.recv().unwrap();
-    //     println!("foo");
-    // }
 
-    #[tokio::test]
     async fn test_select() {
         let (tx, mut rx) = channel::<u32>(1);
 

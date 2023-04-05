@@ -425,7 +425,7 @@ pub mod test {
 
                 let lock_table_3 = lock_table.clone();
                 let task_2 = tokio::spawn(async move {
-                    sleep(Duration::from_millis(900)).await;
+                    // sleep(Duration::from_millis(900)).await;
 
                     println!("Updating!");
 

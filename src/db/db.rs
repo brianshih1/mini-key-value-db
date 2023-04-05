@@ -12,8 +12,8 @@ use crate::{
     execute::{
         executor::{ExecuteError, Executor},
         request::{
-            BeginTxnRequest, CommitTxnRequest, GetRequest, PutRequest, Request, RequestMetadata,
-            RequestUnion, ResponseUnion,
+            AbortTxnRequest, BeginTxnRequest, CommitTxnRequest, GetRequest, PutRequest, Request,
+            RequestMetadata, RequestUnion, ResponseUnion,
         },
     },
     hlc::{
@@ -72,6 +72,12 @@ impl Timestamp {
 }
 
 impl DB {
+    pub fn new_cleaned(path: &str, initial_time: Timestamp) -> Self {
+        DB {
+            db: Arc::new(InternalDB::new_cleaned(path, initial_time)),
+        }
+    }
+
     pub fn new(path: &str, initial_time: Timestamp) -> Self {
         DB {
             db: Arc::new(InternalDB::new(path, initial_time)),
@@ -136,8 +142,8 @@ impl DB {
         self.db.begin_txn().await
     }
 
-    pub async fn abort_txn(&self) {
-        self.db.abort_txn().await
+    pub async fn abort_txn(&self, txn_id: Uuid) {
+        self.db.abort_txn(txn_id).await
     }
 
     // TODO: We should return the final timestamps if possible - easier for testing
@@ -150,6 +156,18 @@ impl DB {
 impl InternalDB {
     // TODO: Should we have a new_cleaned and keep a new?
     // path example: "./tmp/data";
+    pub fn new_cleaned(path: &str, initial_time: Timestamp) -> Self {
+        let txns = Arc::new(RwLock::new(HashMap::new()));
+        if initial_time.value == 0 {
+            panic!("DB time cannot start from 0 as it is reserved for intents")
+        }
+        InternalDB {
+            executor: Executor::new_cleaned(path, txns.clone()),
+            txns: Arc::new(RwLock::new(HashMap::new())),
+            clock: RwLock::new(Clock::manual(initial_time.value)),
+        }
+    }
+
     pub fn new(path: &str, initial_time: Timestamp) -> Self {
         let txns = Arc::new(RwLock::new(HashMap::new()));
         if initial_time.value == 0 {
@@ -251,18 +269,28 @@ impl InternalDB {
             metadata: request_metadata,
             request_union: txn_request,
         };
+        self.executor
+            .execute_request_with_concurrency_retries(request)
+            .await
+            .unwrap();
+
+        txn_id
+    }
+
+    pub async fn abort_txn(&self, txn_id: Uuid) {
+        let txn_request = RequestUnion::AbortTxn(AbortTxnRequest {});
+        let txn = self.get_txn(txn_id);
+        let request_metadata = RequestMetadata { txn };
+
+        let request = Request {
+            metadata: request_metadata,
+            request_union: txn_request,
+        };
         let response = self
             .executor
             .execute_request_with_concurrency_retries(request)
             .await;
-        // match response {
-        //     ResponseUnion::BeginTransaction(_) => {}
-        //     _ => unreachable!(),
-        // };
-        txn_id
     }
-
-    pub async fn abort_txn(&self) {}
 
     // TODO: We should return the final timestamps if possible - easier for testing
     // Returns whether the commit was successful or if a retry was necessary

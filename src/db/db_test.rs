@@ -22,7 +22,7 @@ mod test {
 
                 #[tokio::test]
                 async fn read_waits_for_uncommitted_write() {
-                    let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                    let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
                     let write_txn = db.begin_txn().await;
                     let key = "foo";
                     db.write(key, 12, write_txn).await;
@@ -32,7 +32,7 @@ mod test {
                     let db_1 = db.clone();
                     let task_1 = tokio::spawn(async move {
                         let read_res = db_1.read::<i32>(key, read_txn).await;
-                        db_1.commit_txn(write_txn).await;
+                        db_1.commit_txn(read_txn).await;
                         assert_eq!(read_res, Some(12));
                     });
 
@@ -53,7 +53,7 @@ mod test {
 
                 #[tokio::test]
                 async fn ignores_intent_with_higher_timestamp() {
-                    let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                    let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
                     let read_txn = db.begin_txn().await;
                     let key = "foo";
 
@@ -83,7 +83,7 @@ mod test {
 
                 #[tokio::test]
                 async fn write_waits_for_uncommitted_write() {
-                    let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                    let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
                     let txn_1 = db.begin_txn().await;
                     let txn_2 = db.begin_txn().await;
                     let key = "baz";
@@ -135,7 +135,7 @@ mod test {
 
                 #[tokio::test]
                 async fn bump_write_timestamp_before_committing() {
-                    let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                    let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
                     let key = "foo";
 
                     // begin txn1
@@ -186,7 +186,7 @@ mod test {
 
             #[tokio::test]
             async fn bump_write_timestamp_before_committing() {
-                let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
                 let key = "foo";
 
                 let write_txn = db.begin_txn().await;
@@ -229,7 +229,7 @@ mod test {
 
             #[tokio::test]
             async fn read_refresh_from_write_write_conflict() {
-                let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
 
                 let read_key = "foo";
                 let write_key = "bar";
@@ -267,7 +267,7 @@ mod test {
 
             #[tokio::test]
             async fn read_refresh_failure() {
-                let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+                let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
 
                 let read_key = "foo";
                 let write_key = "bar";
@@ -304,6 +304,29 @@ mod test {
         }
     }
 
+    mod abort_txn {
+        use crate::db::db::{Timestamp, DB};
+
+        #[tokio::test]
+        async fn read_write_after_abort_transaction() {
+            let db = DB::new_cleaned("./tmp/data", Timestamp::new(10));
+            let key = "foo";
+
+            let txn_to_abort = db.begin_txn().await;
+            db.write(key, 12, txn_to_abort).await;
+            db.abort_txn(txn_to_abort).await;
+
+            let read_txn = db.begin_txn().await;
+            let res = db.read::<i32>(key, read_txn).await;
+            db.abort_txn(read_txn).await;
+            assert!(res.is_none());
+
+            let write_txn = db.begin_txn().await;
+            db.write(key, 100, write_txn).await;
+            db.commit_txn(write_txn).await;
+        }
+    }
+
     mod run_txn {
         use std::sync::Arc;
 
@@ -311,7 +334,7 @@ mod test {
 
         #[tokio::test]
         async fn reading_its_txn_own_write() {
-            let db = DB::new("./tmp/data", Timestamp::new(10));
+            let db = DB::new_cleaned("./tmp/data", Timestamp::new(10));
             db.run_txn(|txn_context| async move {
                 let key = "foo";
                 txn_context.write(key, 12).await;
@@ -323,7 +346,7 @@ mod test {
 
         #[tokio::test]
         async fn writing_its_own_write() {
-            let db = DB::new("./tmp/data", Timestamp::new(10));
+            let db = DB::new_cleaned("./tmp/data", Timestamp::new(10));
             db.run_txn(|txn_context| async move {
                 let key = "foo";
                 txn_context.write(key, 12).await;
@@ -336,7 +359,7 @@ mod test {
 
         #[tokio::test]
         async fn two_concurrent_writes_to_same_key() {
-            let db = Arc::new(DB::new("./tmp/data", Timestamp::new(10)));
+            let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
 
             let db_1 = db.clone();
             let key = "foo";

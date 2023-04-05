@@ -1,13 +1,18 @@
-use std::{collections::HashMap, default};
+use std::{
+    collections::{HashMap, HashSet},
+    default,
+    hash::Hash,
+};
 
 use async_trait::async_trait;
+use rand::prelude::Distribution;
 use uuid::Uuid;
 
 use crate::{
     db::db::TxnLink,
     hlc::timestamp::Timestamp,
     latch_manager::latch_interval_btree::{NodeKey, Range},
-    lock_table::lock_table::{CommitUpdateLock, UpdateLock},
+    lock_table::lock_table::{AbortUpdateLock, CommitUpdateLock, UpdateLock},
     storage::{
         mvcc::{KVStore, MVCCGetParams, WriteIntentError},
         mvcc_key::{create_intent_key, MVCCKey},
@@ -60,6 +65,12 @@ pub enum RequestUnion {
 
 // TODO: Does this need a timestamp in there?
 pub type SpanSet<K: NodeKey> = Vec<Range<K>>;
+
+pub fn dedupe_spanset(v: &mut SpanSet<Key>) {
+    // note the Copy constraint
+    let mut uniques = HashSet::<Key>::new();
+    v.retain(|e| uniques.insert((*e.start_key).to_vec()));
+}
 
 #[derive(Debug, Clone)]
 pub struct SpansToAcquire {
@@ -124,20 +135,64 @@ pub struct AbortTxnResponse {}
 #[async_trait]
 impl Command for AbortTxnRequest {
     fn is_read_only(&self) -> bool {
-        todo!()
+        true
     }
 
-    fn collect_spans(&self, _: TxnLink) -> SpanSet<Key> {
-        todo!()
+    fn collect_spans(&self, txn: TxnLink) -> SpanSet<Key> {
+        let txn = txn.read().unwrap();
+        let read_set = txn.read_set.read().unwrap();
+        let mut lock_spans = (&*txn.lock_spans.read().unwrap())
+            .iter()
+            .map(|k| Range {
+                start_key: k.clone(),
+                end_key: k.clone(),
+            })
+            .collect::<SpanSet<Key>>();
+
+        let mut read_spans = read_set
+            .iter()
+            .map(|k| Range {
+                start_key: k.clone(),
+                end_key: k.clone(),
+            })
+            .collect::<SpanSet<Key>>();
+        lock_spans.append(&mut read_spans);
+        dedupe_spanset(&mut lock_spans);
+        lock_spans
     }
 
     async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
-        let txn = header.txn.read().unwrap();
-        let write_timestamp = txn.write_timestamp;
+        let (txn_id, write_timestamp) = self.get_txn_id_write_timestamp(header.txn.clone());
+        // finalize the transaction record
         executor
             .store
-            .abort_transaction(txn.txn_id, write_timestamp);
+            .update_transaction_record_to_abort(txn_id, write_timestamp);
+
+        // Remove all uncomitted intents from DB
+        for key in self.get_lock_keys(header.txn.clone()).iter() {
+            executor.store.mvcc_delete(create_intent_key(key));
+        }
+
+        // update the lock table to release all uncommitted intent holders
+        executor
+            .concr_manager
+            .update_txn_locks(
+                header.txn.clone(),
+                UpdateLock::Abort(AbortUpdateLock { txn_id: txn_id }),
+            )
+            .await;
         Ok(ResponseUnion::AbortTxn(AbortTxnResponse {}))
+    }
+}
+
+impl AbortTxnRequest {
+    pub fn get_txn_id_write_timestamp(&self, txn: TxnLink) -> (Uuid, Timestamp) {
+        let txn = txn.read().unwrap();
+        (txn.txn_id, txn.write_timestamp)
+    }
+
+    pub fn get_lock_keys(&self, txn: TxnLink) -> Vec<Key> {
+        txn.read().unwrap().lock_spans.read().unwrap().clone()
     }
 }
 
@@ -150,19 +205,31 @@ pub struct CommitTxnResponse {
 #[async_trait]
 impl Command for CommitTxnRequest {
     fn is_read_only(&self) -> bool {
+        // TODO: Would this bump the timestamp oracle...?
         true
     }
 
     fn collect_spans(&self, txn: TxnLink) -> SpanSet<Key> {
         let txn = txn.read().unwrap();
         let read_set = txn.read_set.read().unwrap();
-        read_set
+        let mut lock_spans = (&*txn.lock_spans.read().unwrap())
             .iter()
             .map(|k| Range {
                 start_key: k.clone(),
                 end_key: k.clone(),
             })
-            .collect::<SpanSet<Key>>()
+            .collect::<SpanSet<Key>>();
+
+        let mut read_spans = read_set
+            .iter()
+            .map(|k| Range {
+                start_key: k.clone(),
+                end_key: k.clone(),
+            })
+            .collect::<SpanSet<Key>>();
+        lock_spans.append(&mut read_spans);
+        dedupe_spanset(&mut lock_spans);
+        lock_spans
     }
 
     async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
@@ -287,14 +354,15 @@ impl Command for PutRequest {
             Some(header.txn.clone()),
             self.value.clone(),
         );
-        // add to lockTable
-        executor
-            .concr_manager
-            .lock_table
-            .acquire_lock(self.key.clone(), header.txn.clone())
-            .await;
+
         match res {
             Ok(_) => {
+                // add to lockTable
+                executor
+                    .concr_manager
+                    .lock_table
+                    .acquire_lock(self.key.clone(), header.txn.clone())
+                    .await;
                 // update the txn's lock spans to account for the intent being written
                 header
                     .txn

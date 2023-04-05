@@ -29,6 +29,14 @@ pub struct Executor {
 
 impl Executor {
     // path example: "./tmp/data";
+    pub fn new_cleaned(path: &str, txns: TxnMap) -> Self {
+        Executor {
+            concr_manager: ConcurrencyManager::new(txns),
+            store: KVStore::new_cleaned(path),
+            timestamp_oracle: RwLock::new(TimestampOracle::new()),
+        }
+    }
+
     pub fn new(path: &str, txns: TxnMap) -> Self {
         Executor {
             concr_manager: ConcurrencyManager::new(txns),

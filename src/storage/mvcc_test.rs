@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn create_pending_transaction_record() -> () {
-        let kv_store = KVStore::new("./tmp/data");
+        let kv_store = KVStore::new_cleaned("./tmp/data");
         let transaction_id = Uuid::new_v4();
         let write_timestamp = Timestamp {
             wall_time: 0,
@@ -49,7 +49,7 @@ mod tests {
 
         #[test]
         fn put_with_transaction() {
-            let kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new_cleaned("./tmp/data");
             let key = "foo";
             let txn1_id = Uuid::new_v4();
 
@@ -71,7 +71,7 @@ mod tests {
 
         #[test]
         fn write_intent_error() {
-            let kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new_cleaned("./tmp/data");
             let key = "foo";
             let txn1_id = Uuid::new_v4();
 
@@ -118,7 +118,7 @@ mod tests {
 
         #[test]
         fn get_key_with_multiple_timestamps() {
-            let kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new_cleaned("./tmp/data");
             let read_timestamp = Timestamp::new(10, 10);
 
             let key1 = str_to_key("apple");
@@ -164,7 +164,7 @@ mod tests {
 
         #[test]
         fn get_intent() {
-            let kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new_cleaned("./tmp/data");
             let key = "foo";
             let txn1_id = Uuid::new_v4();
 
@@ -218,7 +218,7 @@ mod tests {
 
         #[test]
         fn resolve_intent_with_higher_timestamp() {
-            let kv_store = KVStore::new("./tmp/dataa");
+            let kv_store = KVStore::new_cleaned("./tmp/dataa");
             let uncommitted_timestamp = Timestamp::new(10, 10);
 
             let key = str_to_key("apple");
@@ -265,7 +265,7 @@ mod tests {
 
         #[test]
         fn resolve_intent_owned_by_another_txn() {
-            let kv_store = KVStore::new("./tmp/dataa");
+            let kv_store = KVStore::new_cleaned("./tmp/dataa");
             let uncommitted_timestamp = Timestamp::new(10, 10);
 
             let key = str_to_key("apple");

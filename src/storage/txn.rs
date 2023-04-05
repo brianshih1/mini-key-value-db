@@ -45,7 +45,8 @@ pub struct Txn {
 
     /**
      * List of keys that the tranaction has acquired locks.
-     * Theses should be resolved when the txn finalizes.
+     * These should be resolved when the txn finalizes.
+     * Each of these map to an intent in the database laid by the txn.
      */
     pub lock_spans: RwLock<Vec<Key>>,
 

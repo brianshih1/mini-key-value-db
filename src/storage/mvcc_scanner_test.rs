@@ -63,7 +63,7 @@ mod tests {
 
         #[test]
         fn intent_found() {
-            let kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new_cleaned("./tmp/data");
             let timestamp = Timestamp::new(12, 0);
             let txn_id = Uuid::new_v4();
             let txn = Txn::new_link(txn_id, timestamp);
@@ -113,7 +113,7 @@ mod tests {
 
         #[test]
         fn advances_to_next_key() {
-            let kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new_cleaned("./tmp/data");
             let first_key = "apple";
             let first_key_timestamp1 = Timestamp::new(2, 3);
             let first_key_timestamp2 = Timestamp::new(3, 0);
@@ -155,7 +155,7 @@ mod tests {
 
         #[test]
         fn there_is_no_next_key() {
-            let kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new_cleaned("./tmp/data");
             let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
             let scanner_timestamp = Timestamp {
                 logical_time: 3,
@@ -191,7 +191,7 @@ mod tests {
 
         #[test]
         fn multiple_timestamps_for_same_keys() {
-            let kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new_cleaned("./tmp/data");
 
             let scan_timestamp = Timestamp::new(12, 3);
 
@@ -255,7 +255,7 @@ mod tests {
 
         #[test]
         fn multiple_intents() {
-            let kv_store = KVStore::new("./tmp/data");
+            let kv_store = KVStore::new_cleaned("./tmp/data");
             let txn_id = Uuid::new_v4();
             let transaction_timestamp = Timestamp::new(12, 0);
             let txn = Txn::new_link(txn_id, transaction_timestamp);
