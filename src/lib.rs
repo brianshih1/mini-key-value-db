@@ -8,6 +8,7 @@ mod llrb;
 pub mod lock_table;
 mod storage;
 mod timestamp_oracle;
+mod txn_wait;
 
 use rocksdb::{Options, DB};
 use serde::de::Error;

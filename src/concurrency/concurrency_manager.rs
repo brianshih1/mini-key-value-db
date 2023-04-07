@@ -156,6 +156,7 @@ mod test {
         receiver: Receiver<u32>,
     }
 
+    #[tokio::test]
     async fn test_select() {
         let (tx, mut rx) = channel::<u32>(1);
 
@@ -175,5 +176,24 @@ mod test {
                 println!("operation timed out");
             }
         };
+    }
+
+    #[tokio::test]
+    async fn test_async_loop() {
+        // let (tx, mut rx) = channel::<u32>(1);
+
+        tokio::spawn(async move {
+            loop {
+                println!("Loop");
+                let sleep = time::sleep(Duration::from_millis(10));
+                tokio::pin!(sleep);
+
+                tokio::select! {
+                    _ = &mut sleep, if !sleep.is_elapsed() => {
+                        println!("operation timed out");
+                    }
+                };
+            }
+        });
     }
 }
