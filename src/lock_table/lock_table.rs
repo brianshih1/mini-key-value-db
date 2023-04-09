@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::{
     db::{
         db::{TxnLink, TxnMap},
-        thread_pool::ThreadPoolRequest,
+        request_queue::ThreadPoolRequest,
     },
     execute::request::{Command, Request, SpanSet},
     hlc::timestamp::Timestamp,
@@ -105,6 +105,8 @@ pub struct LockState {
 
 impl LockTable {
     pub fn new(txns: TxnMap, request_sender: Arc<Sender<ThreadPoolRequest>>) -> Self {
+        let cloned_sender = request_sender.clone();
+
         LockTable {
             locks: RwLock::new(HashMap::new()),
             txn_map: txns,

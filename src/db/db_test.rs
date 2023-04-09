@@ -323,7 +323,9 @@ mod test {
 
             let write_txn = db.begin_txn().await;
             db.write(key, 100, write_txn).await;
+            println!("Foooo");
             db.commit_txn(write_txn).await;
+            println!("ENDDD");
         }
     }
 

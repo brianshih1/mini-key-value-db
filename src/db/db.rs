@@ -24,7 +24,7 @@ use crate::{
     storage::{str_to_key, txn::Txn},
 };
 
-use super::thread_pool::{ThreadPool, ThreadPoolRequest};
+use super::request_queue::{ThreadPool, ThreadPoolRequest};
 
 pub type TxnLink = Arc<RwLock<Txn>>;
 
@@ -166,14 +166,10 @@ impl InternalDB {
             panic!("DB time cannot start from 0 as it is reserved for intents")
         }
         let (sender, receiver) = mpsc::channel::<ThreadPoolRequest>(1);
-
-        let executor = Arc::new(Executor::new_cleaned(path, txns.clone(), Arc::new(sender)));
+        let sender = Arc::new(sender);
+        let executor = Arc::new(Executor::new_cleaned(path, txns.clone(), sender.clone()));
         let txns = Arc::new(RwLock::new(HashMap::new()));
-        let thread_pool = ThreadPool::new(
-            Arc::new(Mutex::new(receiver)),
-            executor.clone(),
-            txns.clone(),
-        );
+        let thread_pool = ThreadPool::new(receiver, executor.clone(), txns.clone(), sender.clone());
         InternalDB {
             executor,
             txns,
@@ -188,14 +184,11 @@ impl InternalDB {
             panic!("DB time cannot start from 0 as it is reserved for intents")
         }
         let (sender, receiver) = mpsc::channel::<ThreadPoolRequest>(1);
+        let sender = Arc::new(sender);
 
-        let executor = Arc::new(Executor::new(path, txns.clone(), Arc::new(sender)));
+        let executor = Arc::new(Executor::new(path, txns.clone(), sender.clone()));
         let txns = Arc::new(RwLock::new(HashMap::new()));
-        let thread_pool = ThreadPool::new(
-            Arc::new(Mutex::new(receiver)),
-            executor.clone(),
-            txns.clone(),
-        );
+        let thread_pool = ThreadPool::new(receiver, executor.clone(), txns.clone(), sender.clone());
         InternalDB {
             executor,
             txns,
@@ -368,9 +361,7 @@ impl InternalDB {
 }
 
 impl Drop for InternalDB {
-    fn drop(&mut self) {
-        todo!()
-    }
+    fn drop(&mut self) {}
 }
 
 pub struct TxnContext {

@@ -6,7 +6,7 @@ use std::thread;
 use tokio::sync::mpsc::Sender;
 
 use crate::db::db::{TxnLink, TxnMap};
-use crate::db::thread_pool::ThreadPoolRequest;
+use crate::db::request_queue::ThreadPoolRequest;
 use crate::execute::request::{Command, Request};
 use crate::latch_manager::latch_manager::{LatchGuard, LatchManager};
 use crate::lock_table::lock_table::{LockTable, LockTableGuardLink, UpdateLock};

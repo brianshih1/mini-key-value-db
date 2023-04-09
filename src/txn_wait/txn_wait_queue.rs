@@ -14,7 +14,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    db::{db::InternalDB, thread_pool::ThreadPoolRequest},
+    db::{db::InternalDB, request_queue::ThreadPoolRequest},
     execute::executor::Executor,
 };
 

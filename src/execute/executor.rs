@@ -7,7 +7,7 @@ use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard},
     db::{
         db::{TxnLink, TxnMap},
-        thread_pool::ThreadPoolRequest,
+        request_queue::ThreadPoolRequest,
     },
     hlc::timestamp::Timestamp,
     storage::mvcc::{KVStore, MVCCGetParams},
