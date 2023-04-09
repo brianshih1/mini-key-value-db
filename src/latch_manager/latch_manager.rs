@@ -94,9 +94,7 @@ mod Test {
 
         use tokio::time::{self, sleep, Duration};
 
-        use crate::latch_manager::{
-            latch_interval_btree::Range, latch_manager::LatchManager, spanset::Span,
-        };
+        use crate::latch_manager::{latch_interval_btree::Range, latch_manager::LatchManager};
 
         #[tokio::test]
         async fn test_select() {

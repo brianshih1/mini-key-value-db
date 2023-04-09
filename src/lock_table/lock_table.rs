@@ -13,13 +13,17 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    db::db::{TxnLink, TxnMap},
+    db::{
+        db::{TxnLink, TxnMap},
+        thread_pool::ThreadPoolRequest,
+    },
     execute::request::{Command, Request, SpanSet},
     hlc::timestamp::Timestamp,
     storage::{
         txn::{Txn, TxnIntent, TxnMetadata},
         Key,
     },
+    txn_wait::txn_wait_queue::TxnWaitQueue,
 };
 
 pub struct LockTableGuard {
@@ -29,9 +33,9 @@ pub struct LockTableGuard {
 
     pub txn: TxnLink,
 
-    pub sender: Arc<Sender<()>>,
+    pub wait_done_sender: Arc<Sender<()>>,
 
-    pub receiver: Mutex<Receiver<()>>,
+    pub wait_done_receiver: Mutex<Receiver<()>>,
 
     pub guard_id: Uuid,
 
@@ -66,6 +70,7 @@ pub struct LockTable {
     // TODO: Use a concurent btree instead of a hash map
     pub locks: RwLock<HashMap<Key, LockStateLink>>,
     pub txn_map: TxnMap,
+    pub txn_wait_queue: TxnWaitQueue,
 }
 
 pub type LockStateLink = Arc<LockState>;
@@ -99,18 +104,23 @@ pub struct LockState {
 }
 
 impl LockTable {
-    pub fn new(txns: TxnMap) -> Self {
+    pub fn new(txns: TxnMap, request_sender: Arc<Sender<ThreadPoolRequest>>) -> Self {
         LockTable {
             locks: RwLock::new(HashMap::new()),
             txn_map: txns,
+            txn_wait_queue: TxnWaitQueue::new(request_sender),
         }
     }
 
     #[cfg(test)]
     pub fn new_with_defaults() -> Self {
+        use tokio::sync::mpsc;
+
+        let (sender, receiver) = mpsc::channel::<ThreadPoolRequest>(1);
         LockTable {
             locks: RwLock::new(HashMap::new()),
             txn_map: Arc::new(RwLock::new(HashMap::new())),
+            txn_wait_queue: TxnWaitQueue::new(Arc::new(sender)),
         }
     }
 
@@ -205,7 +215,7 @@ impl LockTable {
      */
     pub async fn wait_for(&self, guard: LockTableGuardLink) {
         let lg = guard.as_ref();
-        let mut rx = lg.receiver.lock().await;
+        let mut rx = lg.wait_done_receiver.lock().await;
 
         let sleep = time::sleep(Duration::from_millis(1000));
         tokio::pin!(sleep);
@@ -636,8 +646,8 @@ impl LockTableGuard {
         LockTableGuard {
             should_wait: RwLock::new(false),
             txn: txn.clone(),
-            sender: Arc::new(tx),
-            receiver: Mutex::new(rx),
+            wait_done_sender: Arc::new(tx),
+            wait_done_receiver: Mutex::new(rx),
             guard_id: Uuid::new_v4(),
             is_read_only: RwLock::new(is_read_only),
             wait_state: RwLock::new(WaitingState::DoneWaiting),
@@ -671,7 +681,7 @@ impl LockTableGuard {
      * next lock to wait at.
      */
     pub async fn done_waiting_at_lock(&self) {
-        let sender = self.sender.as_ref();
+        let sender = self.wait_done_sender.as_ref();
         sender.send(()).await.unwrap();
         self.update_wait_state(WaitingState::DoneWaiting);
     }

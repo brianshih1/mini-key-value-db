@@ -1,8 +1,12 @@
 use core::time;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::thread;
 
+use tokio::sync::mpsc::Sender;
+
 use crate::db::db::{TxnLink, TxnMap};
+use crate::db::thread_pool::ThreadPoolRequest;
 use crate::execute::request::{Command, Request};
 use crate::latch_manager::latch_manager::{LatchGuard, LatchManager};
 use crate::lock_table::lock_table::{LockTable, LockTableGuardLink, UpdateLock};
@@ -20,10 +24,10 @@ pub struct Guard {
 }
 
 impl ConcurrencyManager {
-    pub fn new(txns: TxnMap) -> Self {
+    pub fn new(txns: TxnMap, request_sender: Arc<Sender<ThreadPoolRequest>>) -> Self {
         ConcurrencyManager {
             latch_manager: LatchManager::new(),
-            lock_table: LockTable::new(txns),
+            lock_table: LockTable::new(txns, request_sender),
         }
     }
 

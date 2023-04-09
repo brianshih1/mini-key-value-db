@@ -1,11 +1,12 @@
 use std::{
     collections::HashMap,
     future::Future,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use serde::{de::DeserializeOwned, Serialize};
 use std::panic;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{
@@ -23,14 +24,17 @@ use crate::{
     storage::{str_to_key, txn::Txn},
 };
 
+use super::thread_pool::{ThreadPool, ThreadPoolRequest};
+
 pub type TxnLink = Arc<RwLock<Txn>>;
 
 pub type TxnMap = Arc<RwLock<HashMap<Uuid, TxnLink>>>;
 
 pub struct InternalDB {
-    executor: Executor,
-    txns: Arc<RwLock<HashMap<Uuid, TxnLink>>>,
+    executor: Arc<Executor>,
+    txns: TxnMap,
     clock: RwLock<ManualClock>,
+    thread_pool: ThreadPool,
 }
 
 pub struct DB {
@@ -161,10 +165,20 @@ impl InternalDB {
         if initial_time.value == 0 {
             panic!("DB time cannot start from 0 as it is reserved for intents")
         }
+        let (sender, receiver) = mpsc::channel::<ThreadPoolRequest>(1);
+
+        let executor = Arc::new(Executor::new_cleaned(path, txns.clone(), Arc::new(sender)));
+        let txns = Arc::new(RwLock::new(HashMap::new()));
+        let thread_pool = ThreadPool::new(
+            Arc::new(Mutex::new(receiver)),
+            executor.clone(),
+            txns.clone(),
+        );
         InternalDB {
-            executor: Executor::new_cleaned(path, txns.clone()),
-            txns: Arc::new(RwLock::new(HashMap::new())),
+            executor,
+            txns,
             clock: RwLock::new(Clock::manual(initial_time.value)),
+            thread_pool,
         }
     }
 
@@ -173,10 +187,20 @@ impl InternalDB {
         if initial_time.value == 0 {
             panic!("DB time cannot start from 0 as it is reserved for intents")
         }
+        let (sender, receiver) = mpsc::channel::<ThreadPoolRequest>(1);
+
+        let executor = Arc::new(Executor::new(path, txns.clone(), Arc::new(sender)));
+        let txns = Arc::new(RwLock::new(HashMap::new()));
+        let thread_pool = ThreadPool::new(
+            Arc::new(Mutex::new(receiver)),
+            executor.clone(),
+            txns.clone(),
+        );
         InternalDB {
-            executor: Executor::new(path, txns.clone()),
-            txns: Arc::new(RwLock::new(HashMap::new())),
+            executor,
+            txns,
             clock: RwLock::new(Clock::manual(initial_time.value)),
+            thread_pool,
         }
     }
 
@@ -340,6 +364,12 @@ impl InternalDB {
                 panic!("No txn found for {}", txn_id)
             }
         }
+    }
+}
+
+impl Drop for InternalDB {
+    fn drop(&mut self) {
+        todo!()
     }
 }
 

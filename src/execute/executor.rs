@@ -1,10 +1,14 @@
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
+use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 
 use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard},
-    db::db::{TxnLink, TxnMap},
+    db::{
+        db::{TxnLink, TxnMap},
+        thread_pool::ThreadPoolRequest,
+    },
     hlc::timestamp::Timestamp,
     storage::mvcc::{KVStore, MVCCGetParams},
     timestamp_oracle::oracle::TimestampOracle,
@@ -29,17 +33,21 @@ pub struct Executor {
 
 impl Executor {
     // path example: "./tmp/data";
-    pub fn new_cleaned(path: &str, txns: TxnMap) -> Self {
+    pub fn new_cleaned(
+        path: &str,
+        txns: TxnMap,
+        request_sender: Arc<Sender<ThreadPoolRequest>>,
+    ) -> Self {
         Executor {
-            concr_manager: ConcurrencyManager::new(txns),
+            concr_manager: ConcurrencyManager::new(txns, request_sender),
             store: KVStore::new_cleaned(path),
             timestamp_oracle: RwLock::new(TimestampOracle::new()),
         }
     }
 
-    pub fn new(path: &str, txns: TxnMap) -> Self {
+    pub fn new(path: &str, txns: TxnMap, request_sender: Arc<Sender<ThreadPoolRequest>>) -> Self {
         Executor {
-            concr_manager: ConcurrencyManager::new(txns),
+            concr_manager: ConcurrencyManager::new(txns, request_sender),
             store: KVStore::new(path),
             timestamp_oracle: RwLock::new(TimestampOracle::new()),
         }
