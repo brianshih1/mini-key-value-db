@@ -75,7 +75,6 @@ impl<K: NodeKey> LatchManager<K> {
                 }
             }
             if acquired_indices.len() == spans.len() {
-                println!("Finished acquiring latch");
                 return LatchGuard { spans };
             }
         }

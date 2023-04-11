@@ -22,6 +22,12 @@ pub struct Guard {
     lock_guard: LockTableGuardLink,
 }
 
+#[derive(Debug)]
+pub enum SequenceReqError {
+    TxnAborted,
+    TxnCommitted,
+}
+
 impl ConcurrencyManager {
     pub fn new(
         txns: TxnMap,
@@ -35,12 +41,11 @@ impl ConcurrencyManager {
         }
     }
 
-    pub async fn sequence_req(&self, request: &Request) -> Option<Guard> {
+    pub async fn sequence_req(&self, request: &Request) -> Result<Guard, SequenceReqError> {
         let spans_to_acquire = request
             .request_union
             .collect_spans(request.metadata.txn.clone());
         loop {
-            println!("Sequence req loop!");
             let latch_guard = self
                 .latch_manager
                 .acquire_and_wait(spans_to_acquire.clone())
@@ -49,13 +54,17 @@ impl ConcurrencyManager {
             if should_wait {
                 self.latch_manager.release(latch_guard);
                 let wait_res = self.lock_table.wait_for(lock_guard).await;
-                if wait_res.is_err() {
-                    return None;
-                }
+                if let Err(err) = wait_res {
+                    match err {
+                        TxnAborted => return Err(SequenceReqError::TxnAborted),
+                        TxnCommitted => return Err(SequenceReqError::TxnCommitted),
+                    }
+                };
+
                 // restart the loop to re-acquire latches and rescan the lockTable
                 continue;
             } else {
-                return Some(Guard {
+                return Ok(Guard {
                     latch_guard,
                     lock_guard,
                 });

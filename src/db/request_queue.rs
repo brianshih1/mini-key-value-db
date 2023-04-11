@@ -36,7 +36,7 @@ pub enum TaskQueueRequestUnion {
 
 #[derive(Debug)]
 pub enum QueueResponseUnion {
-    AbortTxn(AbortTxnThreadPoolReseponse),
+    AbortTxn(AbortTxnThreadPoolResponse),
 }
 
 #[derive(Debug)]
@@ -45,7 +45,7 @@ pub struct AbortTxnQueueRequest {
 }
 
 #[derive(Debug)]
-pub struct AbortTxnThreadPoolReseponse {}
+pub struct AbortTxnThreadPoolResponse {}
 
 // The implementation of ThreadPool is based on the ThreadPool
 // implementation from The Rust Programing Language (Chpter 20: Building a Multithreaded Web Server)
@@ -80,13 +80,19 @@ impl TaskQueue {
                                 let txn_request = RequestUnion::AbortTxn(AbortTxnRequest {});
                                 let txn = TaskQueue::get_txn(txns_cloned.clone(), txn_id);
                                 let request_metadata = RequestMetadata { txn };
-
+                                let done_sender = request.done_sender.clone();
                                 let request = Request {
                                     metadata: request_metadata,
                                     request_union: txn_request,
                                 };
-                                executor_cloned
+                                let response = executor_cloned
                                     .execute_request_with_concurrency_retries(request)
+                                    .await
+                                    .unwrap();
+                                done_sender
+                                    .send(QueueResponseUnion::AbortTxn(
+                                        AbortTxnThreadPoolResponse {},
+                                    ))
                                     .await
                                     .unwrap();
                             }

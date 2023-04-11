@@ -4,6 +4,7 @@ use std::{
     thread,
 };
 
+use rand::Rng;
 use tokio::{
     sync::{
         mpsc::{channel, Receiver, Sender},
@@ -25,7 +26,7 @@ use crate::{
         txn::{Txn, TxnIntent, TxnMetadata},
         Key,
     },
-    txn_wait::txn_wait_queue::TxnWaitQueue,
+    txn_wait::txn_wait_queue::{TxnWaitQueue, WaitForPushError},
 };
 
 pub struct LockTableGuard {
@@ -78,6 +79,11 @@ pub struct LockTable {
 pub type LockStateLink = Arc<LockState>;
 
 pub type LockTableGuardLink = Arc<LockTableGuard>;
+
+pub enum WaitForGuardError {
+    TxnAborted,
+    TxnCommitted,
+}
 
 /**
  * Invariants:
@@ -226,10 +232,12 @@ impl LockTable {
      *
      * It's also responsible for pushing transaction if it times out
      */
-    pub async fn wait_for(&self, guard: LockTableGuardLink) -> Result<(), ()> {
+    pub async fn wait_for(&self, guard: LockTableGuardLink) -> Result<(), WaitForGuardError> {
         let lg = guard.as_ref();
         let mut rx = lg.wait_done_receiver.lock().await;
 
+        // TODO: Random
+        let duration: u64 = rand::thread_rng().gen_range(500..1000);
         let sleep = time::sleep(Duration::from_millis(1000));
         tokio::pin!(sleep);
 
@@ -247,13 +255,26 @@ impl LockTable {
                     let holder_txn_id = lock_state.get_holder_txn_id();
                     if let Some(pushee_txn_id) = holder_txn_id {
                         let pusher_txn_id = guard.txn.read().unwrap().txn_id;
-                        let wait_res =self.txn_wait_queue
+                        let wait_res = self.txn_wait_queue
                             .wait_for_push(pusher_txn_id, pushee_txn_id)
                             .await;
                         match wait_res {
-                            Ok(_) => {},
-                            Err(_) => {
-                                return Err(());
+                            Ok(_) => {
+                                println!("Wait for push succeeded for pusher: {} and pushee: {}", pusher_txn_id, pushee_txn_id);
+                            },
+                            Err(err) => {
+                                // TODO: We need to clean up other lock_state too.
+                                // We should probably have a vec of lock_state collected so far
+                                println!("wait for push failed");
+                                lock_state.request_done(guard.clone()).await;
+                                match err {
+                                    WaitForPushError::TxnAborted => {
+                                        return Err(WaitForGuardError::TxnAborted);
+                                    },
+                                    WaitForPushError::TxnCommitted => {
+                                        return Err(WaitForGuardError::TxnCommitted);
+                                    },
+                                }
                             },
                         }
                     }
@@ -415,12 +436,20 @@ impl LockState {
      */
     pub async fn lock_is_free(&self) -> bool {
         {
+            println!("lock is free called!");
             let holder = self.lock_holder.read().unwrap();
             if holder.is_some() {
                 panic!("called lock_is_free with holder");
             }
 
             let reservation = self.reservation.read().unwrap();
+            if let Some(res) = &*reservation {
+                let txn_id = res.txn.read().unwrap().txn_id;
+                println!(
+                    "called lock_is_free with reservation with txn_id: {}",
+                    txn_id
+                );
+            }
             if reservation.is_some() {
                 panic!("called lock_is_free with reservation");
             }
@@ -511,7 +540,6 @@ impl LockState {
      * Note that this method does not actually wait.
      */
     pub async fn try_active_wait<'b>(&self, guard: LockTableGuardLink, is_read_only: bool) -> bool {
-        self.print();
         let lg = guard.as_ref();
 
         let (lg_txn_id, lg_read_timestamp, lg_write_timestamp) =

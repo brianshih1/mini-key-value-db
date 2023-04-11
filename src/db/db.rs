@@ -92,8 +92,14 @@ impl DB {
         self.db.set_time(timestamp);
     }
 
-    pub async fn write<T: Serialize>(&self, key: &str, value: T, txn_id: Uuid) {
-        self.db.write(key, value, txn_id).await;
+    // TODO: This should return an error - deadlock detection
+    pub async fn write<T: Serialize>(
+        &self,
+        key: &str,
+        value: T,
+        txn_id: Uuid,
+    ) -> Result<ResponseUnion, ExecuteError> {
+        self.db.write(key, value, txn_id).await
     }
 
     pub async fn read<T: DeserializeOwned>(&self, key: &str, txn_id: Uuid) -> Option<T> {
@@ -216,7 +222,12 @@ impl InternalDB {
     }
 
     // TODO: Return potential error
-    pub async fn write<T: Serialize>(&self, key: &str, value: T, txn_id: Uuid) {
+    pub async fn write<T: Serialize>(
+        &self,
+        key: &str,
+        value: T,
+        txn_id: Uuid,
+    ) -> Result<ResponseUnion, ExecuteError> {
         let request_union = RequestUnion::Put(PutRequest {
             key: str_to_key(key),
             value: serde_json::to_string(&value).unwrap().into_bytes(),
@@ -227,15 +238,9 @@ impl InternalDB {
             metadata: request_metadata,
             request_union,
         };
-        let res = self
-            .executor
+        self.executor
             .execute_request_with_concurrency_retries(write_request)
-            .await;
-        res.unwrap();
-        // match response {
-        //     ResponseUnion::Put(_) => {}
-        //     _ => unreachable!(),
-        // };
+            .await
     }
 
     // TODO: Result
@@ -263,7 +268,8 @@ impl InternalDB {
             },
             Err(err) => match err {
                 ExecuteError::ReadRefreshFailure => unreachable!(),
-                ExecuteError::FailToAcquireGuard => unreachable!(),
+                ExecuteError::TxnCommitted => todo!(),
+                ExecuteError::TxnAborted => todo!(),
             },
         }
     }
@@ -337,7 +343,8 @@ impl InternalDB {
                 ExecuteError::ReadRefreshFailure => {
                     CommitTxnResult::Fail(CommitTxnFailureReason::ReadRefreshFail)
                 }
-                ExecuteError::FailToAcquireGuard => unreachable!(),
+                ExecuteError::TxnCommitted => todo!(),
+                ExecuteError::TxnAborted => todo!(),
             },
         }
     }
@@ -372,7 +379,11 @@ pub struct TxnContext {
 }
 
 impl TxnContext {
-    pub async fn write<T: Serialize>(&self, key: &str, value: T) {
+    pub async fn write<T: Serialize>(
+        &self,
+        key: &str,
+        value: T,
+    ) -> Result<ResponseUnion, ExecuteError> {
         self.db.write(key, value, self.txn_id).await
     }
 

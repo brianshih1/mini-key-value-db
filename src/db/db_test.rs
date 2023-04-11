@@ -330,8 +330,71 @@ mod test {
     }
 
     mod deadlock {
+        use std::sync::Arc;
+
+        use crate::db::db::{CommitTxnResult, Timestamp, DB};
+
         #[tokio::test]
-        async fn test() {}
+        async fn test() {
+            let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
+            let txn1 = db.begin_txn().await;
+            let txn2 = db.begin_txn().await;
+            println!("Txn1 is: {}", txn1);
+            println!("Txn2 is: {}", txn2);
+
+            let key_a = "A";
+            let key_b = "B";
+            db.write(key_a, 1, txn1).await;
+            db.write(key_b, 10, txn2).await;
+
+            db.set_time(Timestamp::new(12));
+            let db_1 = db.clone();
+            let task_1 = tokio::spawn(async move {
+                let write_res = db_1.write(key_b, 10, txn1).await;
+                match write_res {
+                    Ok(_) => {
+                        println!("txn1 succeded in writing")
+                    }
+                    Err(_) => {
+                        println!("txn1 failed in writing")
+                    }
+                }
+                println!("txn1 finished writing on B");
+                // println!("txn1 committing!");
+                // let commit_res = db_1.commit_txn(txn1).await;
+                // match commit_res {
+                //     CommitTxnResult::Success(_) => {
+                //         println!("txn1 succeeded");
+                //     }
+                //     CommitTxnResult::Fail(_) => {
+                //         println!("txn1 failed");
+                //     }
+                // }
+            });
+
+            let db_2 = db.clone();
+            let task_2 = tokio::spawn(async move {
+                let write_res = db_2.write(key_a, 100, txn2).await;
+                match write_res {
+                    Ok(_) => {
+                        println!("txn2 committing!");
+                        let commit_res = db_2.commit_txn(txn2).await;
+                        match commit_res {
+                            CommitTxnResult::Success(_) => {
+                                println!("txn2 succeeded in committing");
+                            }
+                            CommitTxnResult::Fail(_) => {
+                                println!("txn2 failed in committing");
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        println!("Txn2 failed to write")
+                    }
+                }
+            });
+            tokio::try_join!(task_1, task_2).unwrap();
+        }
     }
 
     mod run_txn {

@@ -28,7 +28,7 @@ use crate::{
  * Holds a map from pushee txn ID to list of waitingPush queries.
  */
 pub struct TxnWaitQueue {
-    txns: TxnMap,
+    pushees: TxnWaitingPushesMap,
     pub request_sender: Arc<Sender<TaskQueueRequest>>,
     pub store: Arc<KVStore>,
 }
@@ -59,7 +59,7 @@ struct PendingTxn {
     waiting_pushes: Vec<WaitingPushLink>,
 }
 
-type TxnMap = Arc<RwLock<HashMap<Uuid, Arc<RwLock<PendingTxn>>>>>;
+type TxnWaitingPushesMap = Arc<RwLock<HashMap<Uuid, Arc<RwLock<PendingTxn>>>>>;
 
 impl PendingTxn {
     pub fn new() -> Self {
@@ -70,6 +70,11 @@ impl PendingTxn {
 }
 
 pub struct PushTxnResponse {}
+
+pub enum WaitForPushError {
+    TxnAborted,
+    TxnCommitted,
+}
 
 impl WaitingPush {
     pub fn new(txn_id: Uuid) -> Self {
@@ -100,7 +105,7 @@ impl WaitingPush {
 impl TxnWaitQueue {
     pub fn new(request_sender: Arc<Sender<TaskQueueRequest>>, store: Arc<KVStore>) -> Self {
         TxnWaitQueue {
-            txns: Arc::new(RwLock::new(HashMap::new())),
+            pushees: Arc::new(RwLock::new(HashMap::new())),
             request_sender,
             store,
         }
@@ -110,8 +115,8 @@ impl TxnWaitQueue {
      * Enqueue and push the waitingPush onto the pendingTxn's waiting_pushes.
      */
     fn enqueue_and_push(&self, pusher_txn_id: Uuid, pushee_txn_id: Uuid) -> WaitingPushLink {
-        let mut txns = self.txns.write().unwrap();
-        let pushee = txns.get(&pushee_txn_id);
+        let mut pushees = self.pushees.write().unwrap();
+        let pushee = pushees.get(&pushee_txn_id);
 
         let waiting_push = Arc::new(WaitingPush::new(pusher_txn_id));
 
@@ -124,16 +129,17 @@ impl TxnWaitQueue {
                     .push(waiting_push.clone());
             }
             None => {
+                println!("None found for pushee: {}", pushee_txn_id);
                 let mut pending_txn = PendingTxn::new();
                 pending_txn.waiting_pushes.push(waiting_push.clone());
-                txns.insert(pushee_txn_id, Arc::new(RwLock::new(pending_txn)));
+                pushees.insert(pushee_txn_id, Arc::new(RwLock::new(pending_txn)));
             }
         };
         waiting_push
     }
 
     fn get_pending_txn(&self, txn_id: Uuid) -> Option<Arc<RwLock<PendingTxn>>> {
-        let txns = self.txns.read().unwrap();
+        let txns = self.pushees.read().unwrap();
         let pushee_option = txns.get(&txn_id).and_then(|pushee| Some(pushee.clone()));
         pushee_option
     }
@@ -160,7 +166,7 @@ impl TxnWaitQueue {
      * Removes the pushee from the txns queue
      */
     fn remove_pushee(&self, pushee_txn_id: Uuid) {
-        let mut txns = self.txns.write().unwrap();
+        let mut txns = self.pushees.write().unwrap();
         txns.remove(&pushee_txn_id);
     }
 
@@ -179,23 +185,31 @@ impl TxnWaitQueue {
         &self,
         pusher_txn_id: Uuid,
         pushee_txn_id: Uuid,
-    ) -> Result<PushTxnResponse, ()> {
+    ) -> Result<PushTxnResponse, WaitForPushError> {
+        println!(
+            "Wait_for_push called. Pusher: {}. Pushee: {}",
+            pusher_txn_id, pushee_txn_id
+        );
         let waiting_push_link = self.enqueue_and_push(pusher_txn_id, pushee_txn_id);
         let (query_dependents_handle, mut dependents_rx) =
             self.start_query_pusher_txn_dependents(pusher_txn_id);
         let mut rx = waiting_push_link.pushee_finalized_receiver.lock().await;
-
+        let mut loop_count = 0;
         loop {
+            loop_count += 1;
+            if loop_count > 50 {
+                panic!("exceeded")
+            }
             tokio::select! {
                 Some((dependents, txn_status)) = dependents_rx.recv() => {
                     // if the pusher's transaciton is finalized, then the push itself failed.
                     match txn_status {
                         TransactionStatus::PENDING => {},
                         TransactionStatus::COMMITTED => {
-                            return Err(());
+                            return Err(WaitForPushError::TxnCommitted);
                         },
                         TransactionStatus::ABORTED => {
-                            return Err(());
+                            return Err(WaitForPushError::TxnAborted);
                         },
                     }
                     let is_cycle_detected = dependents.contains(&pushee_txn_id);
@@ -214,11 +228,12 @@ impl TxnWaitQueue {
                         let response = push_txn_rx.recv().await.unwrap();
                         match response {
                             QueueResponseUnion::AbortTxn(_) => {
+                                println!("Ending waitForPush, finished aborting pushee: {}", pushee_txn_id);
                                 return Ok(PushTxnResponse{})
                             },
                         }
                     }
-                    println!("Received dependents. No cycles detected yet!");
+                    println!("Received dependents. No cycles detected yet! Dependents: {:?}", dependents);
                 }
                 Some(_) = rx.recv() => {
                     // ends the loop to query for dependents
@@ -230,7 +245,7 @@ impl TxnWaitQueue {
         }
     }
 
-    fn get_dependents(txn_map: TxnMap, txn_id: Uuid) -> Vec<Uuid> {
+    fn get_dependents(txn_map: TxnWaitingPushesMap, txn_id: Uuid) -> Vec<Uuid> {
         let txns = txn_map.read().unwrap();
         let pending_txn = txns.get(&txn_id);
         match pending_txn {
@@ -239,11 +254,18 @@ impl TxnWaitQueue {
                 pending
                     .waiting_pushes
                     .iter()
-                    .map(|push| push.get_dependents())
+                    .map(|push| {
+                        let mut vec = push.get_dependents();
+                        vec.push(push.txn_id);
+                        vec
+                    })
                     .collect::<Vec<Vec<Uuid>>>()
                     .concat()
             }
-            None => Vec::new(),
+            None => {
+                println!("No pushee for {} found when get_dependents", txn_id);
+                Vec::new()
+            }
         }
     }
 
@@ -255,13 +277,12 @@ impl TxnWaitQueue {
         txn_id: Uuid,
     ) -> (JoinHandle<()>, Receiver<(Vec<Uuid>, TransactionStatus)>) {
         let (tx, rx) = channel::<(Vec<Uuid>, TransactionStatus)>(1);
-        let txns = self.txns.clone();
+        let txns = self.pushees.clone();
         let store = self.store.clone();
         let handle = tokio::spawn(async move {
-            let foo = txns.clone();
             loop {
                 // TODO: We need a way to terminate the loop
-                let dependents = TxnWaitQueue::get_dependents(foo.clone(), txn_id);
+                let dependents = TxnWaitQueue::get_dependents(txns.clone(), txn_id);
                 let txn_record = store.get_transaction_record(&txn_id).unwrap();
                 tx.send((dependents, txn_record.status)).await.unwrap();
                 time::sleep(Duration::from_millis(10)).await;

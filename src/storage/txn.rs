@@ -87,7 +87,10 @@ impl Txn {
 
     pub fn append_lock_span(&self, key: Key) {
         let mut lock_spans = self.lock_spans.write().unwrap();
-        lock_spans.push(key);
+        // avoid duplicate keys
+        if !lock_spans.contains(&key) {
+            lock_spans.push(key);
+        }
     }
 
     pub fn append_read_sets(&self, key: Key) {

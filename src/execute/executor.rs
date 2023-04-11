@@ -23,7 +23,9 @@ pub type ExecuteResult = Result<ResponseUnion, ExecuteError>;
 #[derive(Debug)]
 pub enum ExecuteError {
     ReadRefreshFailure,
-    FailToAcquireGuard,
+    TxnCommitted,
+    // Failed to execute because its transaction is already aborted
+    TxnAborted,
 }
 
 pub struct Executor {
@@ -65,9 +67,13 @@ impl Executor {
             let request_union = &request.request_union;
             let guard = self.concr_manager.sequence_req(&request).await;
 
-            if guard.is_none() {
-                return ExecuteResult::Err(ExecuteError::FailToAcquireGuard);
+            if let Err(err) = &guard {
+                match err {
+                    TxnAborted => return ExecuteResult::Err(ExecuteError::TxnAborted),
+                    TxnCommitted => return ExecuteResult::Err(ExecuteError::TxnCommitted),
+                }
             }
+
             let guard = guard.unwrap();
             let result = if request_union.is_read_only() {
                 self.execute_read_only_request(&request, &guard).await
