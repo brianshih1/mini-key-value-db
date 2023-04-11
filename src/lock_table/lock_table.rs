@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
+    thread,
 };
 
 use tokio::{
@@ -15,11 +16,12 @@ use uuid::Uuid;
 use crate::{
     db::{
         db::{TxnLink, TxnMap},
-        request_queue::ThreadPoolRequest,
+        request_queue::TaskQueueRequest,
     },
     execute::request::{Command, Request, SpanSet},
     hlc::timestamp::Timestamp,
     storage::{
+        mvcc::KVStore,
         txn::{Txn, TxnIntent, TxnMetadata},
         Key,
     },
@@ -104,13 +106,17 @@ pub struct LockState {
 }
 
 impl LockTable {
-    pub fn new(txns: TxnMap, request_sender: Arc<Sender<ThreadPoolRequest>>) -> Self {
+    pub fn new(
+        txns: TxnMap,
+        request_sender: Arc<Sender<TaskQueueRequest>>,
+        store: Arc<KVStore>,
+    ) -> Self {
         let cloned_sender = request_sender.clone();
 
         LockTable {
             locks: RwLock::new(HashMap::new()),
             txn_map: txns,
-            txn_wait_queue: TxnWaitQueue::new(request_sender),
+            txn_wait_queue: TxnWaitQueue::new(request_sender, store),
         }
     }
 
@@ -118,11 +124,16 @@ impl LockTable {
     pub fn new_with_defaults() -> Self {
         use tokio::sync::mpsc;
 
-        let (sender, receiver) = mpsc::channel::<ThreadPoolRequest>(1);
+        use crate::storage::mvcc::KVStore;
+
+        let (sender, receiver) = mpsc::channel::<TaskQueueRequest>(1);
         LockTable {
             locks: RwLock::new(HashMap::new()),
             txn_map: Arc::new(RwLock::new(HashMap::new())),
-            txn_wait_queue: TxnWaitQueue::new(Arc::new(sender)),
+            txn_wait_queue: TxnWaitQueue::new(
+                Arc::new(sender),
+                Arc::new(KVStore::new_cleaned("/tmp/foo")),
+            ),
         }
     }
 
@@ -215,20 +226,39 @@ impl LockTable {
      *
      * It's also responsible for pushing transaction if it times out
      */
-    pub async fn wait_for(&self, guard: LockTableGuardLink) {
+    pub async fn wait_for(&self, guard: LockTableGuardLink) -> Result<(), ()> {
         let lg = guard.as_ref();
         let mut rx = lg.wait_done_receiver.lock().await;
 
         let sleep = time::sleep(Duration::from_millis(1000));
         tokio::pin!(sleep);
+
         tokio::select! {
             Some(_) = rx.recv() => {
                 println!("finished waiting for lock!");
-                return;
+                return Ok(());
             }
             _ = &mut sleep, if !sleep.is_elapsed() => {
                 println!("operation timed out");
-                // TODO: PushTransactions
+                let keys = &guard.keys;
+                for key in keys.iter() {
+                    let key = &key.start_key;
+                    let lock_state = self.get_lock_state(&key).unwrap();
+                    let holder_txn_id = lock_state.get_holder_txn_id();
+                    if let Some(pushee_txn_id) = holder_txn_id {
+                        let pusher_txn_id = guard.txn.read().unwrap().txn_id;
+                        let wait_res =self.txn_wait_queue
+                            .wait_for_push(pusher_txn_id, pushee_txn_id)
+                            .await;
+                        match wait_res {
+                            Ok(_) => {},
+                            Err(_) => {
+                                return Err(());
+                            },
+                        }
+                    }
+                }
+                return Ok(())
             }
         };
     }

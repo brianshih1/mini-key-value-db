@@ -100,13 +100,9 @@ impl Clock<Manual> {
 
 #[cfg(test)]
 mod tests {
-    use crate::hlc::{timestamp::Timestamp, wall_clock::manual::Manual};
+    use crate::hlc::timestamp::Timestamp;
 
     use super::Clock;
-
-    struct Foo {
-        hello: String,
-    }
 
     #[test]
     fn received_timestamp_greater_than_latest_timestamp() {

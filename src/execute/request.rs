@@ -181,6 +181,14 @@ impl Command for AbortTxnRequest {
                 UpdateLock::Abort(AbortUpdateLock { txn_id: txn_id }),
             )
             .await;
+
+        // release any pushers blocked by the transaction
+        executor
+            .concr_manager
+            .lock_table
+            .txn_wait_queue
+            .finalize_txn(txn_id)
+            .await;
         Ok(ResponseUnion::AbortTxn(AbortTxnResponse {}))
     }
 }

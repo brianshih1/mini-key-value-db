@@ -14,8 +14,14 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    db::{db::InternalDB, request_queue::ThreadPoolRequest},
+    db::{
+        db::InternalDB,
+        request_queue::{
+            AbortTxnQueueRequest, QueueResponseUnion, TaskQueueRequest, TaskQueueRequestUnion,
+        },
+    },
     execute::executor::Executor,
+    storage::{mvcc::KVStore, txn::TransactionStatus},
 };
 
 /**
@@ -23,7 +29,8 @@ use crate::{
  */
 pub struct TxnWaitQueue {
     txns: TxnMap,
-    request_sender: Arc<Sender<ThreadPoolRequest>>,
+    pub request_sender: Arc<Sender<TaskQueueRequest>>,
+    pub store: Arc<KVStore>,
 }
 
 /**
@@ -43,7 +50,7 @@ struct WaitingPush {
      * The receiver will receive a message if the pushee's transaction
      * has finalized
      */
-    receiver: Mutex<Receiver<()>>,
+    pushee_finalized_receiver: Mutex<Receiver<()>>,
 }
 
 type WaitingPushLink = Arc<WaitingPush>;
@@ -62,6 +69,8 @@ impl PendingTxn {
     }
 }
 
+pub struct PushTxnResponse {}
+
 impl WaitingPush {
     pub fn new(txn_id: Uuid) -> Self {
         let (tx, rx) = channel::<()>(1);
@@ -69,7 +78,7 @@ impl WaitingPush {
             dependents: RwLock::new(HashSet::new()),
             txn_id,
             sender: Arc::new(tx),
-            receiver: Mutex::new(rx),
+            pushee_finalized_receiver: Mutex::new(rx),
         }
     }
 
@@ -89,10 +98,11 @@ impl WaitingPush {
 }
 
 impl TxnWaitQueue {
-    pub fn new(request_sender: Arc<Sender<ThreadPoolRequest>>) -> Self {
+    pub fn new(request_sender: Arc<Sender<TaskQueueRequest>>, store: Arc<KVStore>) -> Self {
         TxnWaitQueue {
             txns: Arc::new(RwLock::new(HashMap::new())),
             request_sender,
+            store,
         }
     }
 
@@ -132,11 +142,11 @@ impl TxnWaitQueue {
      * Finalize_txn is invoked when the transaction has finalized (aborted or committed).
      * It unblocks all pending waiters.
      */
-    async fn finalize_txn(&self, txn_id: Uuid) {
+    pub async fn finalize_txn(&self, txn_id: Uuid) {
         let pushee = self.get_pending_txn(txn_id);
         match pushee {
             Some(pushee) => {
-                let waiting_pushes = &pushee.read().unwrap().waiting_pushes;
+                let waiting_pushes = &pushee.read().unwrap().waiting_pushes.clone();
                 for waiting_push in waiting_pushes.iter() {
                     waiting_push.release_push().await;
                 }
@@ -165,29 +175,56 @@ impl TxnWaitQueue {
      * This function will first create a waiting_push and add it to the txn waitQueue.
      * It will then wait for the waiting_push's pushee to be finalized (aborted/committed).
      */
-    pub async fn wait_for_push(&self, pusher_txn_id: Uuid, pushee_txn_id: Uuid) {
+    pub async fn wait_for_push(
+        &self,
+        pusher_txn_id: Uuid,
+        pushee_txn_id: Uuid,
+    ) -> Result<PushTxnResponse, ()> {
         let waiting_push_link = self.enqueue_and_push(pusher_txn_id, pushee_txn_id);
         let (query_dependents_handle, mut dependents_rx) =
             self.start_query_pusher_txn_dependents(pusher_txn_id);
-        let mut rx = waiting_push_link.receiver.lock().await;
+        let mut rx = waiting_push_link.pushee_finalized_receiver.lock().await;
 
         loop {
             tokio::select! {
-                Some(dependents) = dependents_rx.recv() => {
+                Some((dependents, txn_status)) = dependents_rx.recv() => {
+                    // if the pusher's transaciton is finalized, then the push itself failed.
+                    match txn_status {
+                        TransactionStatus::PENDING => {},
+                        TransactionStatus::COMMITTED => {
+                            return Err(());
+                        },
+                        TransactionStatus::ABORTED => {
+                            return Err(());
+                        },
+                    }
                     let is_cycle_detected = dependents.contains(&pushee_txn_id);
                     // check if there is a dependency
                     if is_cycle_detected {
-
-                    // TODO: abort pushee with sender
-                        return;
+                        let (push_txn_sender, mut push_txn_rx) = channel(1);
+                        self.request_sender
+                            .send(TaskQueueRequest{
+                                done_sender: Arc::new(push_txn_sender),
+                                request: TaskQueueRequestUnion::AbortTxn(
+                                    AbortTxnQueueRequest { txn_id: pushee_txn_id }
+                                )
+                            })
+                            .await
+                            .unwrap();
+                        let response = push_txn_rx.recv().await.unwrap();
+                        match response {
+                            QueueResponseUnion::AbortTxn(_) => {
+                                return Ok(PushTxnResponse{})
+                            },
+                        }
                     }
-                println!("Received dependents. No cycles detected yet!");
+                    println!("Received dependents. No cycles detected yet!");
                 }
                 Some(_) = rx.recv() => {
                     // ends the loop to query for dependents
                     query_dependents_handle.abort();
                     println!("Pushee has finalized");
-                    return;
+                    return Ok(PushTxnResponse{});
                 }
             }
         }
@@ -216,15 +253,17 @@ impl TxnWaitQueue {
     fn start_query_pusher_txn_dependents(
         &self,
         txn_id: Uuid,
-    ) -> (JoinHandle<()>, Receiver<Vec<Uuid>>) {
-        let (tx, rx) = channel::<Vec<Uuid>>(1);
+    ) -> (JoinHandle<()>, Receiver<(Vec<Uuid>, TransactionStatus)>) {
+        let (tx, rx) = channel::<(Vec<Uuid>, TransactionStatus)>(1);
         let txns = self.txns.clone();
+        let store = self.store.clone();
         let handle = tokio::spawn(async move {
             let foo = txns.clone();
             loop {
                 // TODO: We need a way to terminate the loop
                 let dependents = TxnWaitQueue::get_dependents(foo.clone(), txn_id);
-                tx.send(dependents).await.unwrap();
+                let txn_record = store.get_transaction_record(&txn_id).unwrap();
+                tx.send((dependents, txn_record.status)).await.unwrap();
                 time::sleep(Duration::from_millis(10)).await;
             }
         });

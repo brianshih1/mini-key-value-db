@@ -329,6 +329,11 @@ mod test {
         }
     }
 
+    mod deadlock {
+        #[tokio::test]
+        async fn test() {}
+    }
+
     mod run_txn {
         use std::sync::Arc;
 

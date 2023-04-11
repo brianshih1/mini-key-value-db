@@ -511,7 +511,7 @@ mod Test {
                 ]),
             });
             let tree = create_test_tree(&test_node, 4);
-            let (node_latch, parent_latch, edge_idx) =
+            let (node_latch, parent_latch, _) =
                 find_node_and_parent_with_indices(&tree, Vec::from([0]));
             let guard = node_latch.write().unwrap();
             let leaf = guard.as_leaf_node();

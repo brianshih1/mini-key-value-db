@@ -44,7 +44,7 @@ pub struct Txn {
     pub read_timestamp: Timestamp,
 
     /**
-     * List of keys that the tranaction has acquired locks.
+     * List of keys that the transaction has acquired locks.
      * These should be resolved when the txn finalizes.
      * Each of these map to an intent in the database laid by the txn.
      */

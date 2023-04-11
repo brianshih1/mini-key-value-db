@@ -7,7 +7,7 @@ use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard},
     db::{
         db::{TxnLink, TxnMap},
-        request_queue::ThreadPoolRequest,
+        request_queue::TaskQueueRequest,
     },
     hlc::timestamp::Timestamp,
     storage::mvcc::{KVStore, MVCCGetParams},
@@ -23,11 +23,12 @@ pub type ExecuteResult = Result<ResponseUnion, ExecuteError>;
 #[derive(Debug)]
 pub enum ExecuteError {
     ReadRefreshFailure,
+    FailToAcquireGuard,
 }
 
 pub struct Executor {
     pub concr_manager: ConcurrencyManager,
-    pub store: KVStore,
+    pub store: Arc<KVStore>,
     pub timestamp_oracle: RwLock<TimestampOracle>,
 }
 
@@ -36,19 +37,21 @@ impl Executor {
     pub fn new_cleaned(
         path: &str,
         txns: TxnMap,
-        request_sender: Arc<Sender<ThreadPoolRequest>>,
+        request_sender: Arc<Sender<TaskQueueRequest>>,
     ) -> Self {
+        let store = Arc::new(KVStore::new_cleaned(path));
         Executor {
-            concr_manager: ConcurrencyManager::new(txns, request_sender),
-            store: KVStore::new_cleaned(path),
+            concr_manager: ConcurrencyManager::new(txns, request_sender, Arc::clone(&store)),
+            store: store,
             timestamp_oracle: RwLock::new(TimestampOracle::new()),
         }
     }
 
-    pub fn new(path: &str, txns: TxnMap, request_sender: Arc<Sender<ThreadPoolRequest>>) -> Self {
+    pub fn new(path: &str, txns: TxnMap, request_sender: Arc<Sender<TaskQueueRequest>>) -> Self {
+        let store = Arc::new(KVStore::new(path));
         Executor {
-            concr_manager: ConcurrencyManager::new(txns, request_sender),
-            store: KVStore::new(path),
+            concr_manager: ConcurrencyManager::new(txns, request_sender, store.clone()),
+            store,
             timestamp_oracle: RwLock::new(TimestampOracle::new()),
         }
     }
@@ -62,6 +65,10 @@ impl Executor {
             let request_union = &request.request_union;
             let guard = self.concr_manager.sequence_req(&request).await;
 
+            if guard.is_none() {
+                return ExecuteResult::Err(ExecuteError::FailToAcquireGuard);
+            }
+            let guard = guard.unwrap();
             let result = if request_union.is_read_only() {
                 self.execute_read_only_request(&request, &guard).await
             } else {

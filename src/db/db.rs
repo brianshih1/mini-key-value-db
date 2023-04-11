@@ -24,7 +24,7 @@ use crate::{
     storage::{str_to_key, txn::Txn},
 };
 
-use super::request_queue::{ThreadPool, ThreadPoolRequest};
+use super::request_queue::{TaskQueue, TaskQueueRequest};
 
 pub type TxnLink = Arc<RwLock<Txn>>;
 
@@ -34,7 +34,7 @@ pub struct InternalDB {
     executor: Arc<Executor>,
     txns: TxnMap,
     clock: RwLock<ManualClock>,
-    thread_pool: ThreadPool,
+    thread_pool: TaskQueue,
 }
 
 pub struct DB {
@@ -165,11 +165,11 @@ impl InternalDB {
         if initial_time.value == 0 {
             panic!("DB time cannot start from 0 as it is reserved for intents")
         }
-        let (sender, receiver) = mpsc::channel::<ThreadPoolRequest>(1);
+        let (sender, receiver) = mpsc::channel::<TaskQueueRequest>(1);
         let sender = Arc::new(sender);
         let executor = Arc::new(Executor::new_cleaned(path, txns.clone(), sender.clone()));
         let txns = Arc::new(RwLock::new(HashMap::new()));
-        let thread_pool = ThreadPool::new(receiver, executor.clone(), txns.clone(), sender.clone());
+        let thread_pool = TaskQueue::new(receiver, executor.clone(), txns.clone(), sender.clone());
         InternalDB {
             executor,
             txns,
@@ -183,12 +183,12 @@ impl InternalDB {
         if initial_time.value == 0 {
             panic!("DB time cannot start from 0 as it is reserved for intents")
         }
-        let (sender, receiver) = mpsc::channel::<ThreadPoolRequest>(1);
+        let (sender, receiver) = mpsc::channel::<TaskQueueRequest>(1);
         let sender = Arc::new(sender);
 
         let executor = Arc::new(Executor::new(path, txns.clone(), sender.clone()));
         let txns = Arc::new(RwLock::new(HashMap::new()));
-        let thread_pool = ThreadPool::new(receiver, executor.clone(), txns.clone(), sender.clone());
+        let thread_pool = TaskQueue::new(receiver, executor.clone(), txns.clone(), sender.clone());
         InternalDB {
             executor,
             txns,
@@ -263,6 +263,7 @@ impl InternalDB {
             },
             Err(err) => match err {
                 ExecuteError::ReadRefreshFailure => unreachable!(),
+                ExecuteError::FailToAcquireGuard => unreachable!(),
             },
         }
     }
@@ -336,6 +337,7 @@ impl InternalDB {
                 ExecuteError::ReadRefreshFailure => {
                     CommitTxnResult::Fail(CommitTxnFailureReason::ReadRefreshFail)
                 }
+                ExecuteError::FailToAcquireGuard => unreachable!(),
             },
         }
     }
