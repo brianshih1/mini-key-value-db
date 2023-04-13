@@ -225,7 +225,7 @@ impl KVStore {
                     .current_value_serialized::<UncommittedValue>()
                     .txn_metadata;
                 let transaction_id = metadata.txn_id;
-                let transaction_record = self.get_transaction_record(&transaction_id).unwrap();
+                let transaction_record = self.get_transaction_record(transaction_id).unwrap();
                 return Some((metadata, transaction_record));
             }
         }
@@ -247,7 +247,7 @@ impl KVStore {
         self.put_transaction_record(txn_id, &record)
     }
 
-    pub fn get_transaction_record(&self, transaction_id: &Uuid) -> Option<TxnRecord> {
+    pub fn get_transaction_record(&self, transaction_id: Uuid) -> Option<TxnRecord> {
         self.storage.get_transaction_record(transaction_id)
     }
 

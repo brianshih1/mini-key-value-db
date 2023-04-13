@@ -1,5 +1,3 @@
-use std::fmt::{self, Display};
-
 use serde::Serialize;
 
 use crate::hlc::timestamp::Timestamp;

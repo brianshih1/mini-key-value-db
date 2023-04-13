@@ -91,6 +91,7 @@ impl ConcurrencyManager {
         let keys = ConcurrencyManager::get_txn_lock_spans(txn.clone());
 
         for key in keys.iter() {
+            println!("Updating lock for key: {:?}", key);
             self.lock_table
                 .update_locks(key.clone(), &update_lock)
                 .await;

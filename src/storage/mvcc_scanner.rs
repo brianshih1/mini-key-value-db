@@ -1,11 +1,9 @@
-use rocksdb::DBIterator;
-
 use crate::{db::db::TxnLink, hlc::timestamp::Timestamp};
 
 use super::{
     mvcc_iterator::MVCCIterator,
     mvcc_key::{create_intent_key, MVCCKey},
-    txn::{Txn, TxnIntent, UncommittedValue},
+    txn::{TxnIntent, UncommittedValue},
     Key, Value,
 };
 
@@ -66,7 +64,6 @@ impl<'a> MVCCScanner<'a> {
         let start_base = create_intent_key(&self.start_key);
         self.it.seek_ge(&start_base);
         loop {
-            println!("LOOP!");
             if self.results.len() == self.max_records_count {
                 return;
             }

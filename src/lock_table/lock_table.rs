@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
-    thread,
 };
 
 use rand::Rng;
@@ -130,8 +129,6 @@ impl LockTable {
     pub fn new_with_defaults() -> Self {
         use tokio::sync::mpsc;
 
-        use crate::storage::mvcc::KVStore;
-
         let (sender, receiver) = mpsc::channel::<TaskQueueRequest>(1);
         LockTable {
             locks: RwLock::new(HashMap::new()),
@@ -206,18 +203,38 @@ impl LockTable {
         let is_read_only = request.request_union.is_read_only();
         let txn = request.metadata.txn.clone();
 
+        let txn_id = txn.read().unwrap().txn_id;
+
         let lock_guard =
             LockTableGuard::new_lock_table_guard_link(txn.clone(), is_read_only, spans.clone());
+        println!(
+            "created lock guard {} for request type: {}",
+            lock_guard.guard_id,
+            request.request_union.get_type_string()
+        );
         for span in spans.iter() {
             let lock = self.get_lock_state(&span.start_key);
             if let Some(write_lock_state) = lock {
                 let should_wait = write_lock_state
                     .try_active_wait(lock_guard.clone(), is_read_only)
                     .await;
-                println!("Should wait: {}", should_wait);
                 if should_wait {
+                    println!(
+                        "Waiting for lock guard: {}. Request type: {}. Txn id: {}",
+                        lock_guard.guard_id,
+                        request.request_union.get_type_string(),
+                        txn_id
+                    );
                     *lock_guard.as_ref().should_wait.write().unwrap() = true;
+                    write_lock_state.print();
                     return (true, lock_guard);
+                } else {
+                    println!(
+                        "No need to wait for lock guard: {}, request type: {}. Txn id: {}",
+                        lock_guard.guard_id,
+                        request.request_union.get_type_string(),
+                        txn_id
+                    );
                 }
             }
         }
@@ -267,6 +284,7 @@ impl LockTable {
                                 // We should probably have a vec of lock_state collected so far
                                 println!("wait for push failed");
                                 lock_state.request_done(guard.clone()).await;
+
                                 match err {
                                     WaitForPushError::TxnAborted => {
                                         return Err(WaitForGuardError::TxnAborted);
@@ -379,13 +397,25 @@ impl LockTable {
         }
         let txn_id = match &update_lock {
             UpdateLock::Commit(commit) => commit.txn_id,
-            UpdateLock::Abort(abort) => abort.txn_id,
+            UpdateLock::Abort(abort) => {
+                println!("updating locks for aborting txn: {}.", abort.txn_id);
+                abort.txn_id
+            }
         };
 
         if let Some(holder) = holder_option {
             if holder.txn_id != txn_id {
+                println!(
+                    "holder is not the txn. Aborting txn: {}. Holder txn: {}",
+                    txn_id, holder.txn_id
+                );
                 return false;
             }
+
+            println!(
+                "Holder to set to none's txn: {}. key: {:?}",
+                holder.txn_id, key
+            );
         }
         // somehow there's holder but not reservation
         lock_state.update_holder(None);
@@ -393,7 +423,14 @@ impl LockTable {
         if let UpdateLock::Commit(ref commit) = update_lock {
             lock_state.update_last_commit_timestamp(commit.commit_timestamp);
         }
-
+        println!(
+            "Calling lock is free to update locks for txn: {}. Reason: {}",
+            txn_id,
+            match &update_lock {
+                UpdateLock::Commit(_) => "commit",
+                UpdateLock::Abort(_) => "abort",
+            }
+        );
         lock_state_link.lock_is_free().await
     }
 }
@@ -445,13 +482,12 @@ impl LockState {
             let reservation = self.reservation.read().unwrap();
             if let Some(res) = &*reservation {
                 let txn_id = res.txn.read().unwrap().txn_id;
-                println!(
-                    "called lock_is_free with reservation with txn_id: {}",
-                    txn_id
+                let reservation_guard_id = res.guard_id;
+                panic!(
+                    "called lock_is_free with reservation with txn_id: {}. Reservations's guard id: {}",
+                    txn_id,
+                    reservation_guard_id
                 );
-            }
-            if reservation.is_some() {
-                panic!("called lock_is_free with reservation");
             }
         }
 
@@ -486,6 +522,7 @@ impl LockState {
      * we will also try to bump the txn's writeTimestamp.
      */
     pub async fn claim_reservation(&self, guard: LockTableGuardLink) {
+        println!("claiming reservation for guard: {}", guard.guard_id);
         self.bump_txn_write_timestamp(guard.txn.clone());
         self.update_reservation(Some(guard.clone()));
         guard.done_waiting_at_lock().await;
@@ -540,6 +577,10 @@ impl LockState {
      * Note that this method does not actually wait.
      */
     pub async fn try_active_wait<'b>(&self, guard: LockTableGuardLink, is_read_only: bool) -> bool {
+        if is_read_only && self.lock_holder.read().unwrap().is_none() {
+            return false;
+        }
+
         let lg = guard.as_ref();
 
         let (lg_txn_id, lg_read_timestamp, lg_write_timestamp) =
@@ -627,6 +668,15 @@ impl LockState {
     pub fn update_holder(&self, new_holder: Option<TxnMetadata>) {
         let mut holder = self.lock_holder.write().unwrap();
         *holder = new_holder;
+    }
+
+    pub fn remove_holder_if_txn_is_holder(&self, txn_id: Uuid) {
+        let mut holder_option = self.lock_holder.write().unwrap();
+        if let Some(holder) = &*holder_option {
+            if holder.txn_id == txn_id {
+                *holder_option = None;
+            }
+        }
     }
 
     pub fn update_last_commit_timestamp(&self, new_timestamp: Timestamp) {

@@ -10,13 +10,15 @@ use crate::{
         request_queue::TaskQueueRequest,
     },
     hlc::timestamp::Timestamp,
-    storage::mvcc::{KVStore, MVCCGetParams},
+    storage::{
+        mvcc::{KVStore, MVCCGetParams},
+        mvcc_key::create_intent_key,
+        txn::{TransactionStatus, TxnIntent},
+    },
     timestamp_oracle::oracle::TimestampOracle,
 };
 
-use super::request::{
-    Command, Request, ResponseError, ResponseResult, ResponseUnion, SpansToAcquire,
-};
+use super::request::{Command, Request, ResponseError, ResponseResult, ResponseUnion};
 
 pub type ExecuteResult = Result<ResponseUnion, ExecuteError>;
 
@@ -80,30 +82,41 @@ impl Executor {
             } else {
                 self.execute_write_request(&request, &guard).await
             };
-
+            self.concr_manager.finish_req(guard).await;
             match result {
                 Ok(result) => {
                     // release latches and dequeue request from lockTable
-                    self.concr_manager.finish_req(guard).await;
+
                     return Ok(result);
                 }
-                Err(err) => {
-                    match err {
-                        ResponseError::WriteIntentError(_) => {
-                            // TODO: When do we call finish_req in this case?
-                            self.handle_write_intent_error();
-                            todo!()
-                        }
-                        ResponseError::ReadRefreshError => {
-                            return Err(ExecuteError::ReadRefreshFailure)
-                        }
+                Err(err) => match err {
+                    ResponseError::WriteIntentError(err) => {
+                        self.handle_write_intent_error(err.intent.clone());
+                        println!("Handle write intent error");
                     }
-                }
+                    ResponseError::ReadRefreshError => {
+                        return Err(ExecuteError::ReadRefreshFailure);
+                    }
+                    ResponseError::TxnAbortedError => {
+                        return Err(ExecuteError::TxnAborted);
+                    }
+                },
             };
         }
     }
 
-    pub fn handle_write_intent_error(&self) {}
+    pub fn handle_write_intent_error(&self, txn_intent: TxnIntent) {
+        // check the txn record for the status of transaction.
+        let record = self
+            .store
+            .get_transaction_record(txn_intent.txn_meta.txn_id);
+        if let Some(txn_record) = record {
+            if let TransactionStatus::ABORTED = txn_record.status {
+                self.store.mvcc_delete(create_intent_key(&txn_intent.key));
+            }
+        }
+        // If the txn has aborted, remove the txn record
+    }
 
     pub async fn execute_write_request(&self, request: &Request, guard: &Guard) -> ResponseResult {
         // finds the max read timestamp from timestamp oracle for the spans

@@ -7,7 +7,6 @@ use std::{
 };
 
 use tokio::{
-    runtime::Runtime,
     spawn,
     sync::{
         mpsc::{Receiver, Sender},
@@ -75,8 +74,9 @@ impl TaskQueue {
                     match request {
                         Some(request) => match request.request {
                             TaskQueueRequestUnion::AbortTxn(abort_request) => {
-                                println!("Received an abort request");
                                 let txn_id = abort_request.txn_id;
+                                println!("Received an abort request for txn: {}", txn_id);
+
                                 let txn_request = RequestUnion::AbortTxn(AbortTxnRequest {});
                                 let txn = TaskQueue::get_txn(txns_cloned.clone(), txn_id);
                                 let request_metadata = RequestMetadata { txn };

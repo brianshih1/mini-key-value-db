@@ -66,7 +66,7 @@ mod Test {
     }
 
     pub fn create_test_node<K: NodeKey>(node: &TestNode<K>, order: u16) -> LatchNode<K> {
-        let (node, mut leaves) = create_tree_from_test_node_internal(node, order);
+        let (node, leaves) = create_tree_from_test_node_internal(node, order);
 
         for (idx, child) in leaves.iter().enumerate() {
             let guard = child.write().unwrap();

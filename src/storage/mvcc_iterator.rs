@@ -122,7 +122,7 @@ impl<'a> MVCCIterator<'a> {
             return false;
         }
         let curr_key = self.current_key();
-        if &curr_key <= key {
+        if curr_key.key == key.key && curr_key.timestamp <= key.timestamp {
             return true;
         }
         loop {
@@ -132,7 +132,7 @@ impl<'a> MVCCIterator<'a> {
                 Some(res) => match res {
                     Ok((k, _)) => {
                         let peeked_key = MVCCIterator::convert_raw_key_to_mvcc_key(k);
-                        if &peeked_key <= key {
+                        if peeked_key.key == key.key && peeked_key.timestamp <= key.timestamp {
                             found_valid = true;
                             self.next();
                             break;

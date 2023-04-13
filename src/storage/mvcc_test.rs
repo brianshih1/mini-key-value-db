@@ -19,7 +19,7 @@ mod tests {
             logical_time: 0,
         };
         kv_store.create_pending_transaction_record(transaction_id, write_timestamp);
-        let transaction_record = kv_store.get_transaction_record(&transaction_id).unwrap();
+        let transaction_record = kv_store.get_transaction_record(transaction_id).unwrap();
         assert_eq!(
             transaction_record,
             TxnRecord {
@@ -38,13 +38,8 @@ mod tests {
         use crate::{
             hlc::timestamp::Timestamp,
             storage::{
-                mvcc::KVStore,
-                mvcc_iterator::IterOptions,
-                mvcc_key::MVCCKey,
-                str_to_key,
-                txn::{Txn, TxnMetadata},
+                mvcc::KVStore, mvcc_iterator::IterOptions, mvcc_key::MVCCKey, str_to_key, txn::Txn,
             },
-            WRITE_INTENT_ERROR,
         };
 
         #[test]
@@ -208,11 +203,10 @@ mod tests {
         use crate::{
             hlc::timestamp::Timestamp,
             storage::{
-                mvcc::{serialize, KVStore, MVCCGetParams},
+                mvcc::KVStore,
                 mvcc_key::{create_intent_key, MVCCKey},
                 str_to_key,
-                txn::{Txn, TxnMetadata, UncommittedValue},
-                Value,
+                txn::{Txn, UncommittedValue},
             },
         };
 

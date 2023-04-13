@@ -57,6 +57,7 @@ pub struct CommitTxnSuccess {
 
 pub enum CommitTxnFailureReason {
     ReadRefreshFail,
+    TxnAborted,
 }
 
 impl Timestamp {
@@ -344,7 +345,9 @@ impl InternalDB {
                     CommitTxnResult::Fail(CommitTxnFailureReason::ReadRefreshFail)
                 }
                 ExecuteError::TxnCommitted => todo!(),
-                ExecuteError::TxnAborted => todo!(),
+                ExecuteError::TxnAborted => {
+                    CommitTxnResult::Fail(CommitTxnFailureReason::TxnAborted)
+                }
             },
         }
     }

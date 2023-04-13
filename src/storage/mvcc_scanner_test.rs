@@ -175,6 +175,8 @@ mod tests {
 
     #[cfg(test)]
     mod scan {
+        use core::time;
+
         use uuid::Uuid;
 
         use crate::{
@@ -316,5 +318,44 @@ mod tests {
             ));
             assert_eq!(scanner.found_intents, vec);
         }
+
+        // #[test]
+        // fn multiple_keys() {
+        //     let kv_store = KVStore::new_cleaned("./tmp/data");
+        //     let timestamp = Timestamp::new(12, 0);
+        //     let key1 = "apple";
+        //     kv_store
+        //         .mvcc_put(str_to_key(key1), Some(timestamp), None, 12)
+        //         .unwrap();
+
+        //     let key2 = "banana";
+        //     kv_store
+        //         .mvcc_put(str_to_key(key2), Some(timestamp), None, "world")
+        //         .unwrap();
+
+        //     let iterator = MVCCIterator::new(&kv_store.storage, IterOptions { prefix: true });
+
+        //     let mut scanner = MVCCScanner::new(
+        //         iterator,
+        //         str_to_key(key2),
+        //         Some(str_to_key(key2)),
+        //         timestamp,
+        //         5,
+        //         None,
+        //     );
+        //     scanner.scan();
+        //     assert_eq!(scanner.results.len(), 1);
+        //     let mut vec = Vec::new();
+
+        //     vec.push((
+        //         MVCCKey {
+        //             key: str_to_key(key2),
+        //             timestamp,
+        //         },
+        //         serialized_to_value(12),
+        //     ));
+
+        //     assert_eq!(scanner.results, vec);
+        // }
     }
 }

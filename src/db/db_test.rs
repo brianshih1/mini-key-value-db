@@ -1,5 +1,34 @@
 mod test {
 
+    // simple tests that involve writes and reads
+    mod single_txn_simple_test {
+        use std::sync::Arc;
+
+        use crate::db::db::{Timestamp, DB};
+
+        #[tokio::test]
+        async fn two_writes_with_different_keys() {
+            let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
+
+            let key_a = "A";
+            let key_b = "B";
+
+            let key_a_value = 14;
+            let key_b_value = 20;
+
+            let txn1 = db.begin_txn().await;
+            db.write(key_a, key_a_value, txn1).await.unwrap();
+            db.write(key_b, key_b_value, txn1).await.unwrap();
+            db.commit_txn(txn1).await;
+
+            let read_txn = db.begin_txn().await;
+            let db_key_a_value = db.read::<i32>(key_a, read_txn).await.unwrap();
+            assert_eq!(key_a_value, db_key_a_value);
+            let db_key_b_value = db.read::<i32>(key_b, read_txn).await.unwrap();
+            assert_eq!(key_b_value, db_key_b_value);
+        }
+    }
+
     mod transaction_conflicts {
         // A read running into an uncommitted intent with a lower timestamp will wait for the
         // earlier transaction
@@ -332,10 +361,13 @@ mod test {
     mod deadlock {
         use std::sync::Arc;
 
-        use crate::db::db::{CommitTxnResult, Timestamp, DB};
+        use crate::{
+            db::db::{CommitTxnResult, Timestamp, DB},
+            storage::str_to_key,
+        };
 
         #[tokio::test]
-        async fn test() {
+        async fn conflicting_writes() {
             let db = Arc::new(DB::new_cleaned("./tmp/data", Timestamp::new(10)));
             let txn1 = db.begin_txn().await;
             let txn2 = db.begin_txn().await;
@@ -344,56 +376,96 @@ mod test {
 
             let key_a = "A";
             let key_b = "B";
-            db.write(key_a, 1, txn1).await;
-            db.write(key_b, 10, txn2).await;
+            println!("key a: {:?}", str_to_key(key_a));
+            println!("key b: {:?}", str_to_key(key_b));
+
+            let key_a_txn1_value = 14;
+            let key_b_txn1_value = 20;
+            let key_a_txn2_value = 100;
+            let key_b_txn2_value = 200;
+
+            println!("\ntxn1 writing first time - key a");
+            db.write(key_a, key_a_txn1_value, txn1).await.unwrap();
+
+            println!("\ntxn2 writing first time - key b");
+            db.write(key_b, key_b_txn2_value, txn2).await.unwrap();
 
             db.set_time(Timestamp::new(12));
             let db_1 = db.clone();
             let task_1 = tokio::spawn(async move {
-                let write_res = db_1.write(key_b, 10, txn1).await;
+                println!("\ntxn1 writing second time - key b");
+                let write_res = db_1.write(key_b, key_b_txn1_value, txn1).await;
                 match write_res {
                     Ok(_) => {
-                        println!("txn1 succeded in writing")
-                    }
-                    Err(_) => {
-                        println!("txn1 failed in writing")
-                    }
-                }
-                println!("txn1 finished writing on B");
-                // println!("txn1 committing!");
-                // let commit_res = db_1.commit_txn(txn1).await;
-                // match commit_res {
-                //     CommitTxnResult::Success(_) => {
-                //         println!("txn1 succeeded");
-                //     }
-                //     CommitTxnResult::Fail(_) => {
-                //         println!("txn1 failed");
-                //     }
-                // }
-            });
-
-            let db_2 = db.clone();
-            let task_2 = tokio::spawn(async move {
-                let write_res = db_2.write(key_a, 100, txn2).await;
-                match write_res {
-                    Ok(_) => {
-                        println!("txn2 committing!");
-                        let commit_res = db_2.commit_txn(txn2).await;
+                        println!("txn1 succeded in writing second time (key b)");
+                        println!("\ntxn1 committing!");
+                        let commit_res = db_1.commit_txn(txn1).await;
                         match commit_res {
                             CommitTxnResult::Success(_) => {
-                                println!("txn2 succeeded in committing");
+                                println!("\ntxn1 succeeded in committing");
+                                return true;
                             }
                             CommitTxnResult::Fail(_) => {
-                                println!("txn2 failed in committing");
+                                println!("\ntxn1 failed in committing");
+                                return false;
                             }
                         }
                     }
                     Err(_) => {
-                        println!("Txn2 failed to write")
+                        println!("txn1 failed in writing");
+                        return false;
                     }
                 }
             });
-            tokio::try_join!(task_1, task_2).unwrap();
+
+            let db_2 = db.clone();
+            let task_2 = tokio::spawn(async move {
+                println!("\ntxn2 writing second time - key a");
+                let write_res = db_2.write(key_a, key_a_txn2_value, txn2).await;
+                match write_res {
+                    Ok(_) => {
+                        println!("\ntxn2 committing!");
+                        let commit_res = db_2.commit_txn(txn2).await;
+                        match commit_res {
+                            CommitTxnResult::Success(_) => {
+                                println!("txn2 succeeded in committing");
+                                return true;
+                            }
+                            CommitTxnResult::Fail(_) => {
+                                println!("txn2 failed in committing");
+                                return false;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        println!("Txn2 failed to write");
+                        return false;
+                    }
+                }
+            });
+            let (did_txn1_commit, did_txn2_commit) = tokio::try_join!(task_1, task_2).unwrap();
+            // make sure not both of them committed
+            assert!(!(did_txn1_commit && did_txn2_commit));
+            let read_txn = db.begin_txn().await;
+            if did_txn1_commit {
+                println!("Reading since txn1 committed");
+                println!("Reading key a");
+                let key_a_value = db.read::<i32>(key_a, read_txn).await.unwrap();
+                assert_eq!(key_a_value, key_a_txn1_value);
+
+                println!("Reading key b");
+                let key_b_value = db.read::<i32>(key_b, read_txn).await.unwrap();
+                assert_eq!(key_b_value, key_b_txn1_value);
+            } else if did_txn2_commit {
+                println!("Reading since txn2 committed");
+                println!("Reading key a");
+                let key_a_value = db.read::<i32>(key_a, read_txn).await.unwrap();
+                assert_eq!(key_a_value, key_a_txn2_value);
+
+                println!("Reading key b");
+                let key_b_value = db.read::<i32>(key_b, read_txn).await.unwrap();
+                assert_eq!(key_b_value, key_b_txn2_value);
+            }
         }
     }
 

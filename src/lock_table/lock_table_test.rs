@@ -392,16 +392,12 @@ pub mod test {
         mod wait_for {
             use std::sync::Arc;
 
-            use tokio::time::{self, sleep, Duration};
-
             use crate::hlc::timestamp::Timestamp;
-            use crate::lock_table;
             use crate::lock_table::lock_table::{AbortUpdateLock, LockTable, UpdateLock};
             use crate::lock_table::lock_table_test::test::{
                 create_test_lock_table_guard, create_test_txn_with_timestamp,
             };
             use crate::storage::str_to_key;
-            use crate::storage::txn::TxnMetadata;
 
             #[tokio::test]
             async fn test() {

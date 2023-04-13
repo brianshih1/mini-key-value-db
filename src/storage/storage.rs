@@ -1,16 +1,15 @@
 use std::{cmp::Ordering, iter::Peekable, path::Path};
 
-use rocksdb::{ColumnFamily, DBIterator, IteratorMode, DB};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use rocksdb::{ColumnFamily, DBIterator, DB};
+use serde::{de::DeserializeOwned, Serialize};
 use uuid::Uuid;
 
 use crate::{StorageError, StorageResult};
 
 use super::{
     mvcc_iterator::{IterOptions, MVCCIterator},
-    mvcc_key::{decode_mvcc_key, encode_mvcc_key, MVCCKey},
+    mvcc_key::{decode_mvcc_key, MVCCKey},
     txn::TxnRecord,
-    Value,
 };
 
 pub struct Storage {
@@ -140,7 +139,7 @@ impl Storage {
         self.get_serialized(MVCC_COLUMN_FAMILY, &key.to_string())
     }
 
-    pub fn get_transaction_record(&self, txn_id: &Uuid) -> Option<TxnRecord> {
+    pub fn get_transaction_record(&self, txn_id: Uuid) -> Option<TxnRecord> {
         self.get_serialized(TRANSACTION_RECORD_COLUMN_FAMILY, &txn_id.to_string())
             .unwrap()
     }
@@ -279,7 +278,7 @@ mod Test {
 
         #[test]
         fn check_order_intent() {
-            let mut storage = Storage::new_cleaned("./tmp/foobars");
+            let storage = Storage::new_cleaned("./tmp/foobars");
             let key = "a";
             let intent_key = MVCCKey::create_intent_key_with_str(key);
             let non_intent_key = MVCCKey::new(str_to_key(key), Timestamp::new(2, 0));
@@ -308,7 +307,7 @@ mod Test {
         use crate::{
             hlc::timestamp::Timestamp,
             storage::{
-                mvcc_key::{create_intent_key, encode_mvcc_key, MVCCKey},
+                mvcc_key::{encode_mvcc_key, MVCCKey},
                 storage::Storage,
                 str_to_key,
             },

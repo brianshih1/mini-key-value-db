@@ -1,7 +1,5 @@
 use core::str;
 
-use uuid::Uuid;
-
 use crate::hlc::timestamp::{get_intent_timestamp, Timestamp};
 
 use super::{str_to_key, Key};

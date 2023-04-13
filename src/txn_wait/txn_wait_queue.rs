@@ -129,7 +129,10 @@ impl TxnWaitQueue {
                     .push(waiting_push.clone());
             }
             None => {
-                println!("None found for pushee: {}", pushee_txn_id);
+                println!(
+                    "TxnWaitQ - No pending_txn found for pushee: {}. Creating one",
+                    pushee_txn_id
+                );
                 let mut pending_txn = PendingTxn::new();
                 pending_txn.waiting_pushes.push(waiting_push.clone());
                 pushees.insert(pushee_txn_id, Arc::new(RwLock::new(pending_txn)));
@@ -197,8 +200,11 @@ impl TxnWaitQueue {
         let mut loop_count = 0;
         loop {
             loop_count += 1;
-            if loop_count > 50 {
-                panic!("exceeded")
+            if loop_count > 25 {
+                panic!(
+                    "Exceeded count waiting for push. Pusher: {}. Pushee: {}",
+                    pusher_txn_id, pushee_txn_id
+                );
             }
             tokio::select! {
                 Some((dependents, txn_status)) = dependents_rx.recv() => {
@@ -215,6 +221,7 @@ impl TxnWaitQueue {
                     let is_cycle_detected = dependents.contains(&pushee_txn_id);
                     // check if there is a dependency
                     if is_cycle_detected {
+                        query_dependents_handle.abort();
                         let (push_txn_sender, mut push_txn_rx) = channel(1);
                         self.request_sender
                             .send(TaskQueueRequest{
@@ -283,8 +290,15 @@ impl TxnWaitQueue {
             loop {
                 // TODO: We need a way to terminate the loop
                 let dependents = TxnWaitQueue::get_dependents(txns.clone(), txn_id);
-                let txn_record = store.get_transaction_record(&txn_id).unwrap();
-                tx.send((dependents, txn_record.status)).await.unwrap();
+                let txn_record = store.get_transaction_record(txn_id).unwrap();
+                let res = tx.send((dependents, txn_record.status)).await;
+                match res {
+                    Ok(_) => {}
+                    Err(err) => {
+                        panic!("Failed to send dependents and txn status: {}", err);
+                    }
+                }
+
                 time::sleep(Duration::from_millis(10)).await;
             }
         });

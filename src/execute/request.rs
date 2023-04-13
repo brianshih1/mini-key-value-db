@@ -17,7 +17,7 @@ use crate::{
         mvcc::{KVStore, MVCCGetParams, WriteIntentError},
         mvcc_key::{create_intent_key, MVCCKey},
         str_to_key,
-        txn::{Txn, TxnIntent, TxnMetadata},
+        txn::{TransactionStatus, Txn, TxnIntent, TxnMetadata},
         Key, Value,
     },
     StorageResult,
@@ -39,10 +39,11 @@ pub type ResponseResult = Result<ResponseUnion, ResponseError>;
 pub enum ResponseError {
     WriteIntentError(WriteIntentErrorData),
     ReadRefreshError,
+    TxnAbortedError,
 }
 
 pub struct WriteIntentErrorData {
-    intent: TxnIntent,
+    pub intent: TxnIntent,
 }
 
 pub enum ResponseUnion {
@@ -163,6 +164,15 @@ impl Command for AbortTxnRequest {
 
     async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
         let (txn_id, write_timestamp) = self.get_txn_id_write_timestamp(header.txn.clone());
+
+        let record_option = executor.store.get_transaction_record(txn_id);
+        if let Some(record) = record_option {
+            if let TransactionStatus::COMMITTED = record.status {
+                // TODO: return an error instead
+                return Ok(ResponseUnion::AbortTxn(AbortTxnResponse {}));
+            }
+        }
+
         // finalize the transaction record
         executor
             .store
@@ -241,12 +251,28 @@ impl Command for CommitTxnRequest {
     }
 
     async fn execute(&self, header: &RequestMetadata, executor: &Executor) -> ResponseResult {
+        let (txn_id, write_timestamp) = self.get_txn_id_write_timestamp(header.txn.clone());
+        let record_option = executor.store.get_transaction_record(txn_id);
+        if let Some(record) = record_option {
+            if let TransactionStatus::ABORTED = record.status {
+                executor
+                    .concr_manager
+                    .update_txn_locks(
+                        header.txn.clone(),
+                        UpdateLock::Abort(AbortUpdateLock { txn_id: txn_id }),
+                    )
+                    .await;
+
+                return Err(ResponseError::TxnAbortedError);
+            }
+        }
+
         // read refresh
         let did_refresh = executor.refresh_read_timestamp(header.txn.clone());
         if !did_refresh {
             return Err(ResponseError::ReadRefreshError);
         }
-        let (txn_id, write_timestamp) = self.get_txn_id_write_timestamp(header.txn.clone());
+
         executor
             .store
             .commit_transaction_record(txn_id, write_timestamp);
@@ -377,11 +403,28 @@ impl Command for PutRequest {
                     .read()
                     .unwrap()
                     .append_lock_span(self.key.clone());
+                println!(
+                    "finished executing write for txn {} with key {:?}",
+                    header.txn.read().unwrap().txn_id,
+                    self.key.clone()
+                );
                 Ok(ResponseUnion::Put(PutResponse {}))
             }
             Err(err) => Err(ResponseError::WriteIntentError(WriteIntentErrorData {
                 intent: err.intent,
             })),
+        }
+    }
+}
+
+impl RequestUnion {
+    pub fn get_type_string(&self) -> &str {
+        match self {
+            RequestUnion::BeginTxn(_) => "begin txn",
+            RequestUnion::CommitTxn(_) => "commit txn",
+            RequestUnion::Get(_) => "get",
+            RequestUnion::Put(_) => "put",
+            RequestUnion::AbortTxn(_) => "abort",
         }
     }
 }
