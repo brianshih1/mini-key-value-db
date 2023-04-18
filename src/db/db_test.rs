@@ -479,7 +479,7 @@ mod test {
             let db = DB::new_cleaned("./tmp/data", Timestamp::new(10));
             db.run_txn(|txn_context| async move {
                 let key = "foo";
-                txn_context.write(key, 12).await;
+                txn_context.write(key, 12).await.unwrap();
                 let read = txn_context.read::<i32>(key).await;
                 assert_eq!(read, Some(12));
             })
@@ -507,7 +507,7 @@ mod test {
             let key = "foo";
             let task_1 = tokio::spawn(async move {
                 db_1.run_txn(|txn_context| async move {
-                    txn_context.write(key, 88).await;
+                    txn_context.write(key, 88).await.unwrap();
                     let read = txn_context.read::<i32>(key).await;
                     println!("txn1 finished");
                     assert_eq!(read, Some(88));
@@ -518,7 +518,7 @@ mod test {
             let db_2 = db.clone();
             let task_2 = tokio::spawn(async move {
                 db_2.run_txn(|txn_context| async move {
-                    txn_context.write(key, 12).await;
+                    txn_context.write(key, 12).await.unwrap();
                     let read = txn_context.read::<i32>(key).await;
                     println!("txn2 finished");
                     assert_eq!(read, Some(12));
