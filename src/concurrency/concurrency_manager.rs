@@ -46,10 +46,7 @@ impl ConcurrencyManager {
             .request_union
             .collect_spans(request.metadata.txn.clone());
         loop {
-            let latch_guard = self
-                .latch_manager
-                .acquire_and_wait(spans_to_acquire.clone())
-                .await;
+            let latch_guard = self.latch_manager.acquire(spans_to_acquire.clone()).await;
             let (should_wait, lock_guard) = self.lock_table.scan_and_enqueue(request).await;
             if should_wait {
                 self.latch_manager.release(latch_guard);

@@ -3,4 +3,4 @@ authors = ["Brian Shih"]
 language = "en"
 multilingual = false
 src = "src"
-title = "Building a transactional KV database"
+title = "Building a Transactional Key-Value database"

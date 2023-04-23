@@ -1,3 +1,4 @@
 # Summary
 
-- [Chapter 1](./chapter_1.md)
+- [Motivation](./1_motivation.md)
+- [Database API](./2_database_api.md)

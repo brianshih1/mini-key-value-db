@@ -25,7 +25,7 @@ impl<K: NodeKey> LatchManager<K> {
     }
 
     // We currently don't support key-range locks. We only support single point locks
-    pub async fn acquire_and_wait(&self, spans: SpanSet<K>) -> LatchGuard<K> {
+    pub async fn acquire(&self, spans: SpanSet<K>) -> LatchGuard<K> {
         // create a timer and repeat until success
         // loop through the spans, add them, wait until it's released
         loop {
@@ -99,7 +99,7 @@ mod Test {
         async fn test_select() {
             let lm = Arc::new(LatchManager::<i32>::new());
             let guard = lm
-                .acquire_and_wait(Vec::from([
+                .acquire(Vec::from([
                     Range {
                         start_key: 12,
                         end_key: 12,
@@ -120,7 +120,7 @@ mod Test {
                 lm2.release(guard)
             });
 
-            lm.acquire_and_wait(Vec::from([
+            lm.acquire(Vec::from([
                 Range {
                     start_key: 12,
                     end_key: 12,
