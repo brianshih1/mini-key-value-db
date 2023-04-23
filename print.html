@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Building a transactional KV database</title>
+        <title>Building a Transactional Key-Value database</title>
         <meta name="robots" content="noindex" />
 
 
@@ -82,7 +82,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1.html"><strong aria-hidden="true">1.</strong> Chapter 1</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="1_motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="2_database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -111,7 +111,7 @@
                         </button>
                     </div>
 
-                    <h1 class="menu-title">Building a transactional KV database</h1>
+                    <h1 class="menu-title">Building a Transactional Key-Value database</h1>
 
                     <div class="right-buttons">
                         <a href="print.html" title="Print this book" aria-label="Print this book">
@@ -143,9 +143,28 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="chapter-1"><a class="header" href="#chapter-1">Chapter 1</a></h1>
-<p>Kobe</p>
-
+                        <h1 id="motivation"><a class="header" href="#motivation">Motivation</a></h1>
+<p><em>Richard Feynman - “What I cannot create, I do not understand”</em></p>
+<p>As someone without a background in databases, I’ve always been curious about the inner workings of transactions in databases such as PostgreSQL and CockroachDB. To better understand this, I decided to build my own transactional key-value database.</p>
+<p>Rather than trying to reinvent the wheel, I studied CockroachDB extensively and followed its architecture as closely as possible. For those of you who aren't familiar with what CockroachDB is, it is a distributed SQL database built on top of a transactional key-value store. By following the architecture of CockroachDB's key-value store, I was able to learn in a more structured manner and study its design patterns.</p>
+<p>Here is a quick summary of the database I built:</p>
+<ul>
+<li>key-value database</li>
+<li>thread-safe</li>
+<li>uses RocksDB as the storage engine (so I can focus on the transactional layer)</li>
+<li>written in Rust (my first time learning Rust!)</li>
+<li>support transactions that are serializable</li>
+<li>uses MVCC (multi-version concurrency control)</li>
+<li>uses pessimistic write locks and optimistic reads (reads are lock-free)</li>
+</ul>
+<p>In this blog series, I will explain the concepts used in my database and dive into the implementation detail/algorithms. Since I studied CockroachDB's codebase so closely, I will also provide the links that point to specific files/lines in CockroachDB's repo when I talk about the different concepts/implementation detail.</p>
+<p>I want to emphasize that:</p>
+<ul>
+<li>this blog series is not a tutorial! I’m a beginner to both databases and Rust. Instead, I'm writing this blog series to solidify my understanding of the concepts I learned. I also want to share what I learned with other people who are interested in database transactions but aren't sure where to begin.</li>
+<li>My goal was to learn and implement database concepts. So I did not take my time to write the cleanest and the most performant code.</li>
+</ul>
+<p>The source code is available on GitHub (PRs/suggestions welcome) <a href="https://github.com/brianshih1/little-key-value-db">here</a></p>
+<div style="break-before: page; page-break-before: always;"></div>
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
