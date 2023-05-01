@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Motivation - Building a Transactional Key-Value database</title>
+        <title>Database API - Building a Transactional Key-Value database</title>
 
 
         <!-- Custom HTML head -->
@@ -12,21 +12,21 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff" />
 
-        <link rel="icon" href="favicon.svg">
-        <link rel="shortcut icon" href="favicon.png">
-        <link rel="stylesheet" href="css/variables.css">
-        <link rel="stylesheet" href="css/general.css">
-        <link rel="stylesheet" href="css/chrome.css">
-        <link rel="stylesheet" href="css/print.css" media="print">
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
 
         <!-- Fonts -->
-        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
-        <link rel="stylesheet" href="fonts/fonts.css">
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" href="highlight.css">
-        <link rel="stylesheet" href="tomorrow-night.css">
-        <link rel="stylesheet" href="ayu-highlight.css">
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
 
         <!-- Custom theme stylesheets -->
 
@@ -35,7 +35,7 @@
     <div id="body-container">
         <!-- Provide site root to javascript -->
         <script>
-            var path_to_root = "";
+            var path_to_root = "../";
             var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
         </script>
 
@@ -81,7 +81,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="1_motivation.html" class="active"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="2_database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html" class="active"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -113,7 +113,7 @@
                     <h1 class="menu-title">Building a Transactional Key-Value database</h1>
 
                     <div class="right-buttons">
-                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
                             <i id="print-button" class="fa fa-print"></i>
                         </a>
 
@@ -142,34 +142,81 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="motivation"><a class="header" href="#motivation">Motivation</a></h1>
-<p><em>Richard Feynman - “What I cannot create, I do not understand”</em></p>
-<p>As someone without a background in databases, I’ve always been curious about the inner workings of transactions in databases such as PostgreSQL and CockroachDB. To better understand this, I decided to build my own transactional key-value database.</p>
-<p>Rather than trying to reinvent the wheel, I studied CockroachDB extensively and followed its architecture as closely as possible. For those of you who aren't familiar with what CockroachDB is, it is a distributed SQL database built on top of a transactional key-value store. By following the architecture of CockroachDB's key-value store, I was able to learn in a more structured manner and study its design patterns.</p>
-<p>Here is a quick summary of the database I built:</p>
+                        <h1 id="database-api"><a class="header" href="#database-api">Database API</a></h1>
+<p>Let’s first talk about the API of the toy database. The database’s API consists of the following methods:</p>
 <ul>
-<li>key-value database</li>
-<li>thread-safe</li>
-<li>uses RocksDB as the storage engine (so I can focus on the transactional layer)</li>
-<li>written in Rust (my first time learning Rust!)</li>
-<li>support transactions that are serializable</li>
-<li>uses MVCC (multi-version concurrency control)</li>
-<li>uses pessimistic write locks and optimistic reads (reads are lock-free)</li>
+<li>set_time</li>
+<li>begin_txn</li>
+<li>write</li>
+<li>read</li>
+<li>read_without_txn</li>
+<li>abort_txn</li>
+<li>commit_txn</li>
+<li>run_txn</li>
 </ul>
-<p>In this blog series, I will explain the concepts used in my database and dive into the implementation detail/algorithms. Since I studied CockroachDB's codebase so closely, I will also provide the links that point to specific files/lines in CockroachDB's repo when I talk about the different concepts/implementation detail.</p>
-<p>I want to emphasize that:</p>
-<ul>
-<li>this blog series is not a tutorial! I’m a beginner to both databases and Rust. Instead, I'm writing this blog series to solidify my understanding of the concepts I learned. I also want to share what I learned with other people who are interested in database transactions but aren't sure where to begin.</li>
-<li>My goal was to learn and implement database concepts. So I did not take my time to write the cleanest and the most performant code.</li>
-</ul>
-<p>The source code is available on GitHub (PRs/suggestions welcome) <a href="https://github.com/brianshih1/little-key-value-db">here</a></p>
+<p>Here is an example of using the database:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let db = DB::new(&quot;./tmp/data&quot;, Timestamp::new(10))
+let txn1 = db.begin_txn().await;
+let value = db.read::&lt;i32&gt;(&quot;foo&quot;, txn1).await.unwrap();
+if value == &quot;bar&quot; {
+	db.write(&quot;baz&quot;, 20, txn1).await.unwrap();
+}
+let commit_result = db.commit_txn(txn1).await;
+<span class="boring">}</span></code></pre></pre>
+<p>In the code snippet above, we created a database by providing a path to specify where to store the records. We then began a transaction, performed a write and a read, then committed the transaction.</p>
+<p>An alternative way to perform transactions is with the <code>run_txn</code> method. In the snippet below, the <code>run_txn</code> function automatically begins a transaction and commits the transaction at the end of the function scope. It would also abort the transaction if the inner function panics.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>db.run_txn(|txn_context| async move {
+		let value = txn_context.read::&lt;i32&gt;(&quot;foo&quot;).await;
+		if value == &quot;bar&quot; {
+	    txn_context.write(&quot;foo&quot;, 12).await.unwrap();
+    }
+})
+<span class="boring">}</span></code></pre></pre>
+<p>For more examples, feel free to check out the <a href="https://github.com/brianshih1/little-key-value-db/blob/master/src/db/db_test.rs">unit tests</a> I wrote for my database.</p>
+<h3 id="thread-safe"><a class="header" href="#thread-safe">Thread-safe</a></h3>
+<p>The database is thread-safe. If you wrap the database instance around an <code>Arc</code>, you can safely use it across different threads. For example:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let db = Arc::new(DB::new(&quot;./tmp/data&quot;, Timestamp::new(10)));
+
+let db_1 = Arc::clone(db);
+let key1 = &quot;foo&quot;;
+let key2 = &quot;bar&quot;;
+let task_1 = tokio::spawn(async move {
+    db_1.run_txn(|txn_context| async move {
+        txn_context.write(key1, 1).await.unwrap();
+				txn_context.write(key2, 10).await.unwrap();
+    })
+    .await
+});
+
+let db_2 = Arc::clone(db);
+let task_2 = tokio::spawn(async move {
+    db_2.run_txn(|txn_context| async move {
+        txn_context.write(key1, 2).await.unwrap();
+				txn_context.write(key2, 20).await.unwrap();
+    })
+    .await;
+});
+tokio::try_join!(task_1, task_2).unwrap();
+<span class="boring">}</span></code></pre></pre>
+<p>In the example above, the serializability of the database guarantees that either all of <code>task1</code> is executed first or all of <code>task2</code> is executed first.</p>
+<h3 id="time"><a class="header" href="#time">Time</a></h3>
+<p>The database is powered by a Hybrid Logical Clock (which we will cover later). The developer must manually increment the physical time with the set_time function. But it can also be swapped out with an implementation that uses the system’s time instead.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../chapter_1/motivation.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
 
-                            <a rel="next" href="2_database_api.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="../chapter_3/core_concepts.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -179,8 +226,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../chapter_1/motivation.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
 
-                    <a rel="next" href="2_database_api.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="../chapter_3/core_concepts.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
@@ -195,13 +245,13 @@
         </script>
 
 
-        <script src="elasticlunr.min.js"></script>
-        <script src="mark.min.js"></script>
-        <script src="searcher.js"></script>
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
 
-        <script src="clipboard.min.js"></script>
-        <script src="highlight.js"></script>
-        <script src="book.js"></script>
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
 
         <!-- Custom JS scripts -->
 
