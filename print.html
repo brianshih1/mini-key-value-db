@@ -82,7 +82,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li></ol></li><li class="chapter-item expanded "><a href="chapter_4/implementation_details.html"><strong aria-hidden="true">4.</strong> Implementation Details</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -157,12 +157,7 @@
 <li>uses MVCC (multi-version concurrency control)</li>
 <li>uses pessimistic write locks and optimistic reads (reads are lock-free)</li>
 </ul>
-<p>In this blog series, I will explain the concepts used in my database and dive into the implementation detail/algorithms. Since I studied CockroachDB's codebase so closely, I will also provide the links that point to specific files/lines in CockroachDB's repo when I talk about the different concepts/implementation detail.</p>
-<p>I want to emphasize that:</p>
-<ul>
-<li>this blog series is not a tutorial! I’m a beginner to both databases and Rust. Instead, I'm writing this blog series to solidify my understanding of the concepts I learned. I also want to share what I learned with other people who are interested in database transactions but aren't sure where to begin.</li>
-<li>My goal was to learn and implement database concepts. So I did not take my time to write the cleanest and the most performant code.</li>
-</ul>
+<p>In this blog series, I will explain the concepts used in my database and talk about the implementation details. I will also provide summaries and references to CockroachDB's codebase and architecture.</p>
 <p>The source code is available on GitHub (PRs/suggestions welcome) <a href="https://github.com/brianshih1/little-key-value-db">here</a></p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="database-api"><a class="header" href="#database-api">Database API</a></h1>
 <p>Let’s first talk about the API of the toy database. The database’s API consists of the following methods:</p>
@@ -235,7 +230,7 @@ tokio::try_join!(task_1, task_2).unwrap();
 <li>Atomicity: all of the database operations in a transaction are executed as a single unit (either all of them or none of them are performed).</li>
 <li>Isolation: transactions don’t see intermediate changes of other transactions.</li>
 </ul>
-<p>To guarantee atomicity and isolation, I borrowed many concepts from CockroachDB’s architecture, which they outlined in <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">their research paper</a>. The relevant sections include sections 3.2  (Atomicity Guarantees), section 3.3 (Concurrency Control) and section 3.24 (Read Refreshes).</p>
+<p>To guarantee atomicity and isolation, I borrowed many concepts from CockroachDB’s architecture, which they outlined in <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">their research paper</a>. The relevant sections include sections 3.2  (Atomicity Guarantees), section 3.3 (Concurrency Control), and section 3.24 (Read Refreshes).</p>
 <p>In general, here are some of the core techniques I used to implement transactions</p>
 <ul>
 <li>MVCC</li>
@@ -243,10 +238,79 @@ tokio::try_join!(task_1, task_2).unwrap();
 <li>Pessimistic writes and optimistic reads</li>
 <li>Read refreshes</li>
 </ul>
-<p>Topics like the internals of concurrency control, deadlock detection, hybrid-logical clock will be covered in other parts of the blog series.</p>
+<p>Other parts of the blog series will cover topics like the internals of concurrency control, deadlock detection, and hybrid-logical clock.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="mvcc"><a class="header" href="#mvcc">MVCC</a></h1>
-<p><img src="chapter_3/./images/mvcc.png" alt="Foo" /></p>
-
+<p>Multiversion concurrency control (MVCC) is an optimization technique used by databases to improve the performance of concurrent operations. The idea behind MVCC is that the database stores multiple versions for each record.</p>
+<p>When a record is updated or added, a new entry in the database is added instead of overwriting the original entry. Database reads are performed at a certain version or timestamp. The database returns the most up-to-date record less than or equal to the specified read version.</p>
+<p>In the example below, there are 3 different versions of the “Apple” key, each with a different timestamp. The read is performed at timestamp 15. The database returns the result at timestamp 10 since that is the record with the largest timestamp less than 15.</p>
+<img src="chapter_3/../images/mvcc.png" width="65%">
+<h3 id="write-intent"><a class="header" href="#write-intent">Write Intent</a></h3>
+<p>A single transaction may perform multiple writes. Before the transaction is committed, the uncommitted writes must not be read by other transactions. To address this problem, write intent is introduced (I learned about this concept from CockroachDB).</p>
+<p>A write intent is a record stored in the MVCC database to represent uncommitted writes. It is given an INTENT timestamp that distinguishes it from normal timestamps. Each key must only have at most one write intent.</p>
+<img src="chapter_3/../images/write_intent.png" width="55%">
+<p>In the example above, there is an uncommitted write with an INTENT timestamp for the &quot;Apple&quot; key. The table stores additional metadata, including the transaction ID and the write timestamp, for the write intent.</p>
+<h3 id="transaction-record"><a class="header" href="#transaction-record">Transaction Record</a></h3>
+<p>A transaction may create multiple write intents. The visibility of the uncommitted intent for a transaction must be flipped atomically. This is the job of <em>transaction records</em>.</p>
+<p>The database stores a transaction record for each transaction in a separate database namespace. The key of the transaction records is the transaction ID and the value contains the status and timestamp for each transaction.</p>
+<p>When the transaction is committed, the transaction record is marked as committed. All the write intents are readable by other transactions at this moment.</p>
+<img src="chapter_3/../images/txn_record.png" width="50%">
+<p>The timestamp in a committed transaction record is the transactions commit timestamp. Since each timestamp in the database is guaranteed to be unique, each committed transaction has a unique commit timestamp. This guarantees serial execution order of transactions.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="concurrency-anomalies"><a class="header" href="#concurrency-anomalies">Concurrency Anomalies</a></h1>
+<p>For those familiar with concepts like read-write, write-write, and write-read anomalies, feel free to skip this section!</p>
+<h3 id="interleaving-transactions"><a class="header" href="#interleaving-transactions">Interleaving transactions</a></h3>
+<p>Databases are allowed to interleave transactions as long as isolation and atomicity are maintained. In other words, it just has to maintain the illusion that the transactions are performed sequentially.</p>
+<p>For example, suppose we interleave the following two transactions as follows:</p>
+<img src="chapter_3/../images/interleave_1.png" width="55%">
+<p>The output of the above ordering is exactly the same as the ordering below. Therefore, the schedule above is a Serializable Schedule, since it is equivalent to some serial execution.</p>
+<img src="chapter_3/../images/interleave_2.png" width="55%">
+<h3 id="transaction-anomalies"><a class="header" href="#transaction-anomalies">Transaction anomalies</a></h3>
+<p>Interleaving transactions may lead to anomalies that break the database’s isolation and atomicity guarantees. There are 3 main types of anomalies:</p>
+<ul>
+<li>read-write conflict</li>
+<li>write-read conflict</li>
+<li>write-write conflict</li>
+</ul>
+<h3 id="read-write-conflict"><a class="header" href="#read-write-conflict">Read-write conflict</a></h3>
+<p>Also known as unrepeatable reads. This happens when two reads of the same transaction yield different results even though the transaction is not responsible for the change in value.</p>
+<img src="chapter_3/../images/read_write.png" width="55%">
+<h3 id="write-read-conflict"><a class="header" href="#write-read-conflict">Write-read conflict</a></h3>
+<p>Also known as dirty read. This happens when a transaction reads an uncommitted write by another transaction.</p>
+<img src="chapter_3/../images/write_read.png" width="55%">
+<h3 id="write-write-conflict"><a class="header" href="#write-write-conflict">Write-write conflict</a></h3>
+<p>Also known as overwriting uncommitted data or lost update. This happens when a transaction overwrites another transaction’s uncommitted write. In this example, T1’s first write to key A is lost when transaction 2 commits.</p>
+<img src="chapter_3/../images/write_write.png" width="55%">
+<div style="break-before: page; page-break-before: always;"></div><h1 id="dealing-with-anomalies"><a class="header" href="#dealing-with-anomalies">Dealing with Anomalies</a></h1>
+<p>CockroachDB outlined its strategy to deal with transaction conflicts in section 3.3 of <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">its research paper</a>. My database uses the same concurrency control techniques outlined in that section.</p>
+<h3 id="commit-timestamp"><a class="header" href="#commit-timestamp">Commit Timestamp</a></h3>
+<p>Each transaction performs its reads and writes at its commit timestamp. This is what guarantees the serializability of transactions. This section covers how a transaction determines its commit timestamp.</p>
+<p>A transaction has a read timestamp and a write timestamp. The read/write timestamps are initialized to the timestamp when the transaction is created, which is guaranteed to be unique. The transaction stores the most recent write timestamp as part of the write intent. When the transaction commits, the final write timestamp is used as the commit timestamp.</p>
+<p>Usually, the write timestamp for a transaction won’t change. But in some situations, it is required to be bumped. Let’s look at these scenarios.</p>
+<h3 id="dealing-with-conflicts"><a class="header" href="#dealing-with-conflicts">Dealing with conflicts</a></h3>
+<h4 id="read-write-conflict-1"><a class="header" href="#read-write-conflict-1">Read-write conflict</a></h4>
+<p>If a write detects that a read has been performed with a greater timestamp, the write will need to advance its timestamp past the read’s timestamp.</p>
+<p>The most recent read timestamp for each key is tracked by the database with the Timestamp Oracle (CockroachDB calls it the TimestampCache). This will be covered in another section.</p>
+<h4 id="write-write-conflict-1"><a class="header" href="#write-write-conflict-1">Write-write conflict</a></h4>
+<p>Write-write conflict happens when a write runs into another write, which could be either committed or uncommitted.</p>
+<p>There are two scenarios to look at</p>
+<ul>
+<li>the write runs into an uncommitted write intent: the write will need to wait for the other transaction to finalize</li>
+<li>the write runs into a committed write intent: the transaction performing the write needs to advance its timestamp past the committed write intent’s timestamp.</li>
+</ul>
+<h4 id="write-read-conflict-1"><a class="header" href="#write-read-conflict-1">Write-read conflict</a></h4>
+<p>Write-read happens when a read runs into an uncommitted write. Two scenarios could occur:</p>
+<ul>
+<li>the uncommitted write intent has a <strong>bigger</strong> timestamp: the read ignores the intent and returns the key with the biggest timestamp less than the read timestamp.</li>
+<li>the uncommitted write intent has a <strong>smaller</strong> timestamp: the read needs to wait for the transaction associated with the write intent to be finalized (aborted or committed)</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="read-refresh"><a class="header" href="#read-refresh">Read Refresh</a></h1>
+<p><em>Read refresh is a technique covered in section 3.4 of <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">CockroachDB’s research paper</a>.</em></p>
+<p>All reads for a transaction are performed at the transaction’s read timestamp. In the last section, we saw that the transaction’s write timestamp can be bumped if it runs into conflicts. Since a transaction commits at the final write timestamp, the read timestamp needs to be advanced when the transaction commits.</p>
+<p>However, advancing the read timestamp is not always safe, as in the example below.</p>
+<img src="chapter_3/../images/read_refresh.png" width="55%">
+<p>In this example, transaction T1 performs a read for key A at timestamp 10. It then performs a write at key B, but it detects a committed write at a higher timestamp, so it advances the timestamp to 16. Finally, it commits. However, this is not safe because it results in a read-write conflict.</p>
+<p>When a transaction advances the read timestamp, it must prove that the reads performed at the lower timestamp is still valid at the new timestamp. Suppose the read timestamp is tr and the commit timestamp is tc, the database must prove that the keys read by the transaction have not been updated by another transaction between (tr, tc].</p>
+<p>If the database detects that a write has been performed between (tr, tc], the transaction must retry the entire transaction. Otherwise, it is safe to advance its read timestamp to the commit timestamp and commit the transaction. This technique is called read refresh.</p>
+<div style="break-before: page; page-break-before: always;"></div>
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">

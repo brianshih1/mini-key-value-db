@@ -81,7 +81,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1/motivation.html" class="active"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1/motivation.html" class="active"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li></ol></li><li class="chapter-item expanded "><a href="chapter_4/implementation_details.html"><strong aria-hidden="true">4.</strong> Implementation Details</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -156,12 +156,7 @@
 <li>uses MVCC (multi-version concurrency control)</li>
 <li>uses pessimistic write locks and optimistic reads (reads are lock-free)</li>
 </ul>
-<p>In this blog series, I will explain the concepts used in my database and dive into the implementation detail/algorithms. Since I studied CockroachDB's codebase so closely, I will also provide the links that point to specific files/lines in CockroachDB's repo when I talk about the different concepts/implementation detail.</p>
-<p>I want to emphasize that:</p>
-<ul>
-<li>this blog series is not a tutorial! I’m a beginner to both databases and Rust. Instead, I'm writing this blog series to solidify my understanding of the concepts I learned. I also want to share what I learned with other people who are interested in database transactions but aren't sure where to begin.</li>
-<li>My goal was to learn and implement database concepts. So I did not take my time to write the cleanest and the most performant code.</li>
-</ul>
+<p>In this blog series, I will explain the concepts used in my database and talk about the implementation details. I will also provide summaries and references to CockroachDB's codebase and architecture.</p>
 <p>The source code is available on GitHub (PRs/suggestions welcome) <a href="https://github.com/brianshih1/little-key-value-db">here</a></p>
 
                     </main>

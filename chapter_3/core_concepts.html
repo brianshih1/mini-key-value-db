@@ -81,7 +81,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html" class="active"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html" class="active"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/implementation_details.html"><strong aria-hidden="true">4.</strong> Implementation Details</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -148,7 +148,7 @@
 <li>Atomicity: all of the database operations in a transaction are executed as a single unit (either all of them or none of them are performed).</li>
 <li>Isolation: transactions don’t see intermediate changes of other transactions.</li>
 </ul>
-<p>To guarantee atomicity and isolation, I borrowed many concepts from CockroachDB’s architecture, which they outlined in <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">their research paper</a>. The relevant sections include sections 3.2  (Atomicity Guarantees), section 3.3 (Concurrency Control) and section 3.24 (Read Refreshes).</p>
+<p>To guarantee atomicity and isolation, I borrowed many concepts from CockroachDB’s architecture, which they outlined in <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">their research paper</a>. The relevant sections include sections 3.2  (Atomicity Guarantees), section 3.3 (Concurrency Control), and section 3.24 (Read Refreshes).</p>
 <p>In general, here are some of the core techniques I used to implement transactions</p>
 <ul>
 <li>MVCC</li>
@@ -156,7 +156,7 @@
 <li>Pessimistic writes and optimistic reads</li>
 <li>Read refreshes</li>
 </ul>
-<p>Topics like the internals of concurrency control, deadlock detection, hybrid-logical clock will be covered in other parts of the blog series.</p>
+<p>Other parts of the blog series will cover topics like the internals of concurrency control, deadlock detection, and hybrid-logical clock.</p>
 
                     </main>
 
