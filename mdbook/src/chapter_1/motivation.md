@@ -16,11 +16,6 @@ Here is a quick summary of the database I built:
 - uses MVCC (multi-version concurrency control)
 - uses pessimistic write locks and optimistic reads (reads are lock-free)
 
-In this blog series, I will explain the concepts used in my database and dive into the implementation detail/algorithms. Since I studied CockroachDB's codebase so closely, I will also provide the links that point to specific files/lines in CockroachDB's repo when I talk about the different concepts/implementation detail.
-
-I want to emphasize that:
-
-- this blog series is not a tutorial! I’m a beginner to both databases and Rust. Instead, I'm writing this blog series to solidify my understanding of the concepts I learned. I also want to share what I learned with other people who are interested in database transactions but aren't sure where to begin.
-- My goal was to learn and implement database concepts. So I did not take my time to write the cleanest and the most performant code.
+In this blog series, I will explain the concepts used in my database and talk about the implementation details. I will also provide summaries and references to CockroachDB's codebase and architecture.
 
 The source code is available on GitHub (PRs/suggestions welcome) [here](https://github.com/brianshih1/little-key-value-db)
