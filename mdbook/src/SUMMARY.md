@@ -7,4 +7,5 @@
   - [Concurrency Anomalies](./chapter_3/interleave_txns.md)
   - [Dealing with Anomalies](./chapter_3/dealing_with_anomalies.md)
   - [Read Refresh](./chapter_3/read_refresh.md)
-- [Implementation Details](./chapter_4/implementation_details.md)
+- [Life of A Query](./chapter_4/life_of_a_query.md)
+- [Implementation Details](./chapter_5/implementation_details.md)

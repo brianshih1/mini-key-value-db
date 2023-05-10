@@ -84,8 +84,6 @@ pub fn encode_mvcc_key(mvcc_key: &MVCCKey) -> Vec<u8> {
     let mut key_vec = mvcc_key.key.to_vec();
     let timestamp_vec = encode_timestamp(mvcc_key.timestamp);
     key_vec.extend(timestamp_vec);
-    let hardcoded = "mvcc".as_bytes();
-    let huh = key_vec.extend(hardcoded);
     key_vec
 }
 

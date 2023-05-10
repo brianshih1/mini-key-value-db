@@ -10,12 +10,12 @@ Here is a quick summary of the database I built:
 
 - key-value database
 - thread-safe
-- uses RocksDB as the storage engine (so I can focus on the transactional layer)
+- uses RocksDB as the storage engine
 - written in Rust (my first time learning Rust!)
 - support transactions that are serializable
 - uses MVCC (multi-version concurrency control)
 - uses pessimistic write locks and optimistic reads (reads are lock-free)
 
-In this blog series, I will explain the concepts used in my database and talk about the implementation details. I will also provide summaries and references to CockroachDB's codebase and architecture.
+In this blog series, I will explain the theory behind the database and talk about the implementation details. I will also provide summaries and references to CockroachDB's codebase and architecture.
 
 The source code is available on GitHub (PRs/suggestions welcome) [here](https://github.com/brianshih1/little-key-value-db)
