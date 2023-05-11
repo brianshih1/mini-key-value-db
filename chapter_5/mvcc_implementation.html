@@ -1,0 +1,299 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>MVCC - Building a Transactional Key-Value database</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body>
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html" class="active"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Building a Transactional Key-Value database</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="mvcc"><a class="header" href="#mvcc">MVCC</a></h1>
+<p>Earlier, we covered how MVCC works <a href="https://brianshih1.github.io/little-key-value-db/chapter_3/mvcc.html">here</a>. In this section, we will talk about how the MVCC layer is implemented.</p>
+<p>In my MVCC database, HLC (hybrid logical clock) timestamps are used to distinguish different versions of the same key. A key with a timestamp is called an <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_key.rs#L7">MVCCKey</a>. </p>
+<p>An MVCCKey is a combination of a Timestamp and a Key:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct MVCCKey {
+    pub key: Key,
+    pub timestamp: Timestamp,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The timestamp’s structure is:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Timestamp {
+    pub wall_time: u64,
+    pub logical_time: u32,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The Key’s type is</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub type Key = Vec&lt;u8&gt;;
+<span class="boring">}</span></code></pre></pre>
+<p>The database uses RocksDB as the storage engine. We need to encode the MVCCKey into a RocksDB key. Inspired by CockroachDB <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc_key.go#L161">EncodeMVCCKey method</a>, the MVCCKey is encoded into the following form:</p>
+<p><code>[key] [wall_time] [logical_time]</code></p>
+<p>Here is the implementation:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn encode_mvcc_key(mvcc_key: &amp;MVCCKey) -&gt; Vec&lt;u8&gt; {
+    let mut key_vec = mvcc_key.key.to_vec();
+    let timestamp_vec = encode_timestamp(mvcc_key.timestamp);
+    key_vec.extend(timestamp_vec);
+    key_vec
+}
+
+pub fn encode_timestamp(timestamp: Timestamp) -&gt; Vec&lt;u8&gt; {
+    let mut wall_time_bytes = timestamp.wall_time.to_le_bytes().to_vec();
+    let logical_time_bytes = timestamp.logical_time.to_le_bytes().to_vec();
+    wall_time_bytes.extend(logical_time_bytes);
+    wall_time_bytes
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Earlier, we covered that a write intent is stored to represent uncommitted writes. A key can only have one write intent at a time. We use the MVCCKey with the zero timestamp: Timestamp { wall_time: 0, logical_time: 0 } to represent the key for a write intent.</p>
+<p>When users query for a key, the database returns the latest version of that key. To make this faster, MVCCKeys are sorted from highest timestamp to the lowest timestamp in the storage engine, with the exception of the zero timestamp which is stored before all other versions of the same key.</p>
+<p>This is only possible because RocksDB allows developers to customize the order of keys in the table through <a href="https://docs.rs/rocksdb/latest/rocksdb/struct.Options.html#method.set_comparator">set_comparator</a>. <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/storage.rs#L50">Here</a> is my implementation of the custom comparator. The comparator gives the highest precedence to the zero timestamp for the same key. Otherwise, it uses the key and the timestamp to order the MVCC keys.</p>
+<h2 id="core-apis"><a class="header" href="#core-apis">Core APIs</a></h2>
+<p>The core API of the MVCC layer includes:</p>
+<ul>
+<li>MVCC_SCAN</li>
+<li>MVCC_GET</li>
+<li>MVCC_PUT</li>
+</ul>
+<p>Most interactions with RocksDB are performed with this set of APIs, which are just abstractions over RocksDB’s methods and iterators.</p>
+<h3 id="mvcc_scan"><a class="header" href="#mvcc_scan">MVCC_SCAN</a></h3>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L99">MVCC_SCAN</a> takes a start key, an end key, and a timestamp as inputs. MVCC_SCAN returns an array of results that contains the keys in the range [start_key, end_key). Only keys with a timestamp less than or equal to the input timestamp is added to the scan results. MVCC_SCAN also collects any write intents that it found along the way.</p>
+<p><strong>Algorithm</strong></p>
+<ul>
+<li>It first creates an <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_iterator.rs#L24">MVCCIterator</a>, which is a wrapper around RocksDB’s iterator</li>
+<li>It then creates an <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L107">MVCCScanner</a> with the iterator and performs <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L115">scan</a></li>
+<li>The idea behind scan is to first a<a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_scanner.rs#L65">dvance the iterator to the intent key of the start key</a>. Write intents have higher precedence than other MVCC keys, so it’s guaranteed that the iterator didn’t skip any keys that may be in the output</li>
+<li>it then keeps <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_scanner.rs#L88">advancing the iterator</a> with a <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_scanner.rs#L66">loop</a> until the iterator’s current key <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_scanner.rs#L76">exceeds the end key</a></li>
+<li>during each iteration, the scanner checks if the record’s key is an intent key. <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_scanner.rs#L107">If it is,</a> add it to found_intents. Otherwise, if the MVCC key’s timestamp is ≤ the input timestamp, <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_scanner.rs#L145">add it to the results</a> and advance to the next key. However, if the key’s timestamp is greater than the input timestamp, it must <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_scanner.rs#L150">seek an older version of the key</a></li>
+</ul>
+<p><strong>CockroachDB’s MVCCScan</strong></p>
+<p>For reference, here is CockroachDB’s implementation of <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L3995">MVCCScan</a>. The core idea is similar. It initializes an <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#LL3739C31-L3739C42">mvccScanner</a>, <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/pebble_mvcc_scanner.go#L655">seeks to the start of the scan</a>, and <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/pebble_mvcc_scanner.go#L658">keeps looping</a> until it exceeds the range. </p>
+<p>On each iteration, it checks if the key is an intent key <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/storage/pebble_mvcc_scanner.go#L723">by checking if it’s empty</a>. It then checks if the MVCC key’s timestamp is <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/storage/pebble_mvcc_scanner.go#L745">equal to the input timestamp</a>, <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/storage/pebble_mvcc_scanner.go#L786">greater than the input timestamp</a>, or less than the input timestamp, in that case it <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/storage/pebble_mvcc_scanner.go#L829">seeks an older version of the key</a>.</p>
+<h3 id="mvcc_get"><a class="header" href="#mvcc_get">MVCC_GET</a></h3>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L63">MVCC_GET</a> takes a key, a timestamp, and an optional transaction as inputs. It returns the most recent value for the specified key whose timestamp is less than or equal to the supplied timestamp. If it runs into an uncommitted value, it returns a WriteIntentError.</p>
+<p><strong>Algorithm</strong></p>
+<ul>
+<li>MVCC_GET is implemented as an MVCC_SCAN where a single key is retrieved. This is achieved by <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L78">setting both the start key and the end key to the same key</a>.</li>
+</ul>
+<p><strong>CockroachDB’s MVCCGet</strong></p>
+<p>For reference, <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L63">here</a> is CockroachDB’s implementation of MVCCGet. The idea to use MVCCScanner is inspired by them. In their implementation, they implement mvcc_get a<a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L73">s a scan with start_key = end_key</a>.</p>
+<h3 id="mvcc_put"><a class="header" href="#mvcc_put">MVCC_PUT</a></h3>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L122">MVCC_PUT</a> takes a key, a timestamp, and an optional transaction and tries to insert a timestamped record into the MVCC database. If a transaction is provided, a write intent is placed in the database. Otherwise, the raw value is placed into the database.</p>
+<p>Before writing, MVCC_PUT must verify that there are no uncommitted intent for the same key. This is because there can only be a write intent for a key. If an uncommitted intent already exists for the same key, an error is returned. </p>
+<p><strong>Algorithm:</strong></p>
+<ul>
+<li>
+<p>first, it tries to <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L151">fetch the intent record</a></p>
+</li>
+<li>
+<p>if an intent is found, there are 2 scenarios</p>
+<ul>
+<li><a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L158">the intent’s transaction is the same transaction as the current transaction</a>. In this case, we’re overwriting our own transaction which is acceptable - we don’t do anything</li>
+<li>Otherwise, we check the status of the transaction record that corresponds to the write intent. If the transaction is pending, <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L162">a WriteIntentError is returned</a></li>
+</ul>
+</li>
+<li>
+<p>After verifying that there are no uncommitted intent for the same key, we are free to insert into the database. </p>
+</li>
+<li>
+<p>If a transaction is provided, <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L193">an uncommitted intent is placed into the database</a>. An UncommittedValue contains the value, the transaction ID and the write_timestamp of the transaction at the time of insertion.</p>
+</li>
+<li>
+<p>Otherwise, <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L206">the raw value is placed into the database</a>.</p>
+</li>
+</ul>
+<p><strong>CockroachDB’s MVCCPut</strong></p>
+<p>For reference, here is CockroachDB’s implementation of <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1442">MVCCPut</a>. The core idea is the same. It <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1859">checks if an intent was found</a>. If there is an uncommitted write intent whose transaction ID is not the same as the MVCCPut’s transaction’s ID, <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1863">a WriteIntentError is returned</a>. </p>
+<p>Otherwise if the intent’s timestamp is less than the write timestamp, clear <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L2024">it</a> so that MVCCPut can overwrite it. Finally, MVCCPut <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L2195">writes the mvcc value</a>.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../chapter_5/implementation_details.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next" href="../chapter_5/latch_manager.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../chapter_5/implementation_details.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next" href="../chapter_5/latch_manager.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>
