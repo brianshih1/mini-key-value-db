@@ -64,6 +64,13 @@ impl<K: NodeKey> Node<K> {
         }
     }
 
+    pub fn size(&self) -> usize {
+        match self {
+            Node::Internal(node) => node.keys.read().unwrap().len(),
+            Node::Leaf(node) => node.start_keys.read().unwrap().len(),
+        }
+    }
+
     pub fn get_upper(&self) -> Option<K> {
         match self {
             Node::Internal(internal) => {
@@ -563,17 +570,17 @@ impl<K: NodeKey> LeafNode<K> {
 
     pub fn is_underflow(&self) -> bool {
         let min_nodes = self.order / 2;
-        self.start_keys.write().unwrap().len() < min_nodes.try_into().unwrap()
+        self.start_keys.read().unwrap().len() < min_nodes.try_into().unwrap()
     }
 
     // Returns whether a sibling can steal a node from the current node
     pub fn has_spare_key(&self) -> bool {
         let min_nodes = self.order / 2;
-        self.start_keys.write().unwrap().len() > min_nodes.into()
+        self.start_keys.read().unwrap().len() > min_nodes.into()
     }
 
     pub fn get_smallest_key(&self) -> K {
-        self.start_keys.write().unwrap().first().unwrap().clone()
+        self.start_keys.read().unwrap().first().unwrap().clone()
     }
 
     // Returns the stolen key
@@ -901,32 +908,45 @@ impl<K: NodeKey> BTree<K> {
                     }
                 }
                 let next_node = next.unwrap();
-                let res = self.insert_helper(Some(internal_node), next_node.clone(), range);
 
-                if let LatchKeyGuard::Acquired = res {
-                    if !internal_node.has_capacity() {
-                        let (split_node, median) = internal_node.split();
-                        match parent_node {
-                            Some(parent_node) => {
-                                parent_node.insert_node(split_node.clone(), median.clone());
-                            }
-                            None => {
-                                // TODO: This means the current node is the root node. In this case, we create a new root with one key and 2 children
-                                self.root.write().unwrap().replace(Arc::new(RwLock::new(
-                                    Node::Internal(InternalNode {
-                                        keys: RwLock::new(Vec::from([median.clone()])),
-                                        edges: RwLock::new(Vec::from([
-                                            RwLock::new(Some(node.clone())),
-                                            RwLock::new(Some(split_node.clone())),
-                                        ])),
-                                        order: self.order,
-                                    }),
-                                )));
+                let child_node_size = next_node.read().unwrap().size();
+
+                // The capacity is self.order - 1 since order represents how many edges a node has
+                let is_safe = child_node_size < usize::from(self.order - 1);
+                // A thread can release latch on a parent node if its child node is considered safe.
+                // In the case of insert, it's safe when the child is not full
+                if is_safe {
+                    drop(internal_node);
+                    drop(write_guard);
+                    let res = self.insert_helper(None, next_node.clone(), range);
+                    res
+                } else {
+                    let res = self.insert_helper(Some(internal_node), next_node.clone(), range);
+                    if let LatchKeyGuard::Acquired = res {
+                        if !internal_node.has_capacity() {
+                            let (split_node, median) = internal_node.split();
+                            match parent_node {
+                                Some(parent_node) => {
+                                    parent_node.insert_node(split_node.clone(), median.clone());
+                                }
+                                None => {
+                                    // TODO: This means the current node is the root node. In this case, we create a new root with one key and 2 children
+                                    self.root.write().unwrap().replace(Arc::new(RwLock::new(
+                                        Node::Internal(InternalNode {
+                                            keys: RwLock::new(Vec::from([median.clone()])),
+                                            edges: RwLock::new(Vec::from([
+                                                RwLock::new(Some(node.clone())),
+                                                RwLock::new(Some(split_node.clone())),
+                                            ])),
+                                            order: self.order,
+                                        }),
+                                    )));
+                                }
                             }
                         }
                     }
+                    res
                 }
-                res
             }
             Node::Leaf(leaf_node) => {
                 let res = leaf_node.insert_range(Range {
@@ -988,6 +1008,7 @@ impl<K: NodeKey> BTree<K> {
         key_to_delete: &K,
         parent_info: Option<(&InternalNode<K>, usize, Direction)>,
         current_node: LatchNode<K>,
+        is_ancestor_safe: bool,
     ) -> Option<K> {
         let write_guard = current_node.write().unwrap();
         match &*write_guard {
@@ -1023,27 +1044,52 @@ impl<K: NodeKey> BTree<K> {
                         break;
                     }
                 }
-                let (next_node, edge_idx, dir) = next_node_tuple.unwrap();
-                let edge_idx = edge_idx_option.unwrap();
-                let new_split_key_option = self.delete_helper(
-                    key_to_delete,
-                    Some((internal_node, edge_idx, dir.clone())),
-                    next_node,
-                );
+                let (next_node, _, dir) = next_node_tuple.unwrap();
 
-                let parent_option = parent_info.and_then(|(parent, _, _)| Some(parent));
-                // Do we need to account for child's deal_with_underflow messing with the indices?
-                if let Some(ref new_split_key) = new_split_key_option {
-                    if let Some(parent_node) = parent_option {
-                        let key_idx = match dir {
-                            Direction::Left => edge_idx,
-                            Direction::Right => edge_idx - 1,
-                        };
-                        parent_node.update_key_at_index(key_idx, new_split_key.clone())
+                let edge_idx = edge_idx_option.unwrap();
+                let key_idx = match dir {
+                    Direction::Left => edge_idx,
+                    Direction::Right => edge_idx - 1,
+                };
+                let child_has_spare_key = next_node.read().unwrap().has_spare_key();
+                let is_edge_key_the_delete_key =
+                    &internal_node.keys.read().unwrap()[key_idx] == key_to_delete;
+
+                // A thread can release latch on a parent node if its child node is considered safe.
+                // In the case of delete, it's safe when the child is half-full
+                let is_safe =
+                    child_has_spare_key && !is_edge_key_the_delete_key && is_ancestor_safe;
+
+                // A thread can release latch on a parent node if its child node is considered safe.
+                // In the case of delete, it's safe when the child is half-full
+                if is_safe {
+                    drop(internal_node);
+                    drop(write_guard);
+                    let new_split_key_option =
+                        self.delete_helper(key_to_delete, None, next_node, true);
+                    new_split_key_option
+                } else {
+                    let new_split_key_option = self.delete_helper(
+                        key_to_delete,
+                        Some((internal_node, edge_idx, dir.clone())),
+                        next_node,
+                        !is_edge_key_the_delete_key && is_ancestor_safe,
+                    );
+
+                    let parent_option = parent_info.and_then(|(parent, _, _)| Some(parent));
+                    // Do we need to account for child's deal_with_underflow messing with the indices?
+                    if let Some(ref new_split_key) = new_split_key_option {
+                        if let Some(parent_node) = parent_option {
+                            let key_idx = match dir {
+                                Direction::Left => edge_idx,
+                                Direction::Right => edge_idx - 1,
+                            };
+                            parent_node.update_key_at_index(key_idx, new_split_key.clone())
+                        }
                     }
+                    internal_node.deal_with_underflow(parent_option, edge_idx);
+                    new_split_key_option
                 }
-                internal_node.deal_with_underflow(parent_option, edge_idx);
-                new_split_key_option
             }
             Node::Leaf(leaf_node) => leaf_node.delete_key(
                 &key_to_delete,
@@ -1070,7 +1116,7 @@ impl<K: NodeKey> BTree<K> {
      */
     pub fn delete(&self, key_to_delete: K) -> () {
         let root_node = self.root.read().unwrap().clone().unwrap();
-        self.delete_helper(&key_to_delete, None, root_node.clone());
+        self.delete_helper(&key_to_delete, None, root_node.clone(), true);
         let root_guard = root_node.write().unwrap();
         match &*root_guard {
             Node::Internal(ref internal_node) => {

@@ -9,3 +9,6 @@
   - [Read Refresh](./chapter_3/read_refresh.md)
 - [Life of A Query](./chapter_4/life_of_a_query.md)
 - [Implementation Details](./chapter_5/implementation_details.md)
+  - [MVCC](./chapter_5/mvcc_implementation.md)
+  - [Latch Manager](./chapter_5/latch_manager.md)
+  - [Lock Table](./chapter_5/lock_table.md)

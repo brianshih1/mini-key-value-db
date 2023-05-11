@@ -16,6 +16,6 @@ Here is a quick summary of the database I built:
 - uses MVCC (multi-version concurrency control)
 - uses pessimistic write locks and optimistic reads (reads are lock-free)
 
-In this blog series, I will explain the theory behind the database and talk about the implementation details. I will also provide summaries and references to CockroachDB's codebase and architecture.
+My motivation for writing this blog series is to solidify my understanding of the project. In this blog series, I will explain the theory behind the database and dive into the implementation details. I will also provide references and summaries for CockroachDB's repo.
 
 The source code is available on GitHub (PRs/suggestions welcome) [here](https://github.com/brianshih1/little-key-value-db)
