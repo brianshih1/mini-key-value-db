@@ -122,3 +122,6 @@ Before writing, MVCC_PUT must verify that there are no uncommitted intent for th
 For reference, here is CockroachDB’s implementation of [MVCCPut](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1442). The core idea is the same. It [checks if an intent was found](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1859). If there is an uncommitted write intent whose transaction ID is not the same as the MVCCPut’s transaction’s ID, [a WriteIntentError is returned](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1863). 
 
 Otherwise if the intent’s timestamp is less than the write timestamp, clear [it](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L2024) so that MVCCPut can overwrite it. Finally, MVCCPut [writes the mvcc value](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L2195).  
+
+[]: 
+
