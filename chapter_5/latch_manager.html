@@ -81,7 +81,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html" class="active"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="../chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html" class="active"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="../chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.4.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="../chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.5.</strong> Timestamp Oracle</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -143,6 +143,167 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="latch-manager"><a class="header" href="#latch-manager">Latch Manager</a></h1>
+<h3 id="latch-manager-api"><a class="header" href="#latch-manager-api">Latch Manager API</a></h3>
+<p>Latch Manager’s job is to serialize access to keys. Latch Manager’s API is composed of two methods: Acquire and Release</p>
+<p><strong>Acquire: (keys) → LatchGuard</strong></p>
+<p>Acquire takes a set of keys and returns a latch guard. Once the latch guard is obtained, any other calls to Acquire will have to wait until the latch guard is released. In other words, a thread has isolation for the keys after calling Acquire.</p>
+<p><strong>Release: (LatchGuard) → ()</strong></p>
+<p>Release releases the latch guard, allowing other requests to acquire the latches.</p>
+<h3 id="building-a-thread-safe-b-tree"><a class="header" href="#building-a-thread-safe-b-tree">Building a Thread-safe B+ Tree</a></h3>
+<p>The Latch Manager is implemented with a thread-safe B+ Tree. Before talking about how the Latch Manager is implemented with a B+ tree, let’s first talk about how the concurrent tree is implemented.</p>
+<p>If you’re not interested in learning how the concurrent B+ tree is implemented, scroll down to the section <code>Using the Thread-Safe B+ Tree to implement Latch Manager</code>.</p>
+<p>There are plenty of online materials about what B+ trees are so I won’t go into too much detail. In summary, the B+ tree is a self-balancing m-ary tree. A B+ tree is made up of root, internal nodes, and leaf nodes.</p>
+<p>B+ tree has a few invariants. For example, every internal node has at least floor(m/2) children, all leaves are at the same distance from the root, etc. To maintain these invariants, nodes may split into multiple nodes, steal from siblings nodes, or merge with sibling/parent nodes during insertion and deletion.</p>
+<p>When implementing the B+ tree, I relied heavily on this <a href="https://dichchankinh.com/~galles/visualization/BPlusTree.html">B+ visualization tool</a>. The visualization tool provides step-by-step visualizations for B+ tree algorithms. For example, here are the steps for a <code>Delete</code> operation.</p>
+<img src="../images/b_plus_tree_deletion.png" width="75%">
+<h3 id="latch-crabbingcoupling"><a class="header" href="#latch-crabbingcoupling">Latch Crabbing/Coupling</a></h3>
+<p>What makes a thread-safe B+ tree different from normal B+ is that a thread-safe B+ tree can be accessed by multiple threads concurrently. If not designed correctly, threads can crash or yield incorrect results if they try to modify the same set of nodes concurrently.</p>
+<p>This is where Latch Crabbing (or coupling) comes in. Latch crabbing is a protocol to allow multiple threads to access and modify the B+ tree concurrently. This is covered in CMU’s lecture (check out their <a href="https://15445.courses.cs.cmu.edu/fall2022/slides/09-indexconcurrency.pdf">lecture slide</a> and <a href="https://www.youtube.com/watch?v=5KClozM1jjw&amp;list=PLSE8ODhjZXjaKScG3l0nuOiDTTqpfnWFf&amp;index=9&amp;ab_channel=CMUDatabaseGroup">video</a>).</p>
+<p>Latches are lightweight synchronization objects that protect a data structure from concurrent access. If a read latch for a node, no other threads can perform mutation to that node. If a write latch is held for a node, no other threads can read or write that node.</p>
+<p>The idea behind latch crabbing is that when traversing the B+ tree, the thread would get a latch on the parent (starting from the root) before getting a latch on the child node. Then the latch for the parent node is released only if it is safe to do so. It is safe to release the latch for the parent node if it will not split or merge when modified. Whether a node is safe depends on what kind of operation the thread is executing:</p>
+<ul>
+<li><code>Deletion</code>: a node is safe when it is more than half-full (otherwise it will merge with another node when a key is deleted).</li>
+<li><code>Insert</code>: a node is safe when it is not full (otherwise it will split when a key is inserted).</li>
+</ul>
+<p>In my B+ tree implementation, latches are implemented with <code>RwLock</code>s. Each node is wrapped around a <code>RwLock</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub type LatchNode&lt;K&gt; = Arc&lt;RwLock&lt;Node&lt;K&gt;&gt;&gt;;
+
+pub enum Node&lt;K: NodeKey&gt; {
+    Internal(InternalNode&lt;K&gt;),
+    Leaf(LeafNode&lt;K&gt;),
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Furthermore, each property inside the InternalNode and LeafNode are also wrapped around RwLock to provide interior mutability.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct InternalNode&lt;K: NodeKey&gt; {
+    pub keys: RwLock&lt;Vec&lt;K&gt;&gt;,
+    // a key's corresponding left edge will contain nodes with keys stricly less
+    // than the key
+    pub edges: RwLock&lt;Vec&lt;NodeLink&lt;K&gt;&gt;&gt;,
+    pub order: u16,
+}
+
+pub struct LeafNode&lt;K: NodeKey&gt; {
+    pub keys: RwLock&lt;Vec&lt;K&gt;&gt;,
+    pub left_ptr: WeakNodeLink&lt;K&gt;,
+    pub right_ptr: WeakNodeLink&lt;K&gt;,
+    pub order: u16,
+    pub waiters: RwLock&lt;Vec&lt;RwLock&lt;LatchWaiters&gt;&gt;&gt;,
+}
+
+pub type NodeLink&lt;K&gt; = RwLock&lt;Option&lt;LatchNode&lt;K&gt;&gt;&gt;;
+pub type WeakNodeLink&lt;K&gt; = RwLock&lt;Option&lt;Weak&lt;RwLock&lt;Node&lt;K&gt;&gt;&gt;&gt;&gt;;
+<span class="boring">}</span></code></pre></pre>
+<p>To be honest, I struggled quite a bit implementing the concurrent B+ tree. This was my first time learning Rust and I had to wrestle with the compiler multiple times. One thing I struggled with when implementing <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/latch_manager/latch_interval_btree.rs#L985">insert</a> and <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/latch_manager/latch_interval_btree.rs#L1117">delete</a> was finding a way to store the latches.</p>
+<p>I originally tried to keep a stack of <code>RwLockWriteGuard</code> as I traversed the tree. But Rust doesn’t compile because the guard at <code>stack[n]</code> references the Arc from <code>stack[n-1]</code>. In Rust, the value and the reference to that value cannot belong to the same struct. It took me a while to realize that taking a recursive approach when implementing tree algorithms in Rust is easier - the recursion creates a stack for us in the form of the call stack.</p>
+<p>Going back to latch coupling, this is how we <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/latch_manager/latch_interval_btree.rs#L914">compute whether a node is safe or not</a> during insertion:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let is_safe = child_node_size &lt; usize::from(self.order - 1);
+<span class="boring">}</span></code></pre></pre>
+<p>We make sure that the child isn’t at capacity yet so won’t split if a key is inserted.</p>
+<p>This is how we <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/latch_manager/latch_interval_btree.rs#L1058">compute whether a node is safe or not</a> during deletion.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let is_safe = child_has_spare_key
+	&amp; !is_edge_key_the_delete_key &amp;&amp; is_ancestor_safe;
+<span class="boring">}</span></code></pre></pre>
+<p>We make sure that the child is at least half full (has spare key) so that it won’t merge with the parent node if a key is deleted.</p>
+<p>To clarify, the latches here aren’t the same latches we refer to when we talk about the latch that is acquired through the <code>Acquire</code> method in the Latch Manager. The latches here are used to protect the B+ tree data structure. The latches acquired by a latch manager functions more as a lock.</p>
+<h3 id="writing-unit-tests"><a class="header" href="#writing-unit-tests">Writing Unit Tests</a></h3>
+<p>When writing unit tests for tree algorithms, I like to write declarative tests. Instead of having to imperatively build a B+ tree to a starting state, I used a test data structure that can be used to generate a B+ tree. For example, here is the code to create a tree.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let test_node = TestNode::Internal(TestInternalNode {
+    keys: Vec::from([10]),
+    edges: Vec::from([
+        Some(TestNode::Leaf(TestLeafNode {
+            keys: Vec::from([5]),
+        })),
+        Some(TestNode::Leaf(TestLeafNode {
+            keys: Vec::from([10, 20]),
+        })),
+    ]),
+});
+let tree = create_test_tree(&amp;test_node, 3);
+<span class="boring">}</span></code></pre></pre>
+<p>After performing the mutation algorithms, I then asserted the resulting B+ tree as follows</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>tree.insert(Range {
+    start_key: 15,
+    end_key: 15,
+});
+let test_node = TestNode::Internal(TestInternalNode {
+    keys: Vec::from([10, 15]),
+    edges: Vec::from([
+        Some(TestNode::Leaf(TestLeafNode {
+            keys: Vec::from([5]),
+        })),
+        Some(TestNode::Leaf(TestLeafNode {
+            keys: Vec::from([10]),
+        })),
+        Some(TestNode::Leaf(TestLeafNode {
+            keys: Vec::from([15, 20]),
+        })),
+    ]),
+});
+assert_tree(&amp;tree, &amp;test_node);
+<span class="boring">}</span></code></pre></pre>
+<p>Feel free to check out the <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/latch_manager/latch_interval_btree_test.rs">unit tests</a> I wrote for the my concurrent B+ tree implementation!</p>
+<h3 id="using-the-thread-safe-b-tree-to-implement-latch-manager"><a class="header" href="#using-the-thread-safe-b-tree-to-implement-latch-manager">Using the Thread-Safe B+ Tree to implement Latch Manager</a></h3>
+<p>So far, we’ve mostly talked about how to implement the concurrent B+ tree. Now, let’s talk about how the B+ tree is actually used to implement the Latch Manager API.</p>
+<p><strong>Acquire</strong></p>
+<p>As a refresher, Acquire takes a set of keys and returns a Latch Guard. Once a latch guard is acquired by a thread, other threads would have to wait until the latch guard is released.</p>
+<p>Based on this requirement, there are a few mechanisms we need to design for:</p>
+<ul>
+<li>a thread calling Acquire needs to be able to detect that the latches are currently owned by another thread.</li>
+<li>a thread calling Acquire that is waiting for another thread to release its latches needs to be able to detect when the latch guards are released</li>
+</ul>
+<p>Each key inside the B+ tree’s leaf nodes represents an acquired latch. A thread can detect that a latch for a key is acquired by checking if the key exists in the B+ tree.</p>
+<p>When a latch is released, the database uses message passing to notify the waiting thread that it can stop waiting.</p>
+<p>The B+ tree’s insert API is <code>insert: (key) → LatchKeyGuard</code>.</p>
+<p>LatchKeyGuard is an enum:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum LatchKeyGuard {
+    Acquired,
+    NotAcquired(LatchGuardWait),
+}
+
+pub struct LatchGuardWait {
+    pub receiver: Receiver&lt;()&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>During Acquire, the thread would first try to insert the key into the B+ tree. If the key doesn’t exist in the B+ tree yet, the key is inserted and <code>LatchKeyGuard::Acquired</code> is returned. Otherwise, a channel is created and the sender is queued onto the latch. The function then returns <code>LatchKeyGuard::NotAcquire</code> along with the receiver. The thread can then wait for the receiver to receive a message that the latch has been released. <a href="https://github.com/brianshih1/little-key-value-db/blob/master/src/latch_manager/latch_manager.rs#L46">Here</a> is the code for that.</p>
+<p>Each key in the <code>LeafNode</code> contains a corresponding <code>LatchWaiters</code>. Each LatchWaiters contain the array of senders, each has a corresponding <code>receiver</code> returned by the <code>Insert</code> method.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct LeafNode&lt;K: NodeKey&gt; {
+    pub keys: RwLock&lt;Vec&lt;K&gt;&gt;,
+		...
+    pub waiters: RwLock&lt;Vec&lt;RwLock&lt;LatchWaiters&gt;&gt;&gt;,
+}
+
+pub struct LatchWaiters {
+    pub senders: Vec&lt;Mutex&lt;Sender&lt;()&gt;&gt;&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Each key in the <code>LeafNode</code> contains a corresponding <code>LatchWaiters</code>. Each LatchWaiters contain an array of senders, which are requests waiting for the latch guard to be released.</p>
+<p>Deadlock is possible with this approach. For example, suppose both <code>request 1</code> and <code>request 2</code> want to Acquire latches for the keys <code>A</code> and <code>B</code>. If <code>request 1</code> acquires key A first and <code>request 2</code> acquires key B first, then a deadlock has occurred since the two requests are blocking each other.</p>
+<p>To deal with the deadlock, we use a timeout approach. <code>Acquire</code> would release all guards and retry <a href="https://github.com/brianshih1/little-key-value-db/blob/master/src/latch_manager/latch_manager.rs#L51">if the timer times out</a>. There are likely better ways to deal with deadlocks but this was good enough for a MVP.</p>
+<p><strong>Release</strong></p>
+<p>Release is fairly simple. All it does is that it <a href="https://github.com/brianshih1/little-key-value-db/blob/master/src/latch_manager/latch_manager.rs#L84">iterates through the latches that it acquired and deletes it from the B+ tree</a>. The B+ tree would then notify the waiters that the latch is released.</p>
+<h3 id="terminologies"><a class="header" href="#terminologies">Terminologies</a></h3>
+<p>You are probably wondering - the “latches” acquired by the latch manager sounds more like a lock. In fact, if we look at this <a href="https://15445.courses.cs.cmu.edu/fall2022/slides/09-indexconcurrency.pdf">slide</a> from CMU’s lecture, we can see that latches are supposed to be short-lived and don’t rely on mechanisms such as Waits-for, Timeout, etc.</p>
+<img src="../images/locks_vs_latches.png" width="65%">
+<p>To clarify, the RwLock protecting the internal nodes of the B+ tree function as latches. The leaf nodes that contain a queue of waiters act more like a lock (though not a transaction lock).</p>
+<h3 id="cockroachdbs-latch-manager"><a class="header" href="#cockroachdbs-latch-manager"><strong>CockroachDB’s Latch Manager</strong></a></h3>
+<p>For reference, <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L489">this</a> is CockroachDB’s API for latch manager. My Latch Manager’s API is inspired by CockroachDB’s Latch Manager API but my implementation is different. In <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L489">this doc</a>, CockroachDB outlines the evolution of their latch manager implementation.</p>
+<p>CockroachDB uses an interval tree of RWMutexes. <a href="https://github.com/cockroachdb/cockroach/commit/c855b45b539d8870a8d3f9f0711c900b95e0d36c">This CockroachDB PR</a> introduces a BTree implementation based on immutable data structures with copy-on-write mechanisms. I wasn’t able to fully understand how it works but I might revisit and build another implementation for my Latch Manager in the future!</p>
 
                     </main>
 
