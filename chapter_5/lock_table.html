@@ -143,6 +143,88 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="lock-table"><a class="header" href="#lock-table">Lock Table</a></h1>
+<img src="../images/lock_table.png" width="75%">
+<p>The lock table maintains a set of locks that are held by pending transactions. Each lock in the table contains a wait-queue, where conflicting transactions can queue onto and wait until the lock has been released. In contrast to latches, which exist only for the duration of a request, locks are held for the lifetime of a transaction which may span multiple requests.</p>
+<p>As we noted before, each key can only have one uncommitted intent at a time. The lock table guarantees this invariant by ensuring that conflicting transactions are queued while an uncommitted intent is unresolved.</p>
+<h3 id="lock-table-api"><a class="header" href="#lock-table-api">Lock Table API</a></h3>
+<p><strong>Scan_and_enqueue: (request, txn) → (bool, LockTableGuard)</strong></p>
+<p>This method loops over the keys that the request will access. If it finds a lock for one of the keys, it enqueues the request onto the lock and terminates - returning true and a lock table guard. Returning true here means that the thread needs to wait until the lock is released. Returning false here means that no conflicting locks are detected, and the request is free to perform the writes.</p>
+<p>It’s important to note that the latches for the corresponding keys must be held when calling this function.</p>
+<p><strong>Wait_for: (lock_table_guard) → Result&lt;(), Error&gt;</strong></p>
+<p>This method takes a lock guard and waits until the queued request is at the front of the wait queue. This means that the request is safe to re-acquire latches and rescan the lock table to find any other conflicting locks. This method is also responsible for pushing the transaction if it times out, which may be due to deadlocks.</p>
+<p>It’s important to note that this method must be called after latches are dropped.</p>
+<p><strong>Add_discovered_lock: (lock_table_guard, txn_intent) → ()</strong></p>
+<p>This method is called when an uncommitted intent is discovered during a read or write. It adds the lock guard of the request that found the intent to the wait queue.</p>
+<p><strong>Acquire_lock: (key, txn) → ()</strong></p>
+<p>This method is called after a write intent is created. It informs the lock table that a new lock has been acquired and other requests need to wait until the lock is released.</p>
+<p>It’s important to note that the latch for the key must be held when this method is called.</p>
+<p><strong>Dequeue: (lock_table_guard) → ()</strong></p>
+<p>This method removes the request from the lock’s wait queues. Note that this method doesn’t release the lock. The only way to release the lock is when the transaction aborts or commits, which resolves the write intent.</p>
+<p>Note that latches may or may not be held for this method to be called.</p>
+<p><strong>Update_locks: (key, update_lock) → ()</strong></p>
+<p>This method updates the lock table when the lock is updated or released, which happens when the transaction has been committed or aborted. This function frees all the queued readers and the first queued writer.</p>
+<h3 id="lock-state"><a class="header" href="#lock-state">Lock State</a></h3>
+<p>Conceptually, Lock Table is just a map from keys to lock states.</p>
+<p>Each Lock State contains the queued readers and writers for the lock. This is the struct:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct LockState {
+    pub lock_holder: Arc&lt;RwLock&lt;Option&lt;TxnMetadata&gt;&gt;&gt;,
+
+    pub reservation: Arc&lt;RwLock&lt;Option&lt;LockTableGuardLink&gt;&gt;&gt;,
+
+    pub queued_writers: Arc&lt;RwLock&lt;Vec&lt;LockTableGuardLink&gt;&gt;&gt;,
+
+    pub waiting_readers: Arc&lt;RwLock&lt;Vec&lt;LockTableGuardLink&gt;&gt;&gt;,
+
+    pub last_committed_timestamp: RwLock&lt;Option&lt;Timestamp&gt;&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The lock holder represents whether the lock is held by a transaction. If there is a lock holder, then there is an unresolved uncommitted intent.</p>
+<p>Even when the lock_holder is <code>None</code>, which means that the uncommitted intent has been resolved, the lock state may not be cleaned up. This is because there may be pending requests that may add uncommitted intents.</p>
+<p>Pending requests take the form of a lock table guard. These requests need to wait for their turn. Read-only requests are placed inside the <code>waiting_readers</code> and write requests are placed inside <code>queued_writers</code>.</p>
+<p>When the uncommitted intent has been resolved, all <code>waiting_readers</code> may be released. The reason that all readers can be released is that readers only need to wait if the uncommitted write intent has a smaller timestamp to prevent read-write conflicts. If the read request is able to acquire the latches and perform the read, the next uncommitted write intent will have a greater timestamp since it will consult the timestamp oracle.</p>
+<p>On the other hand, only one <code>queued_writers</code> is released. This is because there can only be one uncommitted write intent at a time, so releasing all the writers at once will likely result in conflicts again. When a queued writer is released, it is appointed to be the <code>reservation</code>. <code>Reservation</code> denotes that a write request is in progress and will create an uncommitted intent.</p>
+<p>There are a few invariants for the lock state:</p>
+<ul>
+<li>a lock_holder and a reservation cannot exist at the same time</li>
+<li>if the lock_holder is <code>None</code>, then <code>waiting_readers</code> must be empty</li>
+</ul>
+<p>Each lock table guard is 1-1 with a pending request. It’s an abstraction over a channel. A lock table guard has a corresponding receiver and a sender. The sender sends a message when the lock guard has been released. The receiver detects that the lock guard has been released and proceeds with the request.</p>
+<h3 id="implementing-the-lock-table-api"><a class="header" href="#implementing-the-lock-table-api">Implementing the Lock Table API</a></h3>
+<p>Now that we know the data structure of the lock table, let’s revisit the API and briefly talk about how each method is implemented.</p>
+<p><strong>Scan_and_enqueue: (request, txn) → (bool, LockTableGuard)</strong></p>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L199">This method</a> <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L215">loops through the request’s keys</a>. If a lock state exists for the key, it checks if it needs to wait for the lock state. Here are the rules determining whether a request needs to wait:</p>
+<ul>
+<li>if a lock holder exists
+<ul>
+<li>if the request is read-only, then it only needs to wait <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L617">if the uncommitted intent’s timestamp is less than the read’s timestamp</a></li>
+<li>if the request <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L605">belongs to the same transaction</a> as the lock holder, it doesn’t need to wait.</li>
+</ul>
+</li>
+<li>if a lock holder doesn’t exist
+<ul>
+<li>if the request is read-only, it doesn’t have to wait</li>
+<li>If the lock state doesn’t have a reservation, the lock guard <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L599">claims the reservation</a> and doesn’t need to wait.</li>
+<li>if the reservation and the request <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L595">belong to the same transaction</a>, then it doesn’t need to wait.</li>
+</ul>
+</li>
+</ul>
+<p>If a request needs to wait, then it queues itself onto the <code>queud_writers</code> and <code>waiting_readers</code>.</p>
+<p>Scan_and_enqueue returns true if it doesn’t have to wait for all the keys. Otherwise, it terminates early by returning false with a created lock guard.</p>
+<p><strong>Wait_for: (lock_table_guard) → Result&lt;(), Error&gt;</strong></p>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L245">This method</a> simply uses the lock state guard’s receiver to <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L262">wait until the lock guard has been released</a>. In the case of a deadlock, it <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L266">detects the deadlock with a timer</a>. In that case, it tries to <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L276">push the transaction</a>. This will be covered later.</p>
+<p><strong>Add_discovered_lock: (lock_table_guard, txn_intent) → ()</strong></p>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L143">This method</a> inserts a lock state into the lock table if one didn’t exist yet. It <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L163">claims the lock holder</a>. If the request that detected the uncommitted intent is a reader, it pushes itself onto the <code>waiting_readers</code>. Otherwise, it pushes itself onto the <code>queued_writers</code>.</p>
+<p><strong>Acquire_lock: (key, txn) → ()</strong></p>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L320">This method</a> <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L349">updates the lock holder</a> of the lock state. If <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L342">a reservation exists</a> or if a <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L337">lock holder with a different transaction ID exists</a>, then there is an error.</p>
+<p><strong>Dequeue: (lock_table_guard) → ()</strong></p>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L305">This method</a> removes itself as a reservation <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L650">if it was the reserver</a>. Otherwise, it <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L657">removes itself</a> from the <code>queued_writers</code> and <code>waiting_readers</code>.</p>
+<p><strong>Update_locks: (key, update_lock) → ()</strong></p>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L374">This method</a> <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L421">sets the lock_holder to <code>None</code></a>. It then calls <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L463">lock_is_free</a>, which <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L502">clears</a> all <code>waiting_readers</code> and lets the first queued_writer <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L510">claim itself as the reservation</a>.</p>
+<h3 id="cockroachdbs-implementation"><a class="header" href="#cockroachdbs-implementation">CockroachDB’s Implementation</a></h3>
+<p>My Lock Table API is very similar to CockroachDB’s <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L580">Lock Table API</a>, which consists of the same methods such as <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L591">ScanAndEnqueue</a>, <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L609">Dequeue</a>, <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L609">AddDiscoveredLock</a>, <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L669">AcquireLock</a>, etc. </p>
+<p>Unlike my LockTable which uses a simple <code>HashMap</code>, CockroachDB’s lock state is <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/lock_table.go#L236">stored in a btree</a>. Other than that, the algorithms are quite similar.</p>
 
                     </main>
 
