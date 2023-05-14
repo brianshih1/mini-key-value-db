@@ -12,7 +12,8 @@ Here is a quick summary of the database I built:
 - thread-safe
 - uses RocksDB as the storage engine
 - written in Rust (my first time learning Rust!)
-- support transactions that are serializable
+- support transactions
+-  SSI (serializable Snapshot Isolation)
 - uses MVCC (multi-version concurrency control)
 - uses pessimistic write locks and optimistic reads (reads are lock-free)
 
