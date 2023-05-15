@@ -89,6 +89,7 @@ impl WaitingPush {
 
     pub fn get_dependents(&self) -> Vec<Uuid> {
         let set = self.dependents.read().unwrap();
+        println!("Dependents len is: {}", set.len());
         set.iter().map(|a| a.clone()).collect()
     }
 
@@ -195,7 +196,7 @@ impl TxnWaitQueue {
         );
         let waiting_push_link = self.enqueue_and_push(pusher_txn_id, pushee_txn_id);
         let (query_dependents_handle, mut dependents_rx) =
-            self.start_query_pusher_txn_dependents(pusher_txn_id);
+            self.start_query_pusher_txn_dependents(pusher_txn_id, waiting_push_link.clone());
         let mut rx = waiting_push_link.pushee_finalized_receiver.lock().await;
         let mut loop_count = 0;
         loop {
@@ -252,7 +253,7 @@ impl TxnWaitQueue {
         }
     }
 
-    fn get_dependents(txn_map: TxnWaitingPushesMap, txn_id: Uuid) -> Vec<Uuid> {
+    fn get_transitive_dependents(txn_map: TxnWaitingPushesMap, txn_id: Uuid) -> Vec<Uuid> {
         let txns = txn_map.read().unwrap();
         let pending_txn = txns.get(&txn_id);
         match pending_txn {
@@ -282,6 +283,7 @@ impl TxnWaitQueue {
     fn start_query_pusher_txn_dependents(
         &self,
         txn_id: Uuid,
+        pusher_waiting_push_link: Arc<WaitingPush>,
     ) -> (JoinHandle<()>, Receiver<(Vec<Uuid>, TransactionStatus)>) {
         let (tx, rx) = channel::<(Vec<Uuid>, TransactionStatus)>(1);
         let txns = self.pushees.clone();
@@ -289,8 +291,16 @@ impl TxnWaitQueue {
         let handle = tokio::spawn(async move {
             loop {
                 // TODO: We need a way to terminate the loop
-                let dependents = TxnWaitQueue::get_dependents(txns.clone(), txn_id);
+                let dependents = TxnWaitQueue::get_transitive_dependents(txns.clone(), txn_id);
                 let txn_record = store.get_transaction_record(txn_id).unwrap();
+                // add dependents to waitingPush's dependents
+                pusher_waiting_push_link
+                    .as_ref()
+                    .dependents
+                    .write()
+                    .unwrap()
+                    .extend(dependents.iter());
+                // update waitingPush
                 let res = tx.send((dependents, txn_record.status)).await;
                 match res {
                     Ok(_) => {}

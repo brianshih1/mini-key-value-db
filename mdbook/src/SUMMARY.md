@@ -15,3 +15,5 @@
   - [Lock Table](./chapter_5/lock_table.md)
   - [Deadlock Detection](./chapter_5/deadlock_detection.md)
   - [Timestamp Oracle](./chapter_5/timestamp_oracle.md)
+  - [Request](./chapter_5/request.md)
+  - [Concurrency Manager](./chapter_5/concurrency_manager.md)
