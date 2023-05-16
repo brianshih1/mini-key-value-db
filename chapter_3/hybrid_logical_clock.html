@@ -81,7 +81,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="../chapter_3/hybrid_logical_clock.html" class="active"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="../chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="../chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="../chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Request</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="../chapter_3/hybrid_logical_clock.html" class="active"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="../chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="../chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="../chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Executing the Request</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -142,7 +142,117 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="hybrid-logical-clock"><a class="header" href="#hybrid-logical-clock">Hybrid Logical Clock</a></h1>
+                        <h1 id="hybrid-logical-clock-hlc"><a class="header" href="#hybrid-logical-clock-hlc">Hybrid Logical Clock (HLC)</a></h1>
+<p>My original goal was to build a distributed key-value database. I ended up building a single-node key-value database so the hybrid logical clock isn’t as relevant. However, the HLC is still useful as it can generate unique, ordered timestamps. I need unique timestamps for my database as each MVCC key needs to be unique.</p>
+<h3 id="motivation"><a class="header" href="#motivation">Motivation</a></h3>
+<p>Distributed databases need a way to order events and requests. Physical clocks are not reliable as they can go out of sync between servers. Logical clocks can be used to define order across nodes but it does not correlate to physical time. So you cannot perform queries with respect to the physical time.</p>
+<p>A hybrid logical clock (HLC) uses a combination of the system timestamp and logical timestamp to have versioned timestamps that can be ordered but still be tied to the physical time.</p>
+<h3 id="algorithm"><a class="header" href="#algorithm">Algorithm</a></h3>
+<p>The correctness and algorithm for Hybrid Logical Clock are presented <a href="https://cse.buffalo.edu/tech-reports/2014-04.pdf">in this research paper</a>. I won’t dive into the correctness part but I will talk about how the algorithm works.</p>
+<p>This is the algorithm presented in the paper, let me explain what this means.</p>
+<img src="../images/hlc.png" width="55%">
+<p>An HLC’s timestamp has a physical timestamp and a logical timestamp. In this algorithm,</p>
+<ul>
+<li><code>l.j</code> refers to the biggest physical time the node knows so far.</li>
+<li><code>c.j</code> refers to the logical component of the hybrid logical clock, which is used to distinguish two timestamps if their physical component is the same.</li>
+<li><code>pt.j</code> refers to the node’s physical time.</li>
+</ul>
+<p>Each HLC has two methods: send_message and receive_message.</p>
+<p><strong>receive_message</strong></p>
+<p>This method determines the HLC’s time after receiving a message. The idea is that an HLC keeps track of the latest physical timestamp and logical timestamp known to the node. Each time it receives a message, it updates the latest timestamp if the message’s timestamp is greater than the latest timestamp.</p>
+<ul>
+<li>First, set the latest physical timestamp (set l.j) to the max of :
+<ul>
+<li>the current clock’s physical time</li>
+<li>the incoming message’s physical time</li>
+<li>the previous latest physical timestamp.</li>
+</ul>
+</li>
+<li>Next, determine the logical component of the clock (c.j) as follows:
+<ul>
+<li>If the incoming message’s physical time is the greatest, set the logical clock to the incoming message’s timestamp’s logical time + 1</li>
+<li>If the current clock’s physical timestamp is the greatest, then use 0 as the logical time</li>
+<li>If the original latest_timestamp’s physical time is the greatest, then increment the logical component by one</li>
+</ul>
+</li>
+</ul>
+<p><strong>send_message</strong></p>
+<p>This method determines what timestamp to attach to the message sent to other nodes.</p>
+<ul>
+<li>if the current physical time is bigger than the latest physical time, then use the current physical time with the logical clock set to 0</li>
+<li>Otherwise, increment the latest timestamp’s logical time and use that as the timestamp attached to the message</li>
+</ul>
+<h3 id="implementation"><a class="header" href="#implementation">Implementation</a></h3>
+<p>My implementation of HLC is very simple. The timestamp has a wall_time and logical_time component to it.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Timestamp {
+    pub wall_time: u64,
+    pub logical_time: u32,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The clock’s struct is:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Clock&lt;S: WallClock&gt; {
+    wall_clock: S,
+    pub latest_timestamp: Timestamp,
+}
+<span class="boring">}</span></code></pre></pre>
+<p><code>receive_timestamp</code> implements the receive message portion of the HLC algorithm.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn receive_timestamp(&amp;mut self, incoming_timestamp: Timestamp) {
+        let current_pt = self.wall_clock.current_time();
+        let incoming_pt = incoming_timestamp.wall_time;
+        let latest_pt = self.latest_timestamp.wall_time;
+        let max_pt = max(current_pt, max(incoming_pt, latest_pt));
+        if current_pt == incoming_pt &amp;&amp; incoming_pt == latest_pt {
+            self.latest_timestamp = Timestamp {
+                wall_time: max_pt,
+                logical_time: max(
+                    incoming_timestamp.logical_time,
+                    self.latest_timestamp.logical_time,
+                ) + 1,
+            }
+        } else if latest_pt == max_pt {
+            self.latest_timestamp = Timestamp {
+                wall_time: max_pt,
+                logical_time: self.latest_timestamp.logical_time + 1,
+            }
+        } else if max_pt == incoming_pt {
+            self.latest_timestamp = Timestamp {
+                wall_time: max_pt,
+                logical_time: incoming_timestamp.logical_time + 1,
+            }
+        } else {
+            self.latest_timestamp = Timestamp {
+                wall_time: max_pt,
+                logical_time: 0,
+            }
+        }
+    }
+<span class="boring">}</span></code></pre></pre>
+<p><code>get_timestamp</code> implements the send message portion of the HLC algorithm. It is used to determine the timestamp to attach to messages when sent to other nodes</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn get_timestamp(&amp;mut self) -&gt; &amp;Timestamp {
+    let current_pt = self.wall_clock.current_time();
+    let max_pt = max(self.latest_timestamp.wall_time, current_pt);
+    if self.latest_timestamp.wall_time == max_pt {
+        self.latest_timestamp = Timestamp {
+            wall_time: max_pt,
+            logical_time: self.latest_timestamp.logical_time + 1,
+        };
+    } else {
+        self.latest_timestamp = Timestamp {
+            wall_time: max_pt,
+            logical_time: 0,
+        };
+    }
+    &amp;self.latest_timestamp
+}
+<span class="boring">}</span></code></pre></pre>
 
                     </main>
 

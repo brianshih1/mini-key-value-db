@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Request - Building a Transactional Key-Value database</title>
+        <title>Executing the Request - Building a Transactional Key-Value database</title>
 
 
         <!-- Custom HTML head -->
@@ -81,7 +81,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="../chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="../chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="../chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="../chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/request.html" class="active"><strong aria-hidden="true">5.7.</strong> Request</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="../chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="../chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="../chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="../chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/request.html" class="active"><strong aria-hidden="true">5.7.</strong> Executing the Request</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -142,7 +142,70 @@
 
                 <div id="content" class="content">
                     <main>
-                        
+                        <h1 id="executing-the-request"><a class="header" href="#executing-the-request">Executing the Request</a></h1>
+<p>During the lifetime of a request, after the concurrency manager calls sequence_req, the executor is finally free to execute the request. In this section, we finally get to look at how the requests are executed. </p>
+<p>These are the request types of the database:</p>
+<ul>
+<li>BeginTxn</li>
+<li>CommitTxn</li>
+<li>AbortTxn</li>
+<li>Get</li>
+<li>Put</li>
+</ul>
+<p>Each command needs to implement an <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L93">execute</a> method. Here are its implementations:</p>
+<h3 id="begintxn"><a class="header" href="#begintxn">BeginTxn</a></h3>
+<ul>
+<li>BeginTxn simply <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L124">creates a transaction record</a> with the txn’s timestamp.</li>
+</ul>
+<h3 id="committxn"><a class="header" href="#committxn">CommitTxn</a></h3>
+<ul>
+<li>
+<p>CommitTxn first <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L254">fetches the transaction record</a>.  If the transaction record is aborted, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L265">returns an error</a>.</p>
+</li>
+<li>
+<p>Otherwise, it begins committing the transaction. Firstly, it needs to </p>
+<p>perform a read refresh</p>
+<p>to advance the read timestamp to the write timestamp. If you need a “refresher” on read refresh, look at </p>
+<p>this page</p>
+<p>.</p>
+<ul>
+<li>If the read refresh is unsuccessful, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L271">returns a ReadRefreshError</a>, which would restart the transaction.</li>
+<li>If read refresh is successful, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L275">updates the transaction record</a> to be committed.</li>
+</ul>
+</li>
+<li>
+<p>Next, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#LL280C18-L280C41">resolves the uncommitted intent</a>, which replaces it with a proper MVCC key value with the transaction’s commit timestamp.</p>
+</li>
+<li>
+<p>Next, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L281">releases the locks</a> held by the transaction</p>
+</li>
+<li>
+<p>Finally, it <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L195">removes itself from the TxnWaitQueue</a> in case it was queued</p>
+</li>
+</ul>
+<h3 id="aborttxn"><a class="header" href="#aborttxn">AbortTxn</a></h3>
+<ul>
+<li>AbortTxn first makes sure the transaction record <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L169">isn’t committed</a></li>
+<li>Next, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L176">updates the transaction record to abort</a></li>
+<li>It then <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L181">removes all uncommitted intents</a> from the MVCC database</li>
+<li>Next, it <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L281">releases the locks</a> held by the transaction</li>
+<li>Finally, it <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L298">removes itself from the TxnWaitQueue</a> in case it was queued</li>
+</ul>
+<h3 id="get"><a class="header" href="#get">Get</a></h3>
+<ul>
+<li><a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L338">Get</a> first uses the read timestamp to <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L342">perform a mvcc_get</a> to retrieve the most recent value for the key.</li>
+<li><a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L350">If mvcc_get returns an uncommitted intent</a>, it <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L351">checks</a> if the request’s transaction and the intent’s transaction are the same. In that case, the transaction is reading its uncommitted write so it can proceed.</li>
+<li>Otherwise, Get <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L355">returns a WriteIntentError</a></li>
+<li>Next, the function <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L365">adds the key to the read sets to the transaction</a> so that a read refresh can be performed later if the write timestamp gets bumped.</li>
+<li>Finally, it returns the value.</li>
+</ul>
+<h3 id="put"><a class="header" href="#put">Put</a></h3>
+<ul>
+<li><a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L390">Put</a> uses <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L391">mvcc_put</a> to attempt to put an uncommitted intent into the database.</li>
+<li>If mvcc_put is successful, it adds the uncommitted intent to the lock table by <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L404">calling acquire_lock</a></li>
+<li>Otherwise, this means that an uncommitted intent was detected. Since there can only be one uncommitted intent for each key, the function <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L419">returns a WriteIntentError</a></li>
+</ul>
+
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">

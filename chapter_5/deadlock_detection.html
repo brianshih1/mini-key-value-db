@@ -81,7 +81,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="../chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="../chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="../chapter_5/deadlock_detection.html" class="active"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="../chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Request</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="../chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="../chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="../chapter_5/deadlock_detection.html" class="active"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="../chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Executing the Request</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -143,6 +143,120 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="deadlock-detection"><a class="header" href="#deadlock-detection">Deadlock Detection</a></h1>
+<p>Deadlocks can happen if two conflicting transactions are waiting for each other to finish. </p>
+<img src="../images/deadlock.png" width="75%">
+<p>In the example above, T1 performs a write at A then T2 performs a write at B. Then T1 tries to perform a write at B, but the request gets queued to the lock table as T2 holds the lock at B. On the other hand, T2 tries to perform a write at A, but the request gets queued to the lock table as TA holds the lock at A.</p>
+<p>At this point, the lock table looks like this:</p>
+<img src="../images/deadlock_lock_table.png" width="75%">
+<p>This is a deadlock as neither transaction can proceed as they are waiting for the other transactions to resolve.</p>
+<p>To deal with situations like this, CockroachDB introduced <a href="https://www.cockroachlabs.com/docs/stable/architecture/transaction-layer.html#txnwaitqueue">TxnWaitQueue</a>, a data structure that can detect deadlocks.</p>
+<h3 id="txnwaitqueue"><a class="header" href="#txnwaitqueue">TxnWaitQueue</a></h3>
+<p>TxnWaitQueue is a map from blocking transactions to blocked transactions. We call a blocked transaction a <code>pusher</code> and call a blocking transaction a <code>pushee</code>. In other words, TxnWaitQueue is a map from <code>pushee</code>s to a list of <code>pusher</code>s.</p>
+<p>If we have a three-way deadlock, TxnWaitQueue may look something like this:</p>
+<pre><code>txn1 -&gt; [txn2]
+txn2 -&gt; [txn3]
+txn3 -&gt; [tx1]
+</code></pre>
+<p>Each pusher is wrapped around a data structure called <code>WaitingPush</code>:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct WaitingPush {
+    dependents: RwLock&lt;HashSet&lt;Uuid&gt;&gt;,
+    txn_id: Uuid,
+    /**
+     * Notifies the receiver that the pushTxn request has succeeded.
+     * In other words, the pushee has finalized (aborted or committed)
+     */
+    sender: Arc&lt;Sender&lt;()&gt;&gt;,
+    /**
+     * The receiver will receive a message if the pushee's transaction
+     * has finalized
+     */
+    pushee_finalized_receiver: Mutex&lt;Receiver&lt;()&gt;&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>WaitingPush</code> has a property called dependents that tracks the list of transactions that are blocked by the pusher’s transaction.</p>
+<p>The <code>TxnWaitQueue</code> is a map from pushees’ transaction IDs to their lists of <code>Vec&lt;WaitingPush&gt;</code>.</p>
+<p>The algorithm works as follows:</p>
+<ul>
+<li>a request performing a read or a write detects a conflicting lock so it queues itself to the lock.  It starts a timer. If the timer times out before the lock is resolved, the request tries to push the transaction</li>
+<li>the request pushes itself as a <code>WaitingPush</code> onto the txnWaitQueue. The request’s transaction is the pusher and the lock holder’s transaction is the pushee. The thread would then wait until either the pushee transaction has resolved or if it detects a cycle.</li>
+<li>To detect a cycle, the pusher periodically queries for its own transitive dependents. Its transitive dependents are computed by looking up its own list of waitingPushes and each waitingPush’s dependents list. For example, if <code>txnA</code> queries for its dependents and the <code>txnWaitQueue</code> entry for <code>txnA</code> looks like this:</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>txnA: [
+	waitingPush { txn: txnB, dependents: [txnC, txnD] },
+	waitingPush { txn: txnE, dependents: [txnF] },
+	waitingPush { txn: txnG, dependents: [txnH, txnI] }
+]
+<span class="boring">}</span></code></pre></pre>
+<ul>
+<li>then the <code>txnA</code>'s transitive dependents are <code>[txnB, txnC, ... txnH, txnI]</code>. If the pusher detects that its <code>pushee</code> is inside its transitive dependents, then a deadlock is detected as there is cyclic dependency. In that case, it tries to abort the <code>pushee</code>'s transaction.</li>
+<li>If no deadlock is detected, the pusher updates its own <code>waitingPush</code>'s dependents to be its transitive dependents.</li>
+</ul>
+<p>Let’s see how we can use the algorithm to detect a deadlock with a basic example <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L886">provided by CockroachDB</a>.</p>
+<p>Let’s suppose the following happens:</p>
+<ul>
+<li>txnA enters txnB’s txnWaitQueue as a waitingPush</li>
+<li>txnB enters txnC’s txnWaitQueue as a waitingPush</li>
+<li>txnC enters txnA’s txnWaitQueue as a waitingPush</li>
+</ul>
+<pre><code>txnA: [
+	waitingPush { txn: txnC, dependents: [] }
+]
+txnB: [
+	waitingPush { txn: txnA, dependents: [] }
+]
+txnC: [
+	waitingPush { txn: txnB, dependents: [] }
+]
+</code></pre>
+<p>TxnA queries for its dependents and adds it to its waitingPush</p>
+<pre><code>txnA: [
+	waitingPush { txn: txnC, dependents: [] }
+]
+txnB: [
+	waitingPush { txn: txnA, dependents: [txnC] }
+]
+txnC: [
+	waitingPush { txn: txnB, dependents: [] }
+]
+</code></pre>
+<p>TxnB queries for its dependents and adds it to its waitingPush</p>
+<pre><code>txnA: [
+	waitingPush { txn: txnC, dependents: [txnB] }
+]
+txnB: [
+	waitingPush { txn: txnA, dependents: [txnC] }
+]
+txnC: [
+	waitingPush { txn: txnB, dependents: [txnA, txnC] }
+]
+</code></pre>
+<p>TxnB detects that txnC is both a dependent and the pushee, so a deadlock is detected.</p>
+<p>From this example, we can see that the intuition behind this algorithm is that each <code>waitingPush</code>'s dependent lists keep growing until it detects its own <code>pushee</code> in its dependents list.</p>
+<h3 id="txnwaitqueue-api"><a class="header" href="#txnwaitqueue-api">TxnWaitQueue API</a></h3>
+<p>TxnWaitQueue’s API consists of two methods: wait_for_push and finalize_txn.</p>
+<p><strong>wait_for_push: (pusher_txn_id, pushee_txn_id) → Result&lt;PushTxnResponse, WaitForPushError&gt;</strong></p>
+<p>This method creates a waitingPush and adds it to its pushee’s waitQueue. It will then wait until either the pushee’s transaction is finalized or a deadlock is detected. To detect a cycle, it starts a separate thread that periodically queries for its dependents.</p>
+<p><strong>finalize_txn: (txn_id) → ()</strong></p>
+<p>This method is called when a transaction is resolved (aborted or committed). It removes the transaction from the txnWaitQueue and unblocks all pending waitingPushes.</p>
+<h3 id="algorithm-implementation"><a class="header" href="#algorithm-implementation">Algorithm Implementation</a></h3>
+<p>Inside Concurrency Manager’s <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L44">SequenceReq</a>, if it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L51">detects</a> that it needs to wait for a lock to be released, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#LL53C37-L53C51">calls wait_for</a> on the lock table. When wait_for is called, a timer is created. <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L266">If it times out</a> before the lock has been released, it calls <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/txn_wait/txn_wait_queue.rs#L187">wait_for_push</a>.</p>
+<p>After <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L197">pushing</a> the pusher onto the pushee’s wait queue, the pusher <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L198">begins to periodically query for its transitive dependents</a>.</p>
+<p>The thread loops until either it detects that the pushee’s transaction has been resolved or a cycle is detected. To accomplish this, the thread <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L210">listens to two channels</a> with <code>tokio::select!</code>.</p>
+<p>The first channel is created by <code>start_query_pusher_txn_dependents</code> which periodically queries for the pusher’s dependents and sends the message to this channel. <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L224">If a cycle is detected</a>, it aborts the pushee’s transaction by <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L227">sending</a> a <code>AbortTxn</code> request to the task queue.</p>
+<p>The second channel is created when the <code>waitingPush</code> is <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L81">created</a>. When a transaction is aborted/committed, <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L155">finalize_txn</a> is called which would <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L160">loop through the waiting_pushes</a> and <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L102">send a message</a> to the <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L246">receiver</a> which would terminate the function.</p>
+<h3 id="cockroachdbs-implementation"><a class="header" href="#cockroachdbs-implementation">CockroachDB’s Implementation</a></h3>
+<p>The TxnWaitQueue’s data structure and the algorithm to periodically query for the pusher’s transaction are based on CockroachDB’s txnWaitQueue implementation.</p>
+<p>Inside <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/concurrency/concurrency_manager.go#L232">sequenceReqWithGuard</a>, if a conflicting lock is found, the concurrency manager calls <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/concurrency/concurrency_manager.go#L329">WaitOn</a>. If WaitOn <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/concurrency/lock_table_waiter.go#L346">times out</a> before the lock is released, the thread will try to <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/concurrency/lock_table_waiter.go#L378">push the transaction</a>.</p>
+<p><a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L444">MaybeWaitForPush</a> would be called as a result. It <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L474">creates a waitingPush</a> and <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L478">pushes the pusher to the pushee’s waitingPushes</a>. It then <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L538">calls startQueryPusherTxn</a> which periodically <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L854">queries the pusher’s dependent list</a> and <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L885">sends the result via the created channel</a>.</p>
+<p>WaitForPush listens to a few channels:</p>
+<ul>
+<li>The queryPusherCh, which is the channel created from <code>startQueryPusherTxn</code>. <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L664">When the queryPusherCh is signaled</a>, it first <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L665">checks if the transaction has been finalized</a>, and returns nil if it is. Otherwise, <code>waitForPush</code> <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L682">checks for the dependency cycle</a>. A pusher detects a cycle if the pushee’s txn ID is in its own dependents. <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L707">If there is a dependency, it aborts one of the transactions</a>.</li>
+<li>The <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L593">pending channel</a> is a <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/txnwait/queue.go#L134">property on the waitingPush</a>. This channel receives an update whenever the pushee’s queue is cleared.</li>
+</ul>
 
                     </main>
 

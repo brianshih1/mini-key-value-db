@@ -82,7 +82,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Request</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Executing the Request</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -311,7 +311,117 @@ tokio::try_join!(task_1, task_2).unwrap();
 <p>In this example, transaction T1 performs a read for key A at timestamp 10. It then performs a write at key B, but it detects a committed write at a higher timestamp, so it advances the timestamp to 16. Finally, it commits. However, this is not safe because it results in a read-write conflict.</p>
 <p>When a transaction advances the read timestamp, it must prove that the reads performed at the lower timestamp is still valid at the new timestamp. Suppose the read timestamp is tr and the commit timestamp is tc, the database must prove that the keys read by the transaction have not been updated by another transaction between (tr, tc].</p>
 <p>If the database detects that a write has been performed between (tr, tc], the transaction must retry the entire transaction. Otherwise, it is safe to advance its read timestamp to the commit timestamp and commit the transaction. This technique is called read refresh.</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="hybrid-logical-clock"><a class="header" href="#hybrid-logical-clock">Hybrid Logical Clock</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="hybrid-logical-clock-hlc"><a class="header" href="#hybrid-logical-clock-hlc">Hybrid Logical Clock (HLC)</a></h1>
+<p>My original goal was to build a distributed key-value database. I ended up building a single-node key-value database so the hybrid logical clock isn’t as relevant. However, the HLC is still useful as it can generate unique, ordered timestamps. I need unique timestamps for my database as each MVCC key needs to be unique.</p>
+<h3 id="motivation-1"><a class="header" href="#motivation-1">Motivation</a></h3>
+<p>Distributed databases need a way to order events and requests. Physical clocks are not reliable as they can go out of sync between servers. Logical clocks can be used to define order across nodes but it does not correlate to physical time. So you cannot perform queries with respect to the physical time.</p>
+<p>A hybrid logical clock (HLC) uses a combination of the system timestamp and logical timestamp to have versioned timestamps that can be ordered but still be tied to the physical time.</p>
+<h3 id="algorithm"><a class="header" href="#algorithm">Algorithm</a></h3>
+<p>The correctness and algorithm for Hybrid Logical Clock are presented <a href="https://cse.buffalo.edu/tech-reports/2014-04.pdf">in this research paper</a>. I won’t dive into the correctness part but I will talk about how the algorithm works.</p>
+<p>This is the algorithm presented in the paper, let me explain what this means.</p>
+<img src="chapter_3/../images/hlc.png" width="55%">
+<p>An HLC’s timestamp has a physical timestamp and a logical timestamp. In this algorithm,</p>
+<ul>
+<li><code>l.j</code> refers to the biggest physical time the node knows so far.</li>
+<li><code>c.j</code> refers to the logical component of the hybrid logical clock, which is used to distinguish two timestamps if their physical component is the same.</li>
+<li><code>pt.j</code> refers to the node’s physical time.</li>
+</ul>
+<p>Each HLC has two methods: send_message and receive_message.</p>
+<p><strong>receive_message</strong></p>
+<p>This method determines the HLC’s time after receiving a message. The idea is that an HLC keeps track of the latest physical timestamp and logical timestamp known to the node. Each time it receives a message, it updates the latest timestamp if the message’s timestamp is greater than the latest timestamp.</p>
+<ul>
+<li>First, set the latest physical timestamp (set l.j) to the max of :
+<ul>
+<li>the current clock’s physical time</li>
+<li>the incoming message’s physical time</li>
+<li>the previous latest physical timestamp.</li>
+</ul>
+</li>
+<li>Next, determine the logical component of the clock (c.j) as follows:
+<ul>
+<li>If the incoming message’s physical time is the greatest, set the logical clock to the incoming message’s timestamp’s logical time + 1</li>
+<li>If the current clock’s physical timestamp is the greatest, then use 0 as the logical time</li>
+<li>If the original latest_timestamp’s physical time is the greatest, then increment the logical component by one</li>
+</ul>
+</li>
+</ul>
+<p><strong>send_message</strong></p>
+<p>This method determines what timestamp to attach to the message sent to other nodes.</p>
+<ul>
+<li>if the current physical time is bigger than the latest physical time, then use the current physical time with the logical clock set to 0</li>
+<li>Otherwise, increment the latest timestamp’s logical time and use that as the timestamp attached to the message</li>
+</ul>
+<h3 id="implementation"><a class="header" href="#implementation">Implementation</a></h3>
+<p>My implementation of HLC is very simple. The timestamp has a wall_time and logical_time component to it.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Timestamp {
+    pub wall_time: u64,
+    pub logical_time: u32,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The clock’s struct is:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Clock&lt;S: WallClock&gt; {
+    wall_clock: S,
+    pub latest_timestamp: Timestamp,
+}
+<span class="boring">}</span></code></pre></pre>
+<p><code>receive_timestamp</code> implements the receive message portion of the HLC algorithm.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn receive_timestamp(&amp;mut self, incoming_timestamp: Timestamp) {
+        let current_pt = self.wall_clock.current_time();
+        let incoming_pt = incoming_timestamp.wall_time;
+        let latest_pt = self.latest_timestamp.wall_time;
+        let max_pt = max(current_pt, max(incoming_pt, latest_pt));
+        if current_pt == incoming_pt &amp;&amp; incoming_pt == latest_pt {
+            self.latest_timestamp = Timestamp {
+                wall_time: max_pt,
+                logical_time: max(
+                    incoming_timestamp.logical_time,
+                    self.latest_timestamp.logical_time,
+                ) + 1,
+            }
+        } else if latest_pt == max_pt {
+            self.latest_timestamp = Timestamp {
+                wall_time: max_pt,
+                logical_time: self.latest_timestamp.logical_time + 1,
+            }
+        } else if max_pt == incoming_pt {
+            self.latest_timestamp = Timestamp {
+                wall_time: max_pt,
+                logical_time: incoming_timestamp.logical_time + 1,
+            }
+        } else {
+            self.latest_timestamp = Timestamp {
+                wall_time: max_pt,
+                logical_time: 0,
+            }
+        }
+    }
+<span class="boring">}</span></code></pre></pre>
+<p><code>get_timestamp</code> implements the send message portion of the HLC algorithm. It is used to determine the timestamp to attach to messages when sent to other nodes</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn get_timestamp(&amp;mut self) -&gt; &amp;Timestamp {
+    let current_pt = self.wall_clock.current_time();
+    let max_pt = max(self.latest_timestamp.wall_time, current_pt);
+    if self.latest_timestamp.wall_time == max_pt {
+        self.latest_timestamp = Timestamp {
+            wall_time: max_pt,
+            logical_time: self.latest_timestamp.logical_time + 1,
+        };
+    } else {
+        self.latest_timestamp = Timestamp {
+            wall_time: max_pt,
+            logical_time: 0,
+        };
+    }
+    &amp;self.latest_timestamp
+}
+<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="life-of-a-query"><a class="header" href="#life-of-a-query">Life of A Query</a></h1>
 <p>For reference, check out <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/docs/tech-notes/life_of_a_query.md">Life of a SQL Query</a> by CockroachDB which outlines the lifecycle of a single query through the different layers of the database.</p>
 <p>This page explains the life cycle of a query that interacts with the following entities of the system:</p>
@@ -689,16 +799,16 @@ pub struct LatchWaiters {
 <p>My Lock Table API is very similar to CockroachDB’s <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L580">Lock Table API</a>, which consists of the same methods such as <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L591">ScanAndEnqueue</a>, <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L609">Dequeue</a>, <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L609">AddDiscoveredLock</a>, <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/concurrency_control.go#L669">AcquireLock</a>, etc. </p>
 <p>Unlike my LockTable which uses a simple <code>HashMap</code>, CockroachDB’s lock state is <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/kv/kvserver/concurrency/lock_table.go#L236">stored in a btree</a>. Other than that, the algorithms are quite similar.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="timestamp-oracle"><a class="header" href="#timestamp-oracle">Timestamp Oracle</a></h1>
-<p>As mentioned earlier, when a transaction performs a write on a key, its write timestamp must be greater than any read timestamps performed on the same key to prevent read-write conflicts. Therefore, the database needs to track the maximum timestamp that key ranges were read from. That is the job of the timestamp oracle. Timestamp oracle is a data structure that stores the maximum timestamp that key ranges were read from.</p>
-<p>Timestamp oracle is introduced in Yabandeh’s research paper, <a href="https://dl.acm.org/doi/10.1145/2168836.2168853">A critique of snapshot isolation</a>. In the paper, Yabandeh proves that read-write conflict avoidance is sufficient for serializability. For a more detailed explanation of the timestamp oracle, check out this CockroachDB blog and scroll down to the section <code>Read-Write Conflicts – Read Timestamp Cache</code>.</p>
+<p>As mentioned earlier, when a transaction performs a write on a key, its write timestamp must be greater than any read timestamps performed on the same key to prevent read-write conflicts. Therefore, the database needs to track the maximum timestamp that key ranges were read from. That is the job of the timestamp oracle. Timestamp Oracle is a data structure that stores the maximum timestamp that key ranges were read from.</p>
+<p>Timestamp oracle is introduced in Yabandeh’s research paper, <a href="https://dl.acm.org/doi/10.1145/2168836.2168853">A Critique of Snapshot Isolation</a>. In the paper, Yabandeh proves that read-write conflict avoidance is sufficient for serializability. For a more detailed explanation of the timestamp oracle, check out this CockroachDB blog and scroll down to the section <code>Read-Write Conflicts – Read Timestamp Cache</code>.</p>
 <h3 id="timestamp-oracle-api"><a class="header" href="#timestamp-oracle-api">Timestamp Oracle API</a></h3>
-<p>The timestamp oracle’s API consists of two methods: get_max_timestamp and add</p>
+<p>The Timestamp Oracle’s API consists of two methods: get_max_timestamp and add</p>
 <p><strong>Get_max_timestamp: (start_key, end_key) → Timestamp</strong></p>
-<p>The method returns the max timestamp which overlaps with the interval [start_key, end_key].</p>
+<p>The method returns the max timestamp, which overlaps the interval [start_key, end_key].</p>
 <p><strong>Add: (timestamp, start_key, end_key) → ()</strong></p>
 <p>The method adds the timestamp for the range [start_key, end_key] to the oracle.</p>
 <h3 id="red-black-tree"><a class="header" href="#red-black-tree"><strong>Red-Black Tree</strong></a></h3>
-<p>The timestamp oracle is implemented with a red-black interval tree. There are plenty of materials online on how to implement a red-black tree, so I won’t go into the details. In summary, red-black tree is a self-balancing binary search tree in which each node is marked as either black or red. The red-black tree has some invariants around the red and black nodes. The start key of the interval is used to order keys in the red-black tree.</p>
+<p>The timestamp oracle is implemented with a red-black interval tree. There are plenty of materials online on how to implement a red-black tree, so I won’t go into the details. In summary, a red-black tree is a self-balancing binary search tree in which each node is marked as either black or red. The red-black tree has some invariants around the red and black nodes. The start key of the interval is used to order keys in the red-black tree.</p>
 <p><a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/llrb/llrb.rs">Here</a> is my implementation of the red-black tree.</p>
 <h3 id="implementing-the-timestamp-oracle-api"><a class="header" href="#implementing-the-timestamp-oracle-api">Implementing the Timestamp Oracle API</a></h3>
 <p><strong>Add</strong></p>
@@ -707,10 +817,211 @@ pub struct LatchWaiters {
 <p>First, the function collects all overlap nodes. This is efficient because the timestamp oracle is a Binary Search Tree. Next, the function finds the max timestamp amongst the nodes and returns it.</p>
 <h3 id="cockroachdbs-implementation-1"><a class="header" href="#cockroachdbs-implementation-1">CockroachDB’s Implementation</a></h3>
 <p>CockroachDB calls the timestamp oracle their timestamp cache. CockroachDB’s interface for the timestamp cache is <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/tscache/cache.go#L53">here</a>. They have two implementations for the cache: <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/util/interval/llrb_based_interval.go">red-black tree based</a> and <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/util/interval/btree_based_interval.go">BTree based</a>.</p>
-<p>CockroachDB’s cache is bounded. It evict keys if the cache exceeds a certain size It also maintains a “low water mark” that is used whenever GetMax is called but the interval isn’t in the cache. To decide which keys to exceed, CockroachDB <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/util/cache/cache.go#L114">holds a double-linked list of Entry elements</a>. The order of entries is based on the <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/util/cache/cache.go#L31">eviction policy</a>, one of which is LRU and another is FIFO. I didn’t bother to implement this in my MVP.</p>
+<p>CockroachDB’s cache is bounded. It evicts keys if the cache exceeds a certain size It also maintains a “low watermark” that is used whenever GetMax is called but the interval isn’t in the cache. To decide which keys to exceeding, CockroachDB <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/util/cache/cache.go#L114">holds a double-linked list of Entry elements</a>. The order of entries is based on the <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/util/cache/cache.go#L31">eviction policy</a>, one of which is LRU and another is FIFO. I didn’t bother to implement this in my MVP.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="deadlock-detection"><a class="header" href="#deadlock-detection">Deadlock Detection</a></h1>
+<p>Deadlocks can happen if two conflicting transactions are waiting for each other to finish. </p>
+<img src="chapter_5/../images/deadlock.png" width="75%">
+<p>In the example above, T1 performs a write at A then T2 performs a write at B. Then T1 tries to perform a write at B, but the request gets queued to the lock table as T2 holds the lock at B. On the other hand, T2 tries to perform a write at A, but the request gets queued to the lock table as TA holds the lock at A.</p>
+<p>At this point, the lock table looks like this:</p>
+<img src="chapter_5/../images/deadlock_lock_table.png" width="75%">
+<p>This is a deadlock as neither transaction can proceed as they are waiting for the other transactions to resolve.</p>
+<p>To deal with situations like this, CockroachDB introduced <a href="https://www.cockroachlabs.com/docs/stable/architecture/transaction-layer.html#txnwaitqueue">TxnWaitQueue</a>, a data structure that can detect deadlocks.</p>
+<h3 id="txnwaitqueue"><a class="header" href="#txnwaitqueue">TxnWaitQueue</a></h3>
+<p>TxnWaitQueue is a map from blocking transactions to blocked transactions. We call a blocked transaction a <code>pusher</code> and call a blocking transaction a <code>pushee</code>. In other words, TxnWaitQueue is a map from <code>pushee</code>s to a list of <code>pusher</code>s.</p>
+<p>If we have a three-way deadlock, TxnWaitQueue may look something like this:</p>
+<pre><code>txn1 -&gt; [txn2]
+txn2 -&gt; [txn3]
+txn3 -&gt; [tx1]
+</code></pre>
+<p>Each pusher is wrapped around a data structure called <code>WaitingPush</code>:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct WaitingPush {
+    dependents: RwLock&lt;HashSet&lt;Uuid&gt;&gt;,
+    txn_id: Uuid,
+    /**
+     * Notifies the receiver that the pushTxn request has succeeded.
+     * In other words, the pushee has finalized (aborted or committed)
+     */
+    sender: Arc&lt;Sender&lt;()&gt;&gt;,
+    /**
+     * The receiver will receive a message if the pushee's transaction
+     * has finalized
+     */
+    pushee_finalized_receiver: Mutex&lt;Receiver&lt;()&gt;&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>WaitingPush</code> has a property called dependents that tracks the list of transactions that are blocked by the pusher’s transaction.</p>
+<p>The <code>TxnWaitQueue</code> is a map from pushees’ transaction IDs to their lists of <code>Vec&lt;WaitingPush&gt;</code>.</p>
+<p>The algorithm works as follows:</p>
+<ul>
+<li>a request performing a read or a write detects a conflicting lock so it queues itself to the lock.  It starts a timer. If the timer times out before the lock is resolved, the request tries to push the transaction</li>
+<li>the request pushes itself as a <code>WaitingPush</code> onto the txnWaitQueue. The request’s transaction is the pusher and the lock holder’s transaction is the pushee. The thread would then wait until either the pushee transaction has resolved or if it detects a cycle.</li>
+<li>To detect a cycle, the pusher periodically queries for its own transitive dependents. Its transitive dependents are computed by looking up its own list of waitingPushes and each waitingPush’s dependents list. For example, if <code>txnA</code> queries for its dependents and the <code>txnWaitQueue</code> entry for <code>txnA</code> looks like this:</li>
+</ul>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>txnA: [
+	waitingPush { txn: txnB, dependents: [txnC, txnD] },
+	waitingPush { txn: txnE, dependents: [txnF] },
+	waitingPush { txn: txnG, dependents: [txnH, txnI] }
+]
+<span class="boring">}</span></code></pre></pre>
+<ul>
+<li>then the <code>txnA</code>'s transitive dependents are <code>[txnB, txnC, ... txnH, txnI]</code>. If the pusher detects that its <code>pushee</code> is inside its transitive dependents, then a deadlock is detected as there is cyclic dependency. In that case, it tries to abort the <code>pushee</code>'s transaction.</li>
+<li>If no deadlock is detected, the pusher updates its own <code>waitingPush</code>'s dependents to be its transitive dependents.</li>
+</ul>
+<p>Let’s see how we can use the algorithm to detect a deadlock with a basic example <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L886">provided by CockroachDB</a>.</p>
+<p>Let’s suppose the following happens:</p>
+<ul>
+<li>txnA enters txnB’s txnWaitQueue as a waitingPush</li>
+<li>txnB enters txnC’s txnWaitQueue as a waitingPush</li>
+<li>txnC enters txnA’s txnWaitQueue as a waitingPush</li>
+</ul>
+<pre><code>txnA: [
+	waitingPush { txn: txnC, dependents: [] }
+]
+txnB: [
+	waitingPush { txn: txnA, dependents: [] }
+]
+txnC: [
+	waitingPush { txn: txnB, dependents: [] }
+]
+</code></pre>
+<p>TxnA queries for its dependents and adds it to its waitingPush</p>
+<pre><code>txnA: [
+	waitingPush { txn: txnC, dependents: [] }
+]
+txnB: [
+	waitingPush { txn: txnA, dependents: [txnC] }
+]
+txnC: [
+	waitingPush { txn: txnB, dependents: [] }
+]
+</code></pre>
+<p>TxnB queries for its dependents and adds it to its waitingPush</p>
+<pre><code>txnA: [
+	waitingPush { txn: txnC, dependents: [txnB] }
+]
+txnB: [
+	waitingPush { txn: txnA, dependents: [txnC] }
+]
+txnC: [
+	waitingPush { txn: txnB, dependents: [txnA, txnC] }
+]
+</code></pre>
+<p>TxnB detects that txnC is both a dependent and the pushee, so a deadlock is detected.</p>
+<p>From this example, we can see that the intuition behind this algorithm is that each <code>waitingPush</code>'s dependent lists keep growing until it detects its own <code>pushee</code> in its dependents list.</p>
+<h3 id="txnwaitqueue-api"><a class="header" href="#txnwaitqueue-api">TxnWaitQueue API</a></h3>
+<p>TxnWaitQueue’s API consists of two methods: wait_for_push and finalize_txn.</p>
+<p><strong>wait_for_push: (pusher_txn_id, pushee_txn_id) → Result&lt;PushTxnResponse, WaitForPushError&gt;</strong></p>
+<p>This method creates a waitingPush and adds it to its pushee’s waitQueue. It will then wait until either the pushee’s transaction is finalized or a deadlock is detected. To detect a cycle, it starts a separate thread that periodically queries for its dependents.</p>
+<p><strong>finalize_txn: (txn_id) → ()</strong></p>
+<p>This method is called when a transaction is resolved (aborted or committed). It removes the transaction from the txnWaitQueue and unblocks all pending waitingPushes.</p>
+<h3 id="algorithm-implementation"><a class="header" href="#algorithm-implementation">Algorithm Implementation</a></h3>
+<p>Inside Concurrency Manager’s <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L44">SequenceReq</a>, if it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L51">detects</a> that it needs to wait for a lock to be released, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#LL53C37-L53C51">calls wait_for</a> on the lock table. When wait_for is called, a timer is created. <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/lock_table/lock_table.rs#L266">If it times out</a> before the lock has been released, it calls <a href="https://github.com/brianshih1/little-key-value-db/blob/f239e62b5d97ff7754ce61e0f8ca02d889fcb4c2/src/txn_wait/txn_wait_queue.rs#L187">wait_for_push</a>.</p>
+<p>After <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L197">pushing</a> the pusher onto the pushee’s wait queue, the pusher <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L198">begins to periodically query for its transitive dependents</a>.</p>
+<p>The thread loops until either it detects that the pushee’s transaction has been resolved or a cycle is detected. To accomplish this, the thread <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L210">listens to two channels</a> with <code>tokio::select!</code>.</p>
+<p>The first channel is created by <code>start_query_pusher_txn_dependents</code> which periodically queries for the pusher’s dependents and sends the message to this channel. <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L224">If a cycle is detected</a>, it aborts the pushee’s transaction by <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L227">sending</a> a <code>AbortTxn</code> request to the task queue.</p>
+<p>The second channel is created when the <code>waitingPush</code> is <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L81">created</a>. When a transaction is aborted/committed, <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L155">finalize_txn</a> is called which would <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L160">loop through the waiting_pushes</a> and <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L102">send a message</a> to the <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/txn_wait/txn_wait_queue.rs#L246">receiver</a> which would terminate the function.</p>
+<h3 id="cockroachdbs-implementation-2"><a class="header" href="#cockroachdbs-implementation-2">CockroachDB’s Implementation</a></h3>
+<p>The TxnWaitQueue’s data structure and the algorithm to periodically query for the pusher’s transaction are based on CockroachDB’s txnWaitQueue implementation.</p>
+<p>Inside <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/concurrency/concurrency_manager.go#L232">sequenceReqWithGuard</a>, if a conflicting lock is found, the concurrency manager calls <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/concurrency/concurrency_manager.go#L329">WaitOn</a>. If WaitOn <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/concurrency/lock_table_waiter.go#L346">times out</a> before the lock is released, the thread will try to <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/concurrency/lock_table_waiter.go#L378">push the transaction</a>.</p>
+<p><a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L444">MaybeWaitForPush</a> would be called as a result. It <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L474">creates a waitingPush</a> and <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L478">pushes the pusher to the pushee’s waitingPushes</a>. It then <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L538">calls startQueryPusherTxn</a> which periodically <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L854">queries the pusher’s dependent list</a> and <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L885">sends the result via the created channel</a>.</p>
+<p>WaitForPush listens to a few channels:</p>
+<ul>
+<li>The queryPusherCh, which is the channel created from <code>startQueryPusherTxn</code>. <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L664">When the queryPusherCh is signaled</a>, it first <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L665">checks if the transaction has been finalized</a>, and returns nil if it is. Otherwise, <code>waitForPush</code> <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L682">checks for the dependency cycle</a>. A pusher detects a cycle if the pushee’s txn ID is in its own dependents. <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L707">If there is a dependency, it aborts one of the transactions</a>.</li>
+<li>The <a href="https://github.com/cockroachdb/cockroach/blob/c21c90f93219b857858518d25a8bc061444d573c/pkg/kv/kvserver/txnwait/queue.go#L593">pending channel</a> is a <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/txnwait/queue.go#L134">property on the waitingPush</a>. This channel receives an update whenever the pushee’s queue is cleared.</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="concurrency-manager"><a class="header" href="#concurrency-manager">Concurrency Manager</a></h1>
-<div style="break-before: page; page-break-before: always;"></div>
+<p>Concurrency Manager is composed of a latch manager, a lock table, and a txnWaitQueue. Now that we better understand these individual components, we can finally look at how the Concurrency Manager’s API is implemented.</p>
+<h3 id="concurrency-manager-api"><a class="header" href="#concurrency-manager-api">Concurrency Manager API</a></h3>
+<p>The API is made up of two methods: sequence_req and finish_req.</p>
+<p><strong>Sequence_req: (request) → Result&lt;Guard, SequenceReqError&gt;</strong></p>
+<p><code>Sequence_req</code> provides isolation for the request by acquiring latches and waiting for conflicting locks to be released. Once <code>Sequence_req</code> returns a <code>Guard</code>, the request is guaranteed isolation until the guard is released.</p>
+<p><strong>Finish_req: (guard) → ()</strong></p>
+<p><code>Finish_req</code> is called when the request has finished executing. It releases the request from the components of the concurrency manager and allows blocked requests to proceed.</p>
+<h3 id="implementation-1"><a class="header" href="#implementation-1">Implementation</a></h3>
+<p><strong>Sequence_req</strong></p>
+<p>Sequence_req first <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L45">figures out</a> the keys it needs to acquire latches and locks for. It then creates a <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L48">loop</a>. Each time it loops, it performs the following:</p>
+<ul>
+<li>it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L49">acquires the latches</a></li>
+<li>it calls the lock table’s <code>scan_and_enqueue</code> method to see if there is a conflicting lock for one of the request’s keys
+<ul>
+<li>if <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L51">there is a conflicting lock</a>, the thread will <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L53">release the latches and wait until the lock is released</a>. After waiting, it will have become a <code>reservation</code> for the lock. In that case, it is free to re-acquire latches and rescan the lock table in the next iteration of the loop.</li>
+<li>if there isn’t a conflicting lock, the function <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L64">stops looping and returns</a>.</li>
+</ul>
+</li>
+</ul>
+<p><strong>Finish_req</strong></p>
+<p>Finish_req simply <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L76">releases the latches</a> and <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L77">dequeues</a> acquired locks from the lock table.</p>
+<h3 id="cockroachdbs-implementation-3"><a class="header" href="#cockroachdbs-implementation-3">CockroachDB’s Implementation</a></h3>
+<p>The core idea behind CockroachDB’s <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L185">SequenceReq</a> implementation is similar to my implementation. The difference is that it has different modes, such as <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L365">OptimisticEval</a> and <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L363">PessimisticEval</a>. If the mode is OptimisticEval, it <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L270">calls</a> <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#LL498C2-L501C62">AcquireOptimistic</a> which does not wait for conflicting latches to be released. It needs to be followed with CheckOptimisticNoConflicts to ensure correctness.</p>
+<p>My implementation is more similar to the pessimistic evaluation approach, which <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L276">acquires latches</a>.  CockroachDB’s SequenceReq then <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L320">calls ScanAndEnqueue</a> to find conflicting locks. If a conflicting lock <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L326">is found</a>, <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L330">WaitOn</a> is called, which waits until the lock is released or pushes the transaction if it times out.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="executing-the-request"><a class="header" href="#executing-the-request">Executing the Request</a></h1>
+<p>During the lifetime of a request, after the concurrency manager calls sequence_req, the executor is finally free to execute the request. In this section, we finally get to look at how the requests are executed. </p>
+<p>These are the request types of the database:</p>
+<ul>
+<li>BeginTxn</li>
+<li>CommitTxn</li>
+<li>AbortTxn</li>
+<li>Get</li>
+<li>Put</li>
+</ul>
+<p>Each command needs to implement an <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L93">execute</a> method. Here are its implementations:</p>
+<h3 id="begintxn"><a class="header" href="#begintxn">BeginTxn</a></h3>
+<ul>
+<li>BeginTxn simply <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L124">creates a transaction record</a> with the txn’s timestamp.</li>
+</ul>
+<h3 id="committxn"><a class="header" href="#committxn">CommitTxn</a></h3>
+<ul>
+<li>
+<p>CommitTxn first <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L254">fetches the transaction record</a>.  If the transaction record is aborted, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L265">returns an error</a>.</p>
+</li>
+<li>
+<p>Otherwise, it begins committing the transaction. Firstly, it needs to </p>
+<p>perform a read refresh</p>
+<p>to advance the read timestamp to the write timestamp. If you need a “refresher” on read refresh, look at </p>
+<p>this page</p>
+<p>.</p>
+<ul>
+<li>If the read refresh is unsuccessful, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L271">returns a ReadRefreshError</a>, which would restart the transaction.</li>
+<li>If read refresh is successful, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L275">updates the transaction record</a> to be committed.</li>
+</ul>
+</li>
+<li>
+<p>Next, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#LL280C18-L280C41">resolves the uncommitted intent</a>, which replaces it with a proper MVCC key value with the transaction’s commit timestamp.</p>
+</li>
+<li>
+<p>Next, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L281">releases the locks</a> held by the transaction</p>
+</li>
+<li>
+<p>Finally, it <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L195">removes itself from the TxnWaitQueue</a> in case it was queued</p>
+</li>
+</ul>
+<h3 id="aborttxn"><a class="header" href="#aborttxn">AbortTxn</a></h3>
+<ul>
+<li>AbortTxn first makes sure the transaction record <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L169">isn’t committed</a></li>
+<li>Next, it <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L176">updates the transaction record to abort</a></li>
+<li>It then <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L181">removes all uncommitted intents</a> from the MVCC database</li>
+<li>Next, it <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L281">releases the locks</a> held by the transaction</li>
+<li>Finally, it <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L298">removes itself from the TxnWaitQueue</a> in case it was queued</li>
+</ul>
+<h3 id="get"><a class="header" href="#get">Get</a></h3>
+<ul>
+<li><a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L338">Get</a> first uses the read timestamp to <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L342">perform a mvcc_get</a> to retrieve the most recent value for the key.</li>
+<li><a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L350">If mvcc_get returns an uncommitted intent</a>, it <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L351">checks</a> if the request’s transaction and the intent’s transaction are the same. In that case, the transaction is reading its uncommitted write so it can proceed.</li>
+<li>Otherwise, Get <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L355">returns a WriteIntentError</a></li>
+<li>Next, the function <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L365">adds the key to the read sets to the transaction</a> so that a read refresh can be performed later if the write timestamp gets bumped.</li>
+<li>Finally, it returns the value.</li>
+</ul>
+<h3 id="put"><a class="header" href="#put">Put</a></h3>
+<ul>
+<li><a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L390">Put</a> uses <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L391">mvcc_put</a> to attempt to put an uncommitted intent into the database.</li>
+<li>If mvcc_put is successful, it adds the uncommitted intent to the lock table by <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L404">calling acquire_lock</a></li>
+<li>Otherwise, this means that an uncommitted intent was detected. Since there can only be one uncommitted intent for each key, the function <a href="https://github.com/brianshih1/little-key-value-db/blob/efa45d5873e6536a52e2f08270e693f45ecaaeba/src/execute/request.rs#L419">returns a WriteIntentError</a></li>
+</ul>
+
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
