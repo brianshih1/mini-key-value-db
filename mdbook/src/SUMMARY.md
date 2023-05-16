@@ -16,4 +16,4 @@
   - [Timestamp Oracle](./chapter_5/timestamp_oracle.md)
   - [Deadlock Detection](./chapter_5/deadlock_detection.md)
   - [Concurrency Manager](./chapter_5/concurrency_manager.md)
-  - [Request](./chapter_5/request.md)
+  - [Executing the Request](./chapter_5/request.md)
