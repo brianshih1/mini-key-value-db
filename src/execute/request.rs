@@ -294,6 +294,13 @@ impl Command for CommitTxnRequest {
         //   again. And it will then timeout and push the transaction to either resolve the intent
         //   or detect that the uncommitted intent is already cleaned up
 
+        // release any pushers blocked by the transaction
+        executor
+            .concr_manager
+            .lock_table
+            .txn_wait_queue
+            .finalize_txn(txn_id)
+            .await;
         Ok(ResponseUnion::CommitTxn(CommitTxnResponse {
             commit_timestamp: write_timestamp,
         }))
