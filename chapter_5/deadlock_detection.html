@@ -143,8 +143,8 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="deadlock-detection"><a class="header" href="#deadlock-detection">Deadlock Detection</a></h1>
-<p>Deadlocks can happen if two conflicting transactions are waiting for each other to finish. </p>
-<img src="../images/deadlock.png" width="75%">
+<p>Deadlocks can happen if two conflicting transactions are waiting for each other to finish.</p>
+<img src="../images/deadlock.png" width="65%">
 <p>In the example above, T1 performs a write at A then T2 performs a write at B. Then T1 tries to perform a write at B, but the request gets queued to the lock table as T2 holds the lock at B. On the other hand, T2 tries to perform a write at A, but the request gets queued to the lock table as TA holds the lock at A.</p>
 <p>At this point, the lock table looks like this:</p>
 <img src="../images/deadlock_lock_table.png" width="75%">
@@ -179,7 +179,7 @@ txn3 -&gt; [tx1]
 <p>The <code>TxnWaitQueue</code> is a map from pushees’ transaction IDs to their lists of <code>Vec&lt;WaitingPush&gt;</code>.</p>
 <p>The algorithm works as follows:</p>
 <ul>
-<li>a request performing a read or a write detects a conflicting lock so it queues itself to the lock.  It starts a timer. If the timer times out before the lock is resolved, the request tries to push the transaction</li>
+<li>a request performing a read or a write detects a conflicting lock so it queues itself to the lock. It starts a timer. If the timer times out before the lock is resolved, the request tries to push the transaction</li>
 <li>the request pushes itself as a <code>WaitingPush</code> onto the txnWaitQueue. The request’s transaction is the pusher and the lock holder’s transaction is the pushee. The thread would then wait until either the pushee transaction has resolved or if it detects a cycle.</li>
 <li>To detect a cycle, the pusher periodically queries for its own transitive dependents. Its transitive dependents are computed by looking up its own list of waitingPushes and each waitingPush’s dependents list. For example, if <code>txnA</code> queries for its dependents and the <code>txnWaitQueue</code> entry for <code>txnA</code> looks like this:</li>
 </ul>

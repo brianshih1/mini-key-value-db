@@ -312,13 +312,13 @@ tokio::try_join!(task_1, task_2).unwrap();
 <p>When a transaction advances the read timestamp, it must prove that the reads performed at the lower timestamp is still valid at the new timestamp. Suppose the read timestamp is tr and the commit timestamp is tc, the database must prove that the keys read by the transaction have not been updated by another transaction between (tr, tc].</p>
 <p>If the database detects that a write has been performed between (tr, tc], the transaction must retry the entire transaction. Otherwise, it is safe to advance its read timestamp to the commit timestamp and commit the transaction. This technique is called read refresh.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="hybrid-logical-clock-hlc"><a class="header" href="#hybrid-logical-clock-hlc">Hybrid Logical Clock (HLC)</a></h1>
-<p>My original goal was to build a distributed key-value database. I ended up building a single-node key-value database so the hybrid logical clock isn’t as relevant. However, the HLC is still useful as it can generate unique, ordered timestamps. I need unique timestamps for my database as each MVCC key needs to be unique.</p>
+<p>My original goal was to build a distributed key-value database. I needed a clock that can help me generate unique, increasing MVCC timestamps. After doing some research, I realized that Hybrid Logical Clock (HLC) is what I needed. Even though I ended up just building a single-node key value database, HLC is still useful as it is able to generate unique, incrementing timestamps. </p>
 <h3 id="motivation-1"><a class="header" href="#motivation-1">Motivation</a></h3>
 <p>Distributed databases need a way to order events and requests. Physical clocks are not reliable as they can go out of sync between servers. Logical clocks can be used to define order across nodes but it does not correlate to physical time. So you cannot perform queries with respect to the physical time.</p>
 <p>A hybrid logical clock (HLC) uses a combination of the system timestamp and logical timestamp to have versioned timestamps that can be ordered but still be tied to the physical time.</p>
 <h3 id="algorithm"><a class="header" href="#algorithm">Algorithm</a></h3>
-<p>The correctness and algorithm for Hybrid Logical Clock are presented <a href="https://cse.buffalo.edu/tech-reports/2014-04.pdf">in this research paper</a>. I won’t dive into the correctness part but I will talk about how the algorithm works.</p>
-<p>This is the algorithm presented in the paper, let me explain what this means.</p>
+<p>The correctness and algorithm for Hybrid Logical Clock are presented <a href="https://cse.buffalo.edu/tech-reports/2014-04.pdf">in this research paper</a>. In this blog, I will focus on the algorithm and not its correctness.</p>
+<p>This is the algorithm presented in the paper. Let me explain how it works.</p>
 <img src="chapter_3/../images/hlc.png" width="55%">
 <p>An HLC’s timestamp has a physical timestamp and a logical timestamp. In this algorithm,</p>
 <ul>
@@ -351,77 +351,6 @@ tokio::try_join!(task_1, task_2).unwrap();
 <li>if the current physical time is bigger than the latest physical time, then use the current physical time with the logical clock set to 0</li>
 <li>Otherwise, increment the latest timestamp’s logical time and use that as the timestamp attached to the message</li>
 </ul>
-<h3 id="implementation"><a class="header" href="#implementation">Implementation</a></h3>
-<p>My implementation of HLC is very simple. The timestamp has a wall_time and logical_time component to it.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct Timestamp {
-    pub wall_time: u64,
-    pub logical_time: u32,
-}
-<span class="boring">}</span></code></pre></pre>
-<p>The clock’s struct is:</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct Clock&lt;S: WallClock&gt; {
-    wall_clock: S,
-    pub latest_timestamp: Timestamp,
-}
-<span class="boring">}</span></code></pre></pre>
-<p><code>receive_timestamp</code> implements the receive message portion of the HLC algorithm.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub fn receive_timestamp(&amp;mut self, incoming_timestamp: Timestamp) {
-        let current_pt = self.wall_clock.current_time();
-        let incoming_pt = incoming_timestamp.wall_time;
-        let latest_pt = self.latest_timestamp.wall_time;
-        let max_pt = max(current_pt, max(incoming_pt, latest_pt));
-        if current_pt == incoming_pt &amp;&amp; incoming_pt == latest_pt {
-            self.latest_timestamp = Timestamp {
-                wall_time: max_pt,
-                logical_time: max(
-                    incoming_timestamp.logical_time,
-                    self.latest_timestamp.logical_time,
-                ) + 1,
-            }
-        } else if latest_pt == max_pt {
-            self.latest_timestamp = Timestamp {
-                wall_time: max_pt,
-                logical_time: self.latest_timestamp.logical_time + 1,
-            }
-        } else if max_pt == incoming_pt {
-            self.latest_timestamp = Timestamp {
-                wall_time: max_pt,
-                logical_time: incoming_timestamp.logical_time + 1,
-            }
-        } else {
-            self.latest_timestamp = Timestamp {
-                wall_time: max_pt,
-                logical_time: 0,
-            }
-        }
-    }
-<span class="boring">}</span></code></pre></pre>
-<p><code>get_timestamp</code> implements the send message portion of the HLC algorithm. It is used to determine the timestamp to attach to messages when sent to other nodes</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub fn get_timestamp(&amp;mut self) -&gt; &amp;Timestamp {
-    let current_pt = self.wall_clock.current_time();
-    let max_pt = max(self.latest_timestamp.wall_time, current_pt);
-    if self.latest_timestamp.wall_time == max_pt {
-        self.latest_timestamp = Timestamp {
-            wall_time: max_pt,
-            logical_time: self.latest_timestamp.logical_time + 1,
-        };
-    } else {
-        self.latest_timestamp = Timestamp {
-            wall_time: max_pt,
-            logical_time: 0,
-        };
-    }
-    &amp;self.latest_timestamp
-}
-<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="life-of-a-query"><a class="header" href="#life-of-a-query">Life of A Query</a></h1>
 <p>For reference, check out <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/docs/tech-notes/life_of_a_query.md">Life of a SQL Query</a> by CockroachDB which outlines the lifecycle of a single query through the different layers of the database.</p>
 <p>This page explains the life cycle of a query that interacts with the following entities of the system:</p>
@@ -819,8 +748,8 @@ pub struct LatchWaiters {
 <p>CockroachDB calls the timestamp oracle their timestamp cache. CockroachDB’s interface for the timestamp cache is <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/tscache/cache.go#L53">here</a>. They have two implementations for the cache: <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/util/interval/llrb_based_interval.go">red-black tree based</a> and <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/util/interval/btree_based_interval.go">BTree based</a>.</p>
 <p>CockroachDB’s cache is bounded. It evicts keys if the cache exceeds a certain size It also maintains a “low watermark” that is used whenever GetMax is called but the interval isn’t in the cache. To decide which keys to exceeding, CockroachDB <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/util/cache/cache.go#L114">holds a double-linked list of Entry elements</a>. The order of entries is based on the <a href="https://github.com/cockroachdb/cockroach/blob/master/pkg/util/cache/cache.go#L31">eviction policy</a>, one of which is LRU and another is FIFO. I didn’t bother to implement this in my MVP.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="deadlock-detection"><a class="header" href="#deadlock-detection">Deadlock Detection</a></h1>
-<p>Deadlocks can happen if two conflicting transactions are waiting for each other to finish. </p>
-<img src="chapter_5/../images/deadlock.png" width="75%">
+<p>Deadlocks can happen if two conflicting transactions are waiting for each other to finish.</p>
+<img src="chapter_5/../images/deadlock.png" width="65%">
 <p>In the example above, T1 performs a write at A then T2 performs a write at B. Then T1 tries to perform a write at B, but the request gets queued to the lock table as T2 holds the lock at B. On the other hand, T2 tries to perform a write at A, but the request gets queued to the lock table as TA holds the lock at A.</p>
 <p>At this point, the lock table looks like this:</p>
 <img src="chapter_5/../images/deadlock_lock_table.png" width="75%">
@@ -855,7 +784,7 @@ txn3 -&gt; [tx1]
 <p>The <code>TxnWaitQueue</code> is a map from pushees’ transaction IDs to their lists of <code>Vec&lt;WaitingPush&gt;</code>.</p>
 <p>The algorithm works as follows:</p>
 <ul>
-<li>a request performing a read or a write detects a conflicting lock so it queues itself to the lock.  It starts a timer. If the timer times out before the lock is resolved, the request tries to push the transaction</li>
+<li>a request performing a read or a write detects a conflicting lock so it queues itself to the lock. It starts a timer. If the timer times out before the lock is resolved, the request tries to push the transaction</li>
 <li>the request pushes itself as a <code>WaitingPush</code> onto the txnWaitQueue. The request’s transaction is the pusher and the lock holder’s transaction is the pushee. The thread would then wait until either the pushee transaction has resolved or if it detects a cycle.</li>
 <li>To detect a cycle, the pusher periodically queries for its own transitive dependents. Its transitive dependents are computed by looking up its own list of waitingPushes and each waitingPush’s dependents list. For example, if <code>txnA</code> queries for its dependents and the <code>txnWaitQueue</code> entry for <code>txnA</code> looks like this:</li>
 </ul>
@@ -941,7 +870,7 @@ txnC: [
 <p><code>Sequence_req</code> provides isolation for the request by acquiring latches and waiting for conflicting locks to be released. Once <code>Sequence_req</code> returns a <code>Guard</code>, the request is guaranteed isolation until the guard is released.</p>
 <p><strong>Finish_req: (guard) → ()</strong></p>
 <p><code>Finish_req</code> is called when the request has finished executing. It releases the request from the components of the concurrency manager and allows blocked requests to proceed.</p>
-<h3 id="implementation-1"><a class="header" href="#implementation-1">Implementation</a></h3>
+<h3 id="implementation"><a class="header" href="#implementation">Implementation</a></h3>
 <p><strong>Sequence_req</strong></p>
 <p>Sequence_req first <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L45">figures out</a> the keys it needs to acquire latches and locks for. It then creates a <a href="https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/concurrency/concurrency_manager.rs#L48">loop</a>. Each time it loops, it performs the following:</p>
 <ul>
@@ -959,7 +888,7 @@ txnC: [
 <p>The core idea behind CockroachDB’s <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L185">SequenceReq</a> implementation is similar to my implementation. The difference is that it has different modes, such as <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L365">OptimisticEval</a> and <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L363">PessimisticEval</a>. If the mode is OptimisticEval, it <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L270">calls</a> <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#LL498C2-L501C62">AcquireOptimistic</a> which does not wait for conflicting latches to be released. It needs to be followed with CheckOptimisticNoConflicts to ensure correctness.</p>
 <p>My implementation is more similar to the pessimistic evaluation approach, which <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L276">acquires latches</a>.  CockroachDB’s SequenceReq then <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L320">calls ScanAndEnqueue</a> to find conflicting locks. If a conflicting lock <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L326">is found</a>, <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L330">WaitOn</a> is called, which waits until the lock is released or pushes the transaction if it times out.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="executing-the-request"><a class="header" href="#executing-the-request">Executing the Request</a></h1>
-<p>During the lifetime of a request, after the concurrency manager calls sequence_req, the executor is finally free to execute the request. In this section, we finally get to look at how the requests are executed. </p>
+<p>During the lifetime of a request, the request can finally be executed after concurrency manager calls <code>sequence_req</code>.  In this section, we finally get to look at how the requests are executed. </p>
 <p>These are the request types of the database:</p>
 <ul>
 <li>BeginTxn</li>
