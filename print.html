@@ -145,8 +145,7 @@
                     <main>
                         <h1 id="motivation"><a class="header" href="#motivation">Motivation</a></h1>
 <p><em>Richard Feynman - “What I cannot create, I do not understand”</em></p>
-<p>As someone without a background in databases, I’ve always been curious about the inner workings of transactions in databases such as PostgreSQL and CockroachDB. To better understand this, I decided to build my own transactional key-value database.</p>
-<p>Rather than trying to reinvent the wheel, I studied CockroachDB extensively and followed its architecture as closely as possible. For those of you who aren't familiar with what CockroachDB is, it is a distributed SQL database built on top of a transactional key-value store. By following the architecture of CockroachDB's key-value store, I was able to learn in a more structured manner and study its design patterns.</p>
+<p>As someone without a background in databases, I’ve always been curious about the inner workings of transactions in databases such as PostgreSQL and CockroachDB. To unveil the mystery, I studied CockroachDB's transactional layer extensively and built a toy transactional key-value database. I reimplemented techniques and algorithms used by CockroachDB such as MVCC, write intents, read refresh, etc.</p>
 <p>Here is a quick summary of the database I built:</p>
 <ul>
 <li>key-value database</li>
@@ -158,7 +157,7 @@
 <li>uses MVCC (multi-version concurrency control)</li>
 <li>uses pessimistic write locks and optimistic reads (reads are lock-free)</li>
 </ul>
-<p>My motivation for writing this blog series is to solidify my understanding of the project. In this blog series, I will explain the theory behind the database and dive into the implementation details. I will also provide references and summaries for CockroachDB's repo.</p>
+<p>In this blog series, I will first go over the techniques I learned from CockroachDB then perform a deep dive into my implementation. I will also provide references to CockroachDB's repo in case you would like to dig into their codebase.</p>
 <p>The source code is available on GitHub (PRs/suggestions welcome) <a href="https://github.com/brianshih1/little-key-value-db">here</a></p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="database-api"><a class="header" href="#database-api">Database API</a></h1>
 <p>Let’s first talk about the API of the toy database. The database’s API consists of the following methods:</p>
@@ -206,8 +205,8 @@ let key1 = &quot;foo&quot;;
 let key2 = &quot;bar&quot;;
 let task_1 = tokio::spawn(async move {
     db_1.run_txn(|txn_context| async move {
-        txn_context.write(key1, 1).await.unwrap();
-				txn_context.write(key2, 10).await.unwrap();
+      txn_context.write(key1, 1).await.unwrap();
+      txn_context.write(key2, 10).await.unwrap();
     })
     .await
 });
@@ -215,8 +214,8 @@ let task_1 = tokio::spawn(async move {
 let db_2 = Arc::clone(db);
 let task_2 = tokio::spawn(async move {
     db_2.run_txn(|txn_context| async move {
-        txn_context.write(key1, 2).await.unwrap();
-				txn_context.write(key2, 20).await.unwrap();
+      txn_context.write(key1, 2).await.unwrap();
+      txn_context.write(key2, 20).await.unwrap();
     })
     .await;
 });
@@ -241,7 +240,7 @@ tokio::try_join!(task_1, task_2).unwrap();
 </ul>
 <p>Other parts of the blog series will cover topics like the internals of concurrency control, deadlock detection, and hybrid-logical clock.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="mvcc"><a class="header" href="#mvcc">MVCC</a></h1>
-<p>Multiversion concurrency control (MVCC) is an optimization technique used by databases to improve the performance of concurrent operations. The idea behind MVCC is that the database stores multiple versions for each record.</p>
+<p>Multiversion concurrency control (MVCC) is an optimization technique used by databases to improve the performance of concurrent operations. There are many different variations of MVCC but the overall idea behind MVCC is that the database stores multiple versions for each record. In this section, we will look at CockroachDB's variation of MVCC.</p>
 <p>When a record is updated or added, a new entry in the database is added instead of overwriting the original entry. Database reads are performed at a certain version or timestamp. The database returns the most up-to-date record less than or equal to the specified read version.</p>
 <p>In the example below, there are 3 different versions of the “Apple” key, each with a different timestamp. The read is performed at timestamp 15. The database returns the result at timestamp 10 since that is the record with the largest timestamp less than 15.</p>
 <img src="chapter_3/../images/mvcc.png" width="65%">
@@ -968,6 +967,22 @@ txnC: [
         </div>
 
 
+        <!-- Google Analytics Tag -->
+        <script>
+            var localAddrs = ["localhost", "127.0.0.1", ""];
+
+            // make sure we don't activate google analytics if the developer is
+            // inspecting the book locally...
+            if (localAddrs.indexOf(document.location.hostname) === -1) {
+                (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+                (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+                m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+                })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+                ga('create', 'G-41KHFCMZ4F', 'auto');
+                ga('send', 'pageview');
+            }
+        </script>
 
 
         <script>

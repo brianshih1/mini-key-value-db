@@ -188,8 +188,8 @@ let key1 = &quot;foo&quot;;
 let key2 = &quot;bar&quot;;
 let task_1 = tokio::spawn(async move {
     db_1.run_txn(|txn_context| async move {
-        txn_context.write(key1, 1).await.unwrap();
-				txn_context.write(key2, 10).await.unwrap();
+      txn_context.write(key1, 1).await.unwrap();
+      txn_context.write(key2, 10).await.unwrap();
     })
     .await
 });
@@ -197,8 +197,8 @@ let task_1 = tokio::spawn(async move {
 let db_2 = Arc::clone(db);
 let task_2 = tokio::spawn(async move {
     db_2.run_txn(|txn_context| async move {
-        txn_context.write(key1, 2).await.unwrap();
-				txn_context.write(key2, 20).await.unwrap();
+      txn_context.write(key1, 2).await.unwrap();
+      txn_context.write(key2, 20).await.unwrap();
     })
     .await;
 });
@@ -238,6 +238,22 @@ tokio::try_join!(task_1, task_2).unwrap();
         </div>
 
 
+        <!-- Google Analytics Tag -->
+        <script>
+            var localAddrs = ["localhost", "127.0.0.1", ""];
+
+            // make sure we don't activate google analytics if the developer is
+            // inspecting the book locally...
+            if (localAddrs.indexOf(document.location.hostname) === -1) {
+                (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+                (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+                m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+                })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+                ga('create', 'G-41KHFCMZ4F', 'auto');
+                ga('send', 'pageview');
+            }
+        </script>
 
 
         <script>
