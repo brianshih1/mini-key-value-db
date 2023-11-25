@@ -1,6 +1,6 @@
 # MVCC
 
-Multiversion concurrency control (MVCC) is an optimization technique used by databases to improve the performance of concurrent operations. The idea behind MVCC is that the database stores multiple versions for each record.
+Multiversion concurrency control (MVCC) is an optimization technique used by databases to improve the performance of concurrent operations. There are many different variations of MVCC but the overall idea behind MVCC is that the database stores multiple versions for each record. In this section, we will look at CockroachDB's variation of MVCC.
 
 When a record is updated or added, a new entry in the database is added instead of overwriting the original entry. Database reads are performed at a certain version or timestamp. The database returns the most up-to-date record less than or equal to the specified read version.
 

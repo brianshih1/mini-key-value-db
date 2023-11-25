@@ -4,3 +4,6 @@ language = "en"
 multilingual = false
 src = "src"
 title = "Building a Transactional Key-Value database"
+
+[output.html]
+google-analytics = "G-41KHFCMZ4F"

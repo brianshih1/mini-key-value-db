@@ -50,8 +50,8 @@ let key1 = "foo";
 let key2 = "bar";
 let task_1 = tokio::spawn(async move {
     db_1.run_txn(|txn_context| async move {
-        txn_context.write(key1, 1).await.unwrap();
-				txn_context.write(key2, 10).await.unwrap();
+      txn_context.write(key1, 1).await.unwrap();
+      txn_context.write(key2, 10).await.unwrap();
     })
     .await
 });
@@ -59,8 +59,8 @@ let task_1 = tokio::spawn(async move {
 let db_2 = Arc::clone(db);
 let task_2 = tokio::spawn(async move {
     db_2.run_txn(|txn_context| async move {
-        txn_context.write(key1, 2).await.unwrap();
-				txn_context.write(key2, 20).await.unwrap();
+      txn_context.write(key1, 2).await.unwrap();
+      txn_context.write(key2, 20).await.unwrap();
     })
     .await;
 });
