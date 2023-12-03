@@ -12,4 +12,4 @@ In this example, transaction T1 performs a read for key A at timestamp 10. It th
 
 When a transaction advances the read timestamp, it must prove that the reads performed at the lower timestamp is still valid at the new timestamp. Suppose the read timestamp is tr and the commit timestamp is tc, the database must prove that the keys read by the transaction have not been updated by another transaction between (tr, tc].
 
-If the database detects that a write has been performed between (tr, tc], the transaction must retry the entire transaction. Otherwise, it is safe to advance its read timestamp to the commit timestamp and commit the transaction. This technique is called read refresh.
+If the database detects that a write has been performed between (tr, tc], the transaction must retry the entire transaction. Otherwise, it is safe to advance its read timestamp to the commit timestamp and commit the transaction. This technique is called *read refresh*.

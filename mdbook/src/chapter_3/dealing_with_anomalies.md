@@ -1,14 +1,12 @@
 # Dealing with Anomalies
 
-CockroachDB outlined its strategy to deal with transaction conflicts in section 3.3 of [its research paper](https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf). My database uses the same concurrency control techniques outlined in that section.
+CRDB outlined its strategy to deal with transaction conflicts in section 3.3 of [its research paper](https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf). Let's summarize it here.
 
 ### Commit Timestamp
 
-Each transaction performs its reads and writes at its commit timestamp. This is what guarantees the serializability of transactions. This section covers how a transaction determines its commit timestamp.
+As mentioned earlier, each transaction performs its reads and writes at its commit timestamp. This is what guarantees the serializability of transactions. A transaction has a read timestamp and a write timestamp. The read/write timestamps are initialized to the timestamp when the transaction is created, which is guaranteed to be unique. The transaction stores the most recent write timestamp as part of the write intent. When the transaction commits, the final write timestamp is used as the commit timestamp.
 
-A transaction has a read timestamp and a write timestamp. The read/write timestamps are initialized to the timestamp when the transaction is created, which is guaranteed to be unique. The transaction stores the most recent write timestamp as part of the write intent. When the transaction commits, the final write timestamp is used as the commit timestamp.
-
-Usually, the write timestamp for a transaction won’t change. But in some situations, it is required to be bumped. Let’s look at these scenarios.
+Usually, the write timestamp for a transaction won’t change. However, when CRDB detects a transaction conflict, it adjusts the commit timestamp. Let’s look at this mechanism in more detail.
 
 ### Dealing with conflicts
 
@@ -33,3 +31,5 @@ Write-read happens when a read runs into an uncommitted write. Two scenarios cou
 
 - the uncommitted write intent has a **bigger** timestamp: the read ignores the intent and returns the key with the biggest timestamp less than the read timestamp.
 - the uncommitted write intent has a **smaller** timestamp: the read needs to wait for the transaction associated with the write intent to be finalized (aborted or committed)
+
+We now see the scenarios in which the commit timestamp is adjusted. However, advancing the commit timestamp may be problematic at times. Let's look at this in more detail in the next page!

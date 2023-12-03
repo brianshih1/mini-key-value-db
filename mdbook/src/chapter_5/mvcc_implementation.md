@@ -1,6 +1,6 @@
 # MVCC
 
-Earlier, we covered how MVCC works [here](https://brianshih1.github.io/little-key-value-db/chapter_3/mvcc.html). In this section, we will talk about how the MVCC layer is implemented.
+In this section, we will talk about how the MVCC layer is implemented.
 
 In my MVCC database, HLC (hybrid logical clock) timestamps are used to distinguish different versions of the same key. A key with a timestamp is called an [MVCCKey](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_key.rs#L7). 
 
@@ -28,7 +28,7 @@ The Key’s type is
 pub type Key = Vec<u8>;
 ```
 
-The database uses RocksDB as the storage engine. We need to encode the MVCCKey into a RocksDB key. Inspired by CockroachDB [EncodeMVCCKey method](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc_key.go#L161), the MVCCKey is encoded into the following form:
+The database uses RocksDB as the storage engine. We need to encode the MVCCKey into a RocksDB key, which is just a `Vec<u8>`. Inspired by CockroachDB [EncodeMVCCKey method](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc_key.go#L161), the MVCCKey is encoded into the following form:
 
 `[key] [wall_time] [logical_time]`
 
@@ -50,11 +50,9 @@ pub fn encode_timestamp(timestamp: Timestamp) -> Vec<u8> {
 }
 ```
 
-
-
 Earlier, we covered that a write intent is stored to represent uncommitted writes. A key can only have one write intent at a time. We use the MVCCKey with the zero timestamp: Timestamp { wall_time: 0, logical_time: 0 } to represent the key for a write intent.
 
-When users query for a key, the database returns the latest version of that key. To make this faster, MVCCKeys are sorted from highest timestamp to the lowest timestamp in the storage engine, with the exception of the zero timestamp which is stored before all other versions of the same key.
+When users query for a key, the database returns the latest version of that key. To make this faster, MVCCKeys are sorted from the highest timestamp to the lowest timestamp in the storage engine, except for the zero timestamp which is stored before all other versions of the same key.
 
 This is only possible because RocksDB allows developers to customize the order of keys in the table through [set_comparator](https://docs.rs/rocksdb/latest/rocksdb/struct.Options.html#method.set_comparator). [Here](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/storage.rs#L50) is my implementation of the custom comparator. The comparator gives the highest precedence to the zero timestamp for the same key. Otherwise, it uses the key and the timestamp to order the MVCC keys.
 
@@ -70,7 +68,7 @@ Most interactions with RocksDB are performed with this set of APIs, which are ju
 
 ### MVCC_SCAN
 
-[MVCC_SCAN](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L99) takes a start key, an end key, and a timestamp as inputs. MVCC_SCAN returns an array of results that contains the keys in the range [start_key, end_key). Only keys with a timestamp less than or equal to the input timestamp is added to the scan results. MVCC_SCAN also collects any write intents that it found along the way.
+[MVCC_SCAN](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L99) takes a start key, an end key, and a timestamp as inputs. MVCC_SCAN returns an array of results that contains the keys in the range [start_key, end_key). Only keys with a timestamp less than or equal to the input timestamp are added to the scan results. MVCC_SCAN also collects any write intents that it found along the way.
 
 **Algorithm**
 
@@ -111,15 +109,15 @@ Before writing, MVCC_PUT must verify that there is no uncommitted intent for the
   - [the intent’s transaction is the same transaction as the current transaction](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L158). In this case, we’re overwriting our own transaction which is acceptable - we don’t do anything
   - Otherwise, we check the status of the transaction record that corresponds to the write intent. If the transaction is pending, [a WriteIntentError is returned](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L162)
 
-- After verifying that there are no uncommitted intent for the same key, we are free to insert into the database. 
+- After verifying that there is no uncommitted intent for the same key, we are free to insert it into the database. 
 
-- If a transaction is provided, [an uncommitted intent is placed into the database](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L193). An UncommittedValue contains the value, the transaction ID and the write_timestamp of the transaction at the time of insertion.
+- If a transaction is provided, [an uncommitted intent is placed into the database](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L193). An UncommittedValue contains the value, the transaction ID, and the write_timestamp of the transaction at the time of insertion.
 
 - Otherwise, [the raw value is placed into the database](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L206).
 
 **CockroachDB’s MVCCPut**
 
-For reference, here is CockroachDB’s implementation of [MVCCPut](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1442). The core idea is the same. It [checks if an intent was found](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1859). If there exists an uncommitted write intent whose transaction ID is not the same as the MVCCPut’s transaction’s ID, [a WriteIntentError is returned](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1863). 
+For reference, here is CockroachDB’s implementation of [MVCCPut](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1442). The core idea is the same. It [checks if an intent was found](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1859). If there exists an uncommitted write intent whose transaction ID is not the same as the MVCCPut’s Transaction ID, [a WriteIntentError is returned](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1863). 
 
 Otherwise, if the intent’s timestamp is less than the write timestamp, clear [it](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L2024) so that MVCCPut can overwrite it. Finally, MVCCPut [writes the mvcc value](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L2195).  
 

@@ -1,8 +1,10 @@
 # Life of A Query
 
-For reference, check out [Life of a SQL Query](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/docs/tech-notes/life_of_a_query.md) by CockroachDB which outlines the lifecycle of a single query through the different layers of the database.
+Now that we understand how CRDB guarantees atomicity and isolation, we can finally start implementing the transactional layer! The transactional layer of my toy database is composed of many entities. This page serves as a high-level overview of how a query interacts with these entities. You don't need to fully understand this page as I will cover each entity in greater detail. But this page can serve as a useful reference when understanding how each entity fits into the bigger picture.
 
-This page explains the life cycle of a query that interacts with the following entities of the system:
+This page is inspired by CRDB's [Life of a SQL Query](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/docs/tech-notes/life_of_a_query.md) doc, which outlines the lifecycle of a single query through the different layers of CRDB. I kept coming back to their doc when implementing my toy database.
+
+From a higher level, the transactional layer of my toy database is composed of these entities:
 
 - **Concurrency Manager**: Sequences concurrent, conflicting requests to provide isolation. Once a request is sequenced, it is free to execute as no conflicting requests are running at the same time. The concurrency manager is made up of the latch manager, lock table, and transaction wait queue.
 - **Latch Manager**: Serializes accesses for keys. Only one latch guard can be acquired for a key at any given time.
@@ -42,3 +44,5 @@ Before performing writes, the request may need to bump its write timestamp to pr
 Each request implements the [execute](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/execute/request.rs#L94) method which interacts with the storage layer. The storage layer of the database is built on top of RocksDB. As an example, the PutRequest’s execute implementation [puts the MVCC key-value record into the storage layer](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/execute/request.rs#L385). We will cover the `execute` method for each request type in more detail later.
 
 Finally, the executor [finishes the request](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/execute/executor.rs#L85) - [releasing the latch guards](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/concurrency/concurrency_manager.rs#L76) and [dequeuing the lock guards](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/concurrency/concurrency_manager.rs#L77).
+
+Now, let's look at the implementation details!

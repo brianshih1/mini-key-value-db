@@ -1,6 +1,6 @@
 # Executing the Request
 
-During the lifetime of a request, the request can finally be executed after concurrency manager calls `sequence_req`.  In this section, we finally get to look at how the requests are executed. 
+During the lifetime of a request, the request can finally be executed after the concurrency manager calls `sequence_req`.  In this section, we finally get to look at how the requests are executed. 
 
 These are the request types of the database:
 

@@ -1,6 +1,6 @@
 # Database API
 
-Let’s first talk about the API of the toy database. The database’s API consists of the following methods:
+Before we dive into the theory and implementation of my toy database, let's first look at the toy database's API, which consists of the following methods:
 
 - set_time
 - begin_txn

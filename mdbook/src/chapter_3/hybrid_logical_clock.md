@@ -1,6 +1,6 @@
 # Hybrid Logical Clock (HLC)
 
-My original goal was to build a distributed key-value database. I needed a clock that can help me generate unique, increasing MVCC timestamps. After doing some research, I realized that Hybrid Logical Clock (HLC) is what I needed. Even though I ended up just building a single-node key value database, HLC is still useful as it is able to generate unique, incrementing timestamps. 
+My original goal was to build a distributed key-value database. Since CRDB uses HLC, I also used HLC to generate unique, increasing MVCC timestamps. Even though I didn't end up building a distributed key-value database, let's still talk about HLC for fun. Feel free to skip this page if you're not interested!
 
 ### Motivation
 
