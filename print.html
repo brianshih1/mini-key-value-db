@@ -82,7 +82,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_3/mvcc.html"><strong aria-hidden="true">3.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="chapter_3/interleave_txns.html"><strong aria-hidden="true">3.2.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.3.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/read_refresh.html"><strong aria-hidden="true">3.4.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.5.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Executing the Request</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_3/atomicity_and_isolation.html"><strong aria-hidden="true">3.1.</strong> Atomicity and Isolation</a></li><li class="chapter-item expanded "><a href="chapter_3/mvcc.html"><strong aria-hidden="true">3.2.</strong> MVCC & Write Intents</a></li><li class="chapter-item expanded "><a href="chapter_3/interleave_txns.html"><strong aria-hidden="true">3.3.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.4.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="chapter_3/read_refresh.html"><strong aria-hidden="true">3.5.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.6.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Executing the Request</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -145,8 +145,8 @@
                     <main>
                         <h1 id="motivation"><a class="header" href="#motivation">Motivation</a></h1>
 <p><em>Richard Feynman - “What I cannot create, I do not understand”</em></p>
-<p>As someone without a background in databases, I’ve always been curious about the inner workings of transactions in databases such as PostgreSQL and CockroachDB. To unveil the mystery, I studied CockroachDB's transactional layer extensively and built a toy transactional key-value database. I reimplemented techniques and algorithms used by CockroachDB such as MVCC, write intents, read refresh, etc.</p>
-<p>Here is a quick summary of the database I built:</p>
+<p>As someone without a background in databases, I’ve always been curious about the inner workings of transactions in OLTP databases such as PostgreSQL and CockroachDB. To unveil the mystery, I studied CockroachDB's transactional layer extensively and built a toy transactional key-value database based on it. I reimplemented techniques and algorithms used by CockroachDB's transactional layer such as MVCC, write intents, read refresh, and others.</p>
+<p>Here is a quick summary of the toy database I built:</p>
 <ul>
 <li>key-value database</li>
 <li>thread-safe</li>
@@ -157,10 +157,9 @@
 <li>uses MVCC (multi-version concurrency control)</li>
 <li>uses pessimistic write locks and optimistic reads (reads are lock-free)</li>
 </ul>
-<p>In this blog series, I will first go over the techniques I learned from CockroachDB then perform a deep dive into my implementation. I will also provide references to CockroachDB's repo in case you would like to dig into their codebase.</p>
-<p>The source code is available on GitHub (PRs/suggestions welcome) <a href="https://github.com/brianshih1/little-key-value-db">here</a></p>
+<p>In this blog series, I will cover the theory behind and the implementation of my toy database. The source code is available on GitHub <a href="https://github.com/brianshih1/little-key-value-db">here</a></p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="database-api"><a class="header" href="#database-api">Database API</a></h1>
-<p>Let’s first talk about the API of the toy database. The database’s API consists of the following methods:</p>
+<p>Before we dive into the theory and implementation of my toy database, let's first look at the toy database's API, which consists of the following methods:</p>
 <ul>
 <li>set_time</li>
 <li>begin_txn</li>
@@ -225,38 +224,44 @@ tokio::try_join!(task_1, task_2).unwrap();
 <h3 id="time"><a class="header" href="#time">Time</a></h3>
 <p>The database is powered by a Hybrid Logical Clock (which we will cover later). The developer must manually increment the physical time with the set_time function. But it can also be swapped out with an implementation that uses the system’s time instead.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="core-concepts"><a class="header" href="#core-concepts">Core Concepts</a></h1>
-<p>Atomicity and isolation are two important traits of transactional databases.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="cockroachdb--acid"><a class="header" href="#cockroachdb--acid">CockroachDB &amp; ACID</a></h1>
+<p>The goal of this project is to learn how to implement transactions in a database. First, let's look at what a transaction is.</p>
+<p>A database transaction is a logical unit of execution in a database defined by certain properties. ACID is an acronym used to describe these properties: Atomicity, Consistency, Isolation, and Durability. </p>
 <ul>
-<li>Atomicity: all of the database operations in a transaction are executed as a single unit (either all of them or none of them are performed).</li>
-<li>Isolation: transactions don’t see intermediate changes of other transactions.</li>
+<li><strong>Atomicity</strong>: all of the database operations in a transaction are executed as a single unit (either all of them or none of them are performed).</li>
+<li><strong>Consistency</strong>: transactions affect data in allowed and expected ways, satisfying all defined rules, including constraints, cascades, triggers, etc.</li>
+<li><strong>Isolation</strong>: transactions don’t see intermediate changes of other transactions. CockroachDB supports the strictest transaction isolation level: <em>serializable isolation</em>. While this isolation allows transactions to run concurrently, it creates the illusion that transactions are run in serial order.</li>
+<li><strong>Durability</strong>: once the transaction completes, changes to the database are persisted even in the case of system failures.</li>
 </ul>
-<p>To guarantee atomicity and isolation, I borrowed many concepts from CockroachDB’s architecture, which they outlined in <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">their research paper</a>. The relevant sections include sections 3.2  (Atomicity Guarantees), section 3.3 (Concurrency Control), and section 3.24 (Read Refreshes).</p>
-<p>In general, here are some of the core techniques I used to implement transactions</p>
+<p>How does CockroachDB (CRDB) satisfy ACID?</p>
 <ul>
-<li>MVCC</li>
-<li>Write Intents</li>
-<li>Pessimistic writes and optimistic reads</li>
-<li>Read refreshes</li>
+<li><strong>Atomicity</strong>: CRDB's <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">research paper</a> outlines how it achieves transaction atomicity in Section 3.2. An atomic transaction is achieved with an abstraction called the <em>Write Intent</em>, which we will cover later.</li>
+<li><strong>Consistency</strong>: As stated in this <a href="https://www.cockroachlabs.com/blog/db-consistency-isolation-terminology/">CRDB blog</a>, CRDB supports a consistency level they call <em>strong partition</em>. CRDB <a href="https://www.cockroachlabs.com/blog/cockroachdb-beta-passes-jepsen-testing/">uses Japsen Testing</a> to test for correctness and consistency. Consistency is a complex topic that I will not dive into for this project. </li>
+<li><strong>Isolation</strong>: CRDB's <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">research paper</a> outlines how it achieves serializable isolation in Sections 3.3 and 3.4. To achieve serializable isolation, each transaction performs its read and write at a commit timestamp. This results in the total ordering of transactions. However, since transactions can be executed concurrently, the commit timestamp needs to be adjusted when it runs into conflicts. This will be covered later.</li>
+<li><strong>Durability</strong>: CRDB guarantees durability via the Raft Consensus Algorithm which guarantees that every acknowledged write has been persisted by the majority of replicas.</li>
 </ul>
-<p>Other parts of the blog series will cover topics like the internals of concurrency control, deadlock detection, and hybrid-logical clock.</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="mvcc"><a class="header" href="#mvcc">MVCC</a></h1>
-<p>Multiversion concurrency control (MVCC) is an optimization technique used by databases to improve the performance of concurrent operations. There are many different variations of MVCC but the overall idea behind MVCC is that the database stores multiple versions for each record. In this section, we will look at CockroachDB's variation of MVCC.</p>
-<p>When a record is updated or added, a new entry in the database is added instead of overwriting the original entry. Database reads are performed at a certain version or timestamp. The database returns the most up-to-date record less than or equal to the specified read version.</p>
+<p>In this project, I focused on reimplementing algorithms that CRDB uses to achieve Atomicity and Isolation. Now, let's take a look at what write intents are!</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="mvcc--write-intents"><a class="header" href="#mvcc--write-intents">MVCC &amp; Write Intents</a></h1>
+<p>Before we look at what write intents are, we need to understand what MVCC (multiversion concurrency control) is.</p>
+<p>MVCC is a popular transaction management scheme in DBMSs. The overall idea behind MVCC is that the database stores multiple versions for each record. There is no standard way to implement MVCC and each design choice has its tradeoffs. In this section, we will look at CockroachDB's variation of MVCC.</p>
+<p>In CockroachDB, when a record is updated or added, a new entry in the database is added instead of overwriting the original entry. Each record has a unique timestamp. Database <em>reads</em> are performed at a certain timestamp. The database returns the most up-to-date record less than or equal to the specified timestamp.</p>
 <p>In the example below, there are 3 different versions of the “Apple” key, each with a different timestamp. The read is performed at timestamp 15. The database returns the result at timestamp 10 since that is the record with the largest timestamp less than 15.</p>
 <img src="chapter_3/../images/mvcc.png" width="65%">
 <h3 id="write-intent"><a class="header" href="#write-intent">Write Intent</a></h3>
-<p>A single transaction may perform multiple writes. Before the transaction is committed, the uncommitted writes must not be read by other transactions. To address this problem, write intent is introduced (I learned about this concept from CockroachDB).</p>
+<p>A single transaction may perform multiple writes. Before the transaction is committed, the uncommitted writes must not be read by other transactions. To address this problem, CRDB introduces write intents.</p>
 <p>A write intent is a record stored in the MVCC database to represent uncommitted writes. It is given an INTENT timestamp that distinguishes it from normal timestamps. Each key must only have at most one write intent.</p>
 <img src="chapter_3/../images/write_intent.png" width="55%">
-<p>In the example above, there is an uncommitted write with an INTENT timestamp for the &quot;Apple&quot; key. The table stores additional metadata, including the transaction ID and the write timestamp, for the write intent.</p>
+<p>In the example above, there is an uncommitted write with an INTENT timestamp for the &quot;Apple&quot; key. The table stores additional metadata for the write intent, including the transaction ID and the write timestamp.</p>
 <h3 id="transaction-record"><a class="header" href="#transaction-record">Transaction Record</a></h3>
-<p>A transaction may create multiple write intents. The visibility of the uncommitted intent for a transaction must be flipped atomically. This is the job of <em>transaction records</em>.</p>
+<p>A transaction may create multiple write intents for different keys. The visibility of the uncommitted intent for a transaction must be flipped atomically. CRDB introduces <em>transaction records</em> to address this.</p>
 <p>The database stores a transaction record for each transaction in a separate database namespace. The key of the transaction records is the transaction ID and the value contains the status and timestamp for each transaction.</p>
 <p>When the transaction is committed, the transaction record is marked as committed. All the write intents are readable by other transactions at this moment.</p>
 <img src="chapter_3/../images/txn_record.png" width="50%">
-<p>The timestamp in a committed transaction record is the transactions commit timestamp. Since each timestamp in the database is guaranteed to be unique, each committed transaction has a unique commit timestamp. This guarantees serial execution order of transactions.</p>
+<p>When a reader runs into an intent, it uses the <code>txn_id</code> on the write intent to find the intent's transation record. If the transaction record is COMMITTED, the reader considers the intent as a regular value. Otherwise, if the record is PENDING, then the reader is blocked until the intent is finalized (committed or aborted). </p>
+<p>Each transaction performs its reads and writes at the commit timestamp, which is the timestamp on the transaction's transaction record. Since each timestamp in the database is guaranteed to be unique, each committed transaction has a unique commit timestamp. This guarantees serial execution order of transactions.</p>
+<p>However, since transactions can be executed concurrently, conflicts between transactions may require adjustments of the commit timestamp. Let's look at the possible conflicts in the next page.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="concurrency-anomalies"><a class="header" href="#concurrency-anomalies">Concurrency Anomalies</a></h1>
-<p>For those familiar with concepts like read-write, write-write, and write-read anomalies, feel free to skip this section!</p>
+<p>For those familiar with concepts like read-write, write-write, and write-read anomalies, feel free to skip this page!</p>
 <h3 id="interleaving-transactions"><a class="header" href="#interleaving-transactions">Interleaving transactions</a></h3>
 <p>Databases are allowed to interleave transactions as long as isolation and atomicity are maintained. In other words, it just has to maintain the illusion that the transactions are performed sequentially.</p>
 <p>For example, suppose we interleave the following two transactions as follows:</p>
@@ -279,12 +284,12 @@ tokio::try_join!(task_1, task_2).unwrap();
 <h3 id="write-write-conflict"><a class="header" href="#write-write-conflict">Write-write conflict</a></h3>
 <p>Also known as overwriting uncommitted data or lost update. This happens when a transaction overwrites another transaction’s uncommitted write. In this example, T1’s first write to key A is lost when transaction 2 commits.</p>
 <img src="chapter_3/../images/write_write.png" width="55%">
+<p>Now that we understand the possible conflicts that may occur in concurrent transactions, let's look at how CRDB deals with these conflicts.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="dealing-with-anomalies"><a class="header" href="#dealing-with-anomalies">Dealing with Anomalies</a></h1>
-<p>CockroachDB outlined its strategy to deal with transaction conflicts in section 3.3 of <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">its research paper</a>. My database uses the same concurrency control techniques outlined in that section.</p>
+<p>CRDB outlined its strategy to deal with transaction conflicts in section 3.3 of <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">its research paper</a>. Let's summarize it here.</p>
 <h3 id="commit-timestamp"><a class="header" href="#commit-timestamp">Commit Timestamp</a></h3>
-<p>Each transaction performs its reads and writes at its commit timestamp. This is what guarantees the serializability of transactions. This section covers how a transaction determines its commit timestamp.</p>
-<p>A transaction has a read timestamp and a write timestamp. The read/write timestamps are initialized to the timestamp when the transaction is created, which is guaranteed to be unique. The transaction stores the most recent write timestamp as part of the write intent. When the transaction commits, the final write timestamp is used as the commit timestamp.</p>
-<p>Usually, the write timestamp for a transaction won’t change. But in some situations, it is required to be bumped. Let’s look at these scenarios.</p>
+<p>As mentioned earlier, each transaction performs its reads and writes at its commit timestamp. This is what guarantees the serializability of transactions. A transaction has a read timestamp and a write timestamp. The read/write timestamps are initialized to the timestamp when the transaction is created, which is guaranteed to be unique. The transaction stores the most recent write timestamp as part of the write intent. When the transaction commits, the final write timestamp is used as the commit timestamp.</p>
+<p>Usually, the write timestamp for a transaction won’t change. However, when CRDB detects a transaction conflict, it adjusts the commit timestamp. Let’s look at this mechanism in more detail.</p>
 <h3 id="dealing-with-conflicts"><a class="header" href="#dealing-with-conflicts">Dealing with conflicts</a></h3>
 <h4 id="read-write-conflict-1"><a class="header" href="#read-write-conflict-1">Read-write conflict</a></h4>
 <p>If a write detects that a read has been performed with a greater timestamp, the write will need to advance its timestamp past the read’s timestamp.</p>
@@ -302,6 +307,7 @@ tokio::try_join!(task_1, task_2).unwrap();
 <li>the uncommitted write intent has a <strong>bigger</strong> timestamp: the read ignores the intent and returns the key with the biggest timestamp less than the read timestamp.</li>
 <li>the uncommitted write intent has a <strong>smaller</strong> timestamp: the read needs to wait for the transaction associated with the write intent to be finalized (aborted or committed)</li>
 </ul>
+<p>We now see the scenarios in which the commit timestamp is adjusted. However, advancing the commit timestamp may be problematic at times. Let's look at this in more detail in the next page!</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="read-refresh"><a class="header" href="#read-refresh">Read Refresh</a></h1>
 <p><em>Read refresh is a technique covered in section 3.4 of <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">CockroachDB’s research paper</a>.</em></p>
 <p>All reads for a transaction are performed at the transaction’s read timestamp. In the last section, we saw that the transaction’s write timestamp can be bumped if it runs into conflicts. Since a transaction commits at the final write timestamp, the read timestamp needs to be advanced when the transaction commits.</p>
@@ -309,9 +315,9 @@ tokio::try_join!(task_1, task_2).unwrap();
 <img src="chapter_3/../images/read_refresh.png" width="55%">
 <p>In this example, transaction T1 performs a read for key A at timestamp 10. It then performs a write at key B, but it detects a committed write at a higher timestamp, so it advances the timestamp to 16. Finally, it commits. However, this is not safe because it results in a read-write conflict.</p>
 <p>When a transaction advances the read timestamp, it must prove that the reads performed at the lower timestamp is still valid at the new timestamp. Suppose the read timestamp is tr and the commit timestamp is tc, the database must prove that the keys read by the transaction have not been updated by another transaction between (tr, tc].</p>
-<p>If the database detects that a write has been performed between (tr, tc], the transaction must retry the entire transaction. Otherwise, it is safe to advance its read timestamp to the commit timestamp and commit the transaction. This technique is called read refresh.</p>
+<p>If the database detects that a write has been performed between (tr, tc], the transaction must retry the entire transaction. Otherwise, it is safe to advance its read timestamp to the commit timestamp and commit the transaction. This technique is called <em>read refresh</em>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="hybrid-logical-clock-hlc"><a class="header" href="#hybrid-logical-clock-hlc">Hybrid Logical Clock (HLC)</a></h1>
-<p>My original goal was to build a distributed key-value database. I needed a clock that can help me generate unique, increasing MVCC timestamps. After doing some research, I realized that Hybrid Logical Clock (HLC) is what I needed. Even though I ended up just building a single-node key value database, HLC is still useful as it is able to generate unique, incrementing timestamps. </p>
+<p>My original goal was to build a distributed key-value database. Since CRDB uses HLC, I also used HLC to generate unique, increasing MVCC timestamps. Even though I didn't end up building a distributed key-value database, let's still talk about HLC for fun. Feel free to skip this page if you're not interested!</p>
 <h3 id="motivation-1"><a class="header" href="#motivation-1">Motivation</a></h3>
 <p>Distributed databases need a way to order events and requests. Physical clocks are not reliable as they can go out of sync between servers. Logical clocks can be used to define order across nodes but it does not correlate to physical time. So you cannot perform queries with respect to the physical time.</p>
 <p>A hybrid logical clock (HLC) uses a combination of the system timestamp and logical timestamp to have versioned timestamps that can be ordered but still be tied to the physical time.</p>
@@ -351,8 +357,9 @@ tokio::try_join!(task_1, task_2).unwrap();
 <li>Otherwise, increment the latest timestamp’s logical time and use that as the timestamp attached to the message</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="life-of-a-query"><a class="header" href="#life-of-a-query">Life of A Query</a></h1>
-<p>For reference, check out <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/docs/tech-notes/life_of_a_query.md">Life of a SQL Query</a> by CockroachDB which outlines the lifecycle of a single query through the different layers of the database.</p>
-<p>This page explains the life cycle of a query that interacts with the following entities of the system:</p>
+<p>Now that we understand how CRDB guarantees atomicity and isolation, we can finally start implementing the transactional layer! The transactional layer of my toy database is composed of many entities. This page serves as a high-level overview of how a query interacts with these entities. You don't need to fully understand this page as I will cover each entity in greater detail. But this page can serve as a useful reference when understanding how each entity fits into the bigger picture.</p>
+<p>This page is inspired by CRDB's <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/docs/tech-notes/life_of_a_query.md">Life of a SQL Query</a> doc, which outlines the lifecycle of a single query through the different layers of CRDB. I kept coming back to their doc when implementing my toy database.</p>
+<p>From a higher level, the transactional layer of my toy database is composed of these entities:</p>
 <ul>
 <li><strong>Concurrency Manager</strong>: Sequences concurrent, conflicting requests to provide isolation. Once a request is sequenced, it is free to execute as no conflicting requests are running at the same time. The concurrency manager is made up of the latch manager, lock table, and transaction wait queue.</li>
 <li><strong>Latch Manager</strong>: Serializes accesses for keys. Only one latch guard can be acquired for a key at any given time.</li>
@@ -377,8 +384,9 @@ tokio::try_join!(task_1, task_2).unwrap();
 <h3 id="performing-the-request"><a class="header" href="#performing-the-request">Performing the Request</a></h3>
 <p>Each request implements the <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/execute/request.rs#L94">execute</a> method which interacts with the storage layer. The storage layer of the database is built on top of RocksDB. As an example, the PutRequest’s execute implementation <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/execute/request.rs#L385">puts the MVCC key-value record into the storage layer</a>. We will cover the <code>execute</code> method for each request type in more detail later.</p>
 <p>Finally, the executor <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/execute/executor.rs#L85">finishes the request</a> - <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/concurrency/concurrency_manager.rs#L76">releasing the latch guards</a> and <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/concurrency/concurrency_manager.rs#L77">dequeuing the lock guards</a>.</p>
-<div style="break-before: page; page-break-before: always;"></div><div style="break-before: page; page-break-before: always;"></div><h1 id="mvcc-1"><a class="header" href="#mvcc-1">MVCC</a></h1>
-<p>Earlier, we covered how MVCC works <a href="https://brianshih1.github.io/little-key-value-db/chapter_3/mvcc.html">here</a>. In this section, we will talk about how the MVCC layer is implemented.</p>
+<p>Now, let's look at the implementation details!</p>
+<div style="break-before: page; page-break-before: always;"></div><div style="break-before: page; page-break-before: always;"></div><h1 id="mvcc"><a class="header" href="#mvcc">MVCC</a></h1>
+<p>In this section, we will talk about how the MVCC layer is implemented.</p>
 <p>In my MVCC database, HLC (hybrid logical clock) timestamps are used to distinguish different versions of the same key. A key with a timestamp is called an <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_key.rs#L7">MVCCKey</a>. </p>
 <p>An MVCCKey is a combination of a Timestamp and a Key:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -401,7 +409,7 @@ tokio::try_join!(task_1, task_2).unwrap();
 </span><span class="boring">fn main() {
 </span>pub type Key = Vec&lt;u8&gt;;
 <span class="boring">}</span></code></pre></pre>
-<p>The database uses RocksDB as the storage engine. We need to encode the MVCCKey into a RocksDB key. Inspired by CockroachDB <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc_key.go#L161">EncodeMVCCKey method</a>, the MVCCKey is encoded into the following form:</p>
+<p>The database uses RocksDB as the storage engine. We need to encode the MVCCKey into a RocksDB key, which is just a <code>Vec&lt;u8&gt;</code>. Inspired by CockroachDB <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc_key.go#L161">EncodeMVCCKey method</a>, the MVCCKey is encoded into the following form:</p>
 <p><code>[key] [wall_time] [logical_time]</code></p>
 <p>Here is the implementation:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -421,7 +429,7 @@ pub fn encode_timestamp(timestamp: Timestamp) -&gt; Vec&lt;u8&gt; {
 }
 <span class="boring">}</span></code></pre></pre>
 <p>Earlier, we covered that a write intent is stored to represent uncommitted writes. A key can only have one write intent at a time. We use the MVCCKey with the zero timestamp: Timestamp { wall_time: 0, logical_time: 0 } to represent the key for a write intent.</p>
-<p>When users query for a key, the database returns the latest version of that key. To make this faster, MVCCKeys are sorted from highest timestamp to the lowest timestamp in the storage engine, with the exception of the zero timestamp which is stored before all other versions of the same key.</p>
+<p>When users query for a key, the database returns the latest version of that key. To make this faster, MVCCKeys are sorted from the highest timestamp to the lowest timestamp in the storage engine, except for the zero timestamp which is stored before all other versions of the same key.</p>
 <p>This is only possible because RocksDB allows developers to customize the order of keys in the table through <a href="https://docs.rs/rocksdb/latest/rocksdb/struct.Options.html#method.set_comparator">set_comparator</a>. <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/storage.rs#L50">Here</a> is my implementation of the custom comparator. The comparator gives the highest precedence to the zero timestamp for the same key. Otherwise, it uses the key and the timestamp to order the MVCC keys.</p>
 <h2 id="core-apis"><a class="header" href="#core-apis">Core APIs</a></h2>
 <p>The core API of the MVCC layer includes:</p>
@@ -432,7 +440,7 @@ pub fn encode_timestamp(timestamp: Timestamp) -&gt; Vec&lt;u8&gt; {
 </ul>
 <p>Most interactions with RocksDB are performed with this set of APIs, which are just abstractions over RocksDB’s methods and iterators.</p>
 <h3 id="mvcc_scan"><a class="header" href="#mvcc_scan">MVCC_SCAN</a></h3>
-<p><a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L99">MVCC_SCAN</a> takes a start key, an end key, and a timestamp as inputs. MVCC_SCAN returns an array of results that contains the keys in the range [start_key, end_key). Only keys with a timestamp less than or equal to the input timestamp is added to the scan results. MVCC_SCAN also collects any write intents that it found along the way.</p>
+<p><a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L99">MVCC_SCAN</a> takes a start key, an end key, and a timestamp as inputs. MVCC_SCAN returns an array of results that contains the keys in the range [start_key, end_key). Only keys with a timestamp less than or equal to the input timestamp are added to the scan results. MVCC_SCAN also collects any write intents that it found along the way.</p>
 <p><strong>Algorithm</strong></p>
 <ul>
 <li>It first creates an <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_iterator.rs#L24">MVCCIterator</a>, which is a wrapper around RocksDB’s iterator</li>
@@ -468,17 +476,17 @@ pub fn encode_timestamp(timestamp: Timestamp) -&gt; Vec&lt;u8&gt; {
 </ul>
 </li>
 <li>
-<p>After verifying that there are no uncommitted intent for the same key, we are free to insert into the database. </p>
+<p>After verifying that there is no uncommitted intent for the same key, we are free to insert it into the database. </p>
 </li>
 <li>
-<p>If a transaction is provided, <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L193">an uncommitted intent is placed into the database</a>. An UncommittedValue contains the value, the transaction ID and the write_timestamp of the transaction at the time of insertion.</p>
+<p>If a transaction is provided, <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L193">an uncommitted intent is placed into the database</a>. An UncommittedValue contains the value, the transaction ID, and the write_timestamp of the transaction at the time of insertion.</p>
 </li>
 <li>
 <p>Otherwise, <a href="https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L206">the raw value is placed into the database</a>.</p>
 </li>
 </ul>
 <p><strong>CockroachDB’s MVCCPut</strong></p>
-<p>For reference, here is CockroachDB’s implementation of <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1442">MVCCPut</a>. The core idea is the same. It <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1859">checks if an intent was found</a>. If there exists an uncommitted write intent whose transaction ID is not the same as the MVCCPut’s transaction’s ID, <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1863">a WriteIntentError is returned</a>. </p>
+<p>For reference, here is CockroachDB’s implementation of <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1442">MVCCPut</a>. The core idea is the same. It <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1859">checks if an intent was found</a>. If there exists an uncommitted write intent whose transaction ID is not the same as the MVCCPut’s Transaction ID, <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L1863">a WriteIntentError is returned</a>. </p>
 <p>Otherwise, if the intent’s timestamp is less than the write timestamp, clear <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L2024">it</a> so that MVCCPut can overwrite it. Finally, MVCCPut <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc.go#L2195">writes the mvcc value</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="latch-manager"><a class="header" href="#latch-manager">Latch Manager</a></h1>
 <h3 id="latch-manager-api"><a class="header" href="#latch-manager-api">Latch Manager API</a></h3>
@@ -886,7 +894,7 @@ txnC: [
 <p>The core idea behind CockroachDB’s <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L185">SequenceReq</a> implementation is similar to my implementation. The difference is that it has different modes, such as <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L365">OptimisticEval</a> and <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L363">PessimisticEval</a>. If the mode is OptimisticEval, it <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L270">calls</a> <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#LL498C2-L501C62">AcquireOptimistic</a> which does not wait for conflicting latches to be released. It needs to be followed with CheckOptimisticNoConflicts to ensure correctness.</p>
 <p>My implementation is more similar to the pessimistic evaluation approach, which <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L276">acquires latches</a>.  CockroachDB’s SequenceReq then <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L320">calls ScanAndEnqueue</a> to find conflicting locks. If a conflicting lock <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L326">is found</a>, <a href="https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_manager.go#L330">WaitOn</a> is called, which waits until the lock is released or pushes the transaction if it times out.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="executing-the-request"><a class="header" href="#executing-the-request">Executing the Request</a></h1>
-<p>During the lifetime of a request, the request can finally be executed after concurrency manager calls <code>sequence_req</code>.  In this section, we finally get to look at how the requests are executed. </p>
+<p>During the lifetime of a request, the request can finally be executed after the concurrency manager calls <code>sequence_req</code>.  In this section, we finally get to look at how the requests are executed. </p>
 <p>These are the request types of the database:</p>
 <ul>
 <li>BeginTxn</li>

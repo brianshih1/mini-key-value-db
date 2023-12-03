@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Core Concepts - Building a Transactional Key-Value database</title>
+        <title>Atomicity and Isolation - Building a Transactional Key-Value database</title>
 
 
         <!-- Custom HTML head -->
@@ -81,7 +81,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html" class="active"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/atomicity_and_isolation.html"><strong aria-hidden="true">3.1.</strong> Atomicity and Isolation</a></li><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.2.</strong> MVCC & Write Intents</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.3.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.4.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.5.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="../chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.6.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="../chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="../chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="../chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Executing the Request</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../chapter_1/motivation.html"><strong aria-hidden="true">1.</strong> Motivation</a></li><li class="chapter-item expanded "><a href="../chapter_2/database_api.html"><strong aria-hidden="true">2.</strong> Database API</a></li><li class="chapter-item expanded "><a href="../chapter_3/core_concepts.html"><strong aria-hidden="true">3.</strong> Core Concepts</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_3/atomicity_and_isolation.html" class="active"><strong aria-hidden="true">3.1.</strong> Atomicity and Isolation</a></li><li class="chapter-item expanded "><a href="../chapter_3/mvcc.html"><strong aria-hidden="true">3.2.</strong> MVCC & Write Intents</a></li><li class="chapter-item expanded "><a href="../chapter_3/interleave_txns.html"><strong aria-hidden="true">3.3.</strong> Concurrency Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/dealing_with_anomalies.html"><strong aria-hidden="true">3.4.</strong> Dealing with Anomalies</a></li><li class="chapter-item expanded "><a href="../chapter_3/read_refresh.html"><strong aria-hidden="true">3.5.</strong> Read Refresh</a></li><li class="chapter-item expanded "><a href="../chapter_3/hybrid_logical_clock.html"><strong aria-hidden="true">3.6.</strong> Hybrid Logical Clock</a></li></ol></li><li class="chapter-item expanded "><a href="../chapter_4/life_of_a_query.html"><strong aria-hidden="true">4.</strong> Life of A Query</a></li><li class="chapter-item expanded "><a href="../chapter_5/implementation_details.html"><strong aria-hidden="true">5.</strong> Implementation Details</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../chapter_5/mvcc_implementation.html"><strong aria-hidden="true">5.1.</strong> MVCC</a></li><li class="chapter-item expanded "><a href="../chapter_5/latch_manager.html"><strong aria-hidden="true">5.2.</strong> Latch Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/lock_table.html"><strong aria-hidden="true">5.3.</strong> Lock Table</a></li><li class="chapter-item expanded "><a href="../chapter_5/timestamp_oracle.html"><strong aria-hidden="true">5.4.</strong> Timestamp Oracle</a></li><li class="chapter-item expanded "><a href="../chapter_5/deadlock_detection.html"><strong aria-hidden="true">5.5.</strong> Deadlock Detection</a></li><li class="chapter-item expanded "><a href="../chapter_5/concurrency_manager.html"><strong aria-hidden="true">5.6.</strong> Concurrency Manager</a></li><li class="chapter-item expanded "><a href="../chapter_5/request.html"><strong aria-hidden="true">5.7.</strong> Executing the Request</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -142,17 +142,33 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="core-concepts"><a class="header" href="#core-concepts">Core Concepts</a></h1>
+                        <h1 id="cockroachdb--acid"><a class="header" href="#cockroachdb--acid">CockroachDB &amp; ACID</a></h1>
+<p>The goal of this project is to learn how to implement transactions in a database. First, let's look at what a transaction is.</p>
+<p>A database transaction is a logical unit of execution in a database defined by certain properties. ACID is an acronym used to describe these properties: Atomicity, Consistency, Isolation, and Durability. </p>
+<ul>
+<li><strong>Atomicity</strong>: all of the database operations in a transaction are executed as a single unit (either all of them or none of them are performed).</li>
+<li><strong>Consistency</strong>: transactions affect data in allowed and expected ways, satisfying all defined rules, including constraints, cascades, triggers, etc.</li>
+<li><strong>Isolation</strong>: transactions don’t see intermediate changes of other transactions. CockroachDB supports the strictest transaction isolation level: <em>serializable isolation</em>. While this isolation allows transactions to run concurrently, it creates the illusion that transactions are run in serial order.</li>
+<li><strong>Durability</strong>: once the transaction completes, changes to the database are persisted even in the case of system failures.</li>
+</ul>
+<p>How does CockroachDB (CRDB) satisfy ACID?</p>
+<ul>
+<li><strong>Atomicity</strong>: CRDB's <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">research paper</a> outlines how it achieves transaction atomicity in Section 3.2. An atomic transaction is achieved with an abstraction called the <em>Write Intent</em>, which we will cover later.</li>
+<li><strong>Consistency</strong>: As stated in this <a href="https://www.cockroachlabs.com/blog/db-consistency-isolation-terminology/">CRDB blog</a>, CRDB supports a consistency level they call <em>strong partition</em>. CRDB <a href="https://www.cockroachlabs.com/blog/cockroachdb-beta-passes-jepsen-testing/">uses Japsen Testing</a> to test for correctness and consistency. Consistency is a complex topic that I will not dive into for this project. </li>
+<li><strong>Isolation</strong>: CRDB's <a href="https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf">research paper</a> outlines how it achieves serializable isolation in Sections 3.3 and 3.4. To achieve serializable isolation, each transaction performs its read and write at a commit timestamp. This results in the total ordering of transactions. However, since transactions can be executed concurrently, the commit timestamp needs to be adjusted when it runs into conflicts. This will be covered later.</li>
+<li><strong>Durability</strong>: CRDB guarantees durability via the Raft Consensus Algorithm which guarantees that every acknowledged write has been persisted by the majority of replicas.</li>
+</ul>
+<p>In this project, I focused on reimplementing algorithms that CRDB uses to achieve Atomicity and Isolation. Now, let's take a look at what write intents are!</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../chapter_2/database_api.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../chapter_3/core_concepts.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next" href="../chapter_3/atomicity_and_isolation.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="../chapter_3/mvcc.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -162,11 +178,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../chapter_2/database_api.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../chapter_3/core_concepts.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next" href="../chapter_3/atomicity_and_isolation.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="../chapter_3/mvcc.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
