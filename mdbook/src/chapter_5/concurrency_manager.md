@@ -1,10 +1,10 @@
 # Concurrency Manager
 
-Concurrency Manager is composed of a latch manager, a lock table, and a txnWaitQueue. Now that we better understand these individual components, we can finally look at how the Concurrency Manager’s API is implemented.
+Concurrency Manager provides a simple set of APIs that abstract away the complexity of providing isolation for database requests and making sure the requests are executed in a fashion that doesn't run into anomalies. The Concurrency Manager is composed of a latch manager, a lock table, and a txnWaitQueue.
 
 ### Concurrency Manager API
 
-The API is made up of two methods: sequence_req and finish_req.
+The API is made up of two methods: `sequence_req` and `finish_req`.
 
 **Sequence_req: (request) → Result<Guard, SequenceReqError>**
 

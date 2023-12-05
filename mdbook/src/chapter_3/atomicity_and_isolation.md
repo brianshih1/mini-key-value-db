@@ -16,5 +16,7 @@ How does CockroachDB (CRDB) satisfy ACID?
 - **Isolation**: CRDB's [research paper](https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf) outlines how it achieves serializable isolation in Sections 3.3 and 3.4. To achieve serializable isolation, each transaction performs its read and write at a commit timestamp. This results in the total ordering of transactions. However, since transactions can be executed concurrently, the commit timestamp needs to be adjusted when it runs into conflicts. This will be covered later.
 - **Durability**: CRDB guarantees durability via the Raft Consensus Algorithm which guarantees that every acknowledged write has been persisted by the majority of replicas.
 
-In this project, I focused on reimplementing algorithms that CRDB uses to achieve Atomicity and Isolation. Now, let's take a look at what write intents are!
+In this project, I focused on reimplementing algorithms that CRDB used in the transactional layer to guarantee Atomicity and Isolation in its transactions.
+
+Now, let's take a look at one of the building blocks of CRDB's transactional layer - write intents!
 

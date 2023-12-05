@@ -1,10 +1,12 @@
 # Lock Table
 
+Earlier, we saw that when a write runs into an uncommitted write intent (write-write conflict) or a read runs into an uncommitted write intent with a smaller timestamp (write-read conflict), the writer/reader needs to wait for the transaction to be finalized.
 
+To implement this mechanism, we need a data structure to hold uncommitted write intents as well as queued writers and readers waiting for the write intent's transaction to be finalized. This data structure is the lock table. 
+
+Each lock corresponds to an uncommitted write held by a pending transaction. Each lock contains a wait queue, where conflicting transactions can queue onto and wait until the lock has been released. In contrast to latches, which exist only for the duration of a request, locks are held for the lifetime of a transaction which may span multiple requests.
 
 <img src="../images/lock_table.png" width="75%">
-
-The lock table maintains a set of locks that are held by pending transactions. Each lock in the table contains a wait-queue, where conflicting transactions can queue onto and wait until the lock has been released. In contrast to latches, which exist only for the duration of a request, locks are held for the lifetime of a transaction which may span multiple requests.
 
 As we noted before, each key can only have one uncommitted intent at a time. The lock table guarantees this invariant by ensuring that conflicting transactions are queued while an uncommitted intent is unresolved.
 

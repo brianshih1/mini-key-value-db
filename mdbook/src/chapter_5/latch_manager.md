@@ -1,8 +1,10 @@
 # Latch Manager
 
+The Latch Manager’s job is to serialize/isolate access to keys. This is necessary for the concurrency manager to provide isolation to requests to safely read/write from the MVCC layer. Without isolation, concurrent reads/writes to the MVCC may result in race conditions.
+
 ### Latch Manager API
 
-Latch Manager’s job is to serialize access to keys. Latch Manager’s API is composed of two methods: Acquire and Release
+Latch Manager’s API is composed of two methods: Acquire and Release
 
 **Acquire: (keys) → LatchGuard**
 
@@ -173,9 +175,9 @@ pub struct LatchGuardWait {
 }
 ```
 
-During Acquire, the thread would first try to insert the key into the B+ tree. If the key doesn’t exist in the B+ tree yet, the key is inserted and `LatchKeyGuard::Acquired` is returned. Otherwise, a channel is created and the sender is queued onto the latch. The function then returns `LatchKeyGuard::NotAcquire` along with the receiver. The thread can then wait for the receiver to receive a message that the latch has been released. [Here](https://github.com/brianshih1/little-key-value-db/blob/master/src/latch_manager/latch_manager.rs#L46) is the code for that.
+During Acquire, the thread would first try to insert the key into the B+ tree. If the key doesn’t exist in the B+ tree yet, the key is inserted, and `LatchKeyGuard::Acquired` is returned. Otherwise, a channel is created and the sender is queued onto the latch. The function then returns `LatchKeyGuard::NotAcquire` along with the receiver. The thread can then wait for the receiver to receive a message that the latch has been released. [Here](https://github.com/brianshih1/little-key-value-db/blob/master/src/latch_manager/latch_manager.rs#L46) is the code for that.
 
-Each key in the `LeafNode` contains a corresponding `LatchWaiters`. Each LatchWaiters contain the array of senders, each has a corresponding `receiver` returned by the `Insert` method.
+Each key in the `LeafNode` contains a corresponding `LatchWaiters`. Each LatchWaiter contains an array of senders, each has a corresponding `receiver` returned by the `Insert` method.
 
 ```rust
 pub struct LeafNode<K: NodeKey> {
@@ -189,7 +191,7 @@ pub struct LatchWaiters {
 }
 ```
 
-Each key in the `LeafNode` contains a corresponding `LatchWaiters`. Each LatchWaiters contain an array of senders, which are requests waiting for the latch guard to be released.
+Each key in the `LeafNode` contains a corresponding `LatchWaiters`. Each LatchWaiters contains an array of senders, which are requests waiting for the latch guard to be released.
 
 Deadlock is possible with this approach. For example, suppose both `request 1` and `request 2` want to Acquire latches for the keys `A` and `B`. If `request 1` acquires key A first and `request 2` acquires key B first, then a deadlock has occurred since the two requests are blocking each other.
 
@@ -197,11 +199,11 @@ To deal with the deadlock, we use a timeout approach. `Acquire` would release al
 
 **Release**
 
-Release is fairly simple. All it does is that it [iterates through the latches that it acquired and deletes it from the B+ tree](https://github.com/brianshih1/little-key-value-db/blob/master/src/latch_manager/latch_manager.rs#L84). The B+ tree would then notify the waiters that the latch is released.
+Release is fairly simple. All it does is it [iterates through the latches that it acquired and deletes it from the B+ tree](https://github.com/brianshih1/little-key-value-db/blob/master/src/latch_manager/latch_manager.rs#L84). The B+ tree would then notify the waiters that the latch is released.
 
 ### Terminologies
 
-You are probably wondering - the “latches” acquired by the latch manager sounds more like a lock. In fact, if we look at this [slide](https://15445.courses.cs.cmu.edu/fall2022/slides/09-indexconcurrency.pdf) from CMU’s lecture, we can see that latches are supposed to be short-lived and don’t rely on mechanisms such as Waits-for, Timeout, etc.
+You are probably wondering - the “latches” acquired by the latch manager sound more like a lock. In fact, if we look at this [slide](https://15445.courses.cs.cmu.edu/fall2022/slides/09-indexconcurrency.pdf) from CMU’s lecture, we can see that latches are supposed to be short-lived and don’t rely on mechanisms such as Waits-for, Timeout, etc.
 
 <img src="../images/locks_vs_latches.png" width="65%">
 
@@ -209,6 +211,6 @@ To clarify, the RwLock protecting the internal nodes of the B+ tree function as 
 
 ### **CockroachDB’s Latch Manager**
 
-For reference, [this](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L489) is CockroachDB’s API for latch manager. My Latch Manager’s API is inspired by CockroachDB’s Latch Manager API but my implementation is different. In [this doc](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L489), CockroachDB outlines the evolution of their latch manager implementation.
+For reference, [this](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L489) is CockroachDB’s API for the latch manager. My Latch Manager’s API is inspired by CockroachDB’s Latch Manager API but my implementation is different. In [this doc](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/kv/kvserver/concurrency/concurrency_control.go#L489), CockroachDB outlines the evolution of its latch manager implementation.
 
 CockroachDB uses an interval tree of RWMutexes. [This CockroachDB PR](https://github.com/cockroachdb/cockroach/commit/c855b45b539d8870a8d3f9f0711c900b95e0d36c) introduces a BTree implementation based on immutable data structures with copy-on-write mechanisms. I wasn’t able to fully understand how it works but I might revisit and build another implementation for my Latch Manager in the future!

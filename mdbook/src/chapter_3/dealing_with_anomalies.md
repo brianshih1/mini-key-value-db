@@ -1,10 +1,8 @@
 # Dealing with Anomalies
 
-CRDB outlined its strategy to deal with transaction conflicts in section 3.3 of [its research paper](https://www.cockroachlabs.com/guides/thank-you/?pdf=/pdf/cockroachdb-the-resilient-geo-distributed-sql-database-sigmod-2020.pdf). Let's summarize it here.
-
 ### Commit Timestamp
 
-As mentioned earlier, each transaction performs its reads and writes at its commit timestamp. This is what guarantees the serializability of transactions. A transaction has a read timestamp and a write timestamp. The read/write timestamps are initialized to the timestamp when the transaction is created, which is guaranteed to be unique. The transaction stores the most recent write timestamp as part of the write intent. When the transaction commits, the final write timestamp is used as the commit timestamp.
+As mentioned earlier, each transaction performs its reads and writes at its commit timestamp. This is what guarantees the serializability of transactions. A transaction has a read timestamp and a write timestamp. The read/write timestamps are initialized to the timestamp of the transaction's creation time, which is guaranteed to be unique. The transaction stores the most recent write timestamp as part of the write intent's value. When the transaction commits, the final write timestamp is used as the commit timestamp.
 
 Usually, the write timestamp for a transaction won’t change. However, when CRDB detects a transaction conflict, it adjusts the commit timestamp. Let’s look at this mechanism in more detail.
 

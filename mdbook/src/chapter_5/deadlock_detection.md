@@ -75,43 +75,25 @@ Let’s suppose the following happens:
 - txnC enters txnA’s txnWaitQueue as a waitingPush
 
 ```
-txnA: [
-	waitingPush { txn: txnC, dependents: [] }
-]
-txnB: [
-	waitingPush { txn: txnA, dependents: [] }
-]
-txnC: [
-	waitingPush { txn: txnB, dependents: [] }
-]
+txnA: [ waitingPush { txn: txnC, dependents: [] } ]
+txnB: [ waitingPush { txn: txnA, dependents: [] } ]
+txnC: [ waitingPush { txn: txnB, dependents: [] } ]
 ```
 
 TxnA queries for its dependents and adds it to its waitingPush
 
 ```
-txnA: [
-	waitingPush { txn: txnC, dependents: [] }
-]
-txnB: [
-	waitingPush { txn: txnA, dependents: [txnC] }
-]
-txnC: [
-	waitingPush { txn: txnB, dependents: [] }
-]
+txnA: [ waitingPush { txn: txnC, dependents: [] } ]
+txnB: [ waitingPush { txn: txnA, dependents: [txnC] } ]
+txnC: [	waitingPush { txn: txnB, dependents: [] } ]
 ```
 
 TxnB queries for its dependents and adds it to its waitingPush
 
 ```
-txnA: [
-	waitingPush { txn: txnC, dependents: [txnB] }
-]
-txnB: [
-	waitingPush { txn: txnA, dependents: [txnC] }
-]
-txnC: [
-	waitingPush { txn: txnB, dependents: [txnA, txnC] }
-]
+txnA: [ waitingPush { txn: txnC, dependents: [txnB] } ]
+txnB: [ waitingPush { txn: txnA, dependents: [txnC] } ]
+txnC: [	waitingPush { txn: txnB, dependents: [txnA, txnC] } ]
 ```
 
 TxnB detects that txnC is both a dependent and the pushee, so a deadlock is detected.

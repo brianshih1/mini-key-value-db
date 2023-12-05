@@ -1,8 +1,8 @@
 # Hybrid Logical Clock (HLC)
 
-My original goal was to build a distributed key-value database. Since CRDB uses HLC, I also used HLC to generate unique, increasing MVCC timestamps. Even though I didn't end up building a distributed key-value database, let's still talk about HLC for fun. Feel free to skip this page if you're not interested!
+My original goal was to build a distributed key-value database. Since CRDB uses HLC, I also used HLC. Even though I didn't end up building a distributed database, the HLC satisfies the MVCC layer's need for a clock that generates unique, increasing timestamps.
 
-### Motivation
+### Motivation behind HLC
 
 Distributed databases need a way to order events and requests. Physical clocks are not reliable as they can go out of sync between servers. Logical clocks can be used to define order across nodes but it does not correlate to physical time. So you cannot perform queries with respect to the physical time.
 
@@ -10,7 +10,7 @@ A hybrid logical clock (HLC) uses a combination of the system timestamp and logi
 
 ### Algorithm
 
-The correctness and algorithm for Hybrid Logical Clock are presented [in this research paper](https://cse.buffalo.edu/tech-reports/2014-04.pdf). In this blog, I will focus on the algorithm and not its correctness.
+The correctness and algorithm for the Hybrid Logical Clock are presented [in this research paper](https://cse.buffalo.edu/tech-reports/2014-04.pdf). In this blog, I will focus on the algorithm and not its correctness.
 
 This is the algorithm presented in the paper. Let me explain how it works.
 

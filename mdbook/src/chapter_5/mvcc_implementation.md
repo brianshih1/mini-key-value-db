@@ -1,10 +1,12 @@
 # MVCC
 
-In this section, we will talk about how the MVCC layer is implemented.
+As we mentioned earlier, the MVCC system is the bedrock for how CRDB provides atomicity and isolation to transactions. In this section, we will talk about how the MVCC layer is implemented.
 
-In my MVCC database, HLC (hybrid logical clock) timestamps are used to distinguish different versions of the same key. A key with a timestamp is called an [MVCCKey](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc_key.rs#L7). 
+In an MVCC system, each record contains a key, value, and timestamp.
 
-An MVCCKey is a combination of a Timestamp and a Key:
+<img src="../images/mvcc.png" width="65%">
+
+Similarly to CRDB, my toy database also uses RocksDB as the MVCC's storage engine. RocksDB is a key-value store, so we need to figure out a way to store `key`, `value,` and `timestamp` into a key-value pair. The toy database combines the `key` and the `timestamp` of the MVCC system into a single `MVCCKey` which will be encoded into a single RocksDB key.
 
 ```rust
 pub struct MVCCKey {
@@ -13,7 +15,7 @@ pub struct MVCCKey {
 }
 ```
 
-The timestamp’s structure is:
+Each `timestamp` in an `MVCCKey` is a HLC (hybrid logical clock) time:
 
 ```rust
 pub struct Timestamp {
@@ -28,7 +30,7 @@ The Key’s type is
 pub type Key = Vec<u8>;
 ```
 
-The database uses RocksDB as the storage engine. We need to encode the MVCCKey into a RocksDB key, which is just a `Vec<u8>`. Inspired by CockroachDB [EncodeMVCCKey method](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc_key.go#L161), the MVCCKey is encoded into the following form:
+To store the `MVCCKey` into `RocksDB`, we need to encode the `MVCCKey` into a RocksDB key, which is just a `Vec<u8>`. Inspired by CRDB's [EncodeMVCCKey method](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/pkg/storage/mvcc_key.go#L161), the MVCCKey is encoded into the following form:
 
 `[key] [wall_time] [logical_time]`
 
@@ -50,11 +52,11 @@ pub fn encode_timestamp(timestamp: Timestamp) -> Vec<u8> {
 }
 ```
 
-Earlier, we covered that a write intent is stored to represent uncommitted writes. A key can only have one write intent at a time. We use the MVCCKey with the zero timestamp: Timestamp { wall_time: 0, logical_time: 0 } to represent the key for a write intent.
+Earlier, we mentioned that each key can only have one write intent at a time, so we need a unique key to represent an intent key. We use the MVCCKey with the zero timestamp: `Timestamp { wall_time: 0, logical_time: 0 }` to represent the key for a write intent.
 
-When users query for a key, the database returns the latest version of that key. To make this faster, MVCCKeys are sorted from the highest timestamp to the lowest timestamp in the storage engine, except for the zero timestamp which is stored before all other versions of the same key.
+When users query for a key, the database returns the latest version of that key. To make this faster, MVCCKeys are sorted from the highest timestamp to the lowest timestamp in the storage engine. However, we need the query to return the zero timestamp, which represents the intent key, if there is one.
 
-This is only possible because RocksDB allows developers to customize the order of keys in the table through [set_comparator](https://docs.rs/rocksdb/latest/rocksdb/struct.Options.html#method.set_comparator). [Here](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/storage.rs#L50) is my implementation of the custom comparator. The comparator gives the highest precedence to the zero timestamp for the same key. Otherwise, it uses the key and the timestamp to order the MVCC keys.
+Luckily, RocksDB allows developers to customize the order of keys in the table through [set_comparator](https://docs.rs/rocksdb/latest/rocksdb/struct.Options.html#method.set_comparator). [Here](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/storage.rs#L50) is my implementation of the custom comparator. The comparator gives the highest precedence to the zero timestamp for the same key. Otherwise, it uses the key and the timestamp to order the MVCC keys.
 
 ## Core APIs
 
@@ -64,11 +66,13 @@ The core API of the MVCC layer includes:
 - MVCC_GET
 - MVCC_PUT
 
-Most interactions with RocksDB are performed with this set of APIs, which are just abstractions over RocksDB’s methods and iterators.
+These are the three APIs that the other entities of the transactional layer interact with the MVCC layer.
 
 ### MVCC_SCAN
 
-[MVCC_SCAN](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L99) takes a start key, an end key, and a timestamp as inputs. MVCC_SCAN returns an array of results that contains the keys in the range [start_key, end_key). Only keys with a timestamp less than or equal to the input timestamp are added to the scan results. MVCC_SCAN also collects any write intents that it found along the way.
+`mvcc_scan(&self,  start_key: Key, end_key: Key, timestamp: Timestamp, scan_params: MVCCScanParams) -> MVCCScanResult`
+
+[MVCC_SCAN](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L99) takes a start key, an end key, and a timestamp as inputs and returns an array of results that contains the keys in the range [start_key, end_key). Only keys with a timestamp less than or equal to the input timestamp are added to the scan results. MVCC_SCAN also collects any write intents that it found along the way.
 
 **Algorithm**
 
@@ -86,7 +90,9 @@ On each iteration, it checks if the key is an intent key [by checking if it’s 
 
 ### MVCC_GET
 
-[MVCC_GET](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L63) takes a key, a timestamp, and an optional transaction as inputs. It returns the most recent value for the specified key whose timestamp is less than or equal to the supplied timestamp. If it runs into an uncommitted value, it returns a WriteIntentError.
+`fn mvcc_get<'a>(&self, key: &'a Key, timestamp: Timestamp, params: MVCCGetParams) -> MVCCGetResult`
+
+[MVCC_GET](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L63) takes a key, a timestamp, and an optional transaction as inputs and returns the most recent value for the specified key whose timestamp is less than or equal to the supplied timestamp. If it runs into an uncommitted value, it returns a WriteIntentError.
 
 **Algorithm**
 
@@ -97,6 +103,8 @@ On each iteration, it checks if the key is an intent key [by checking if it’s 
 For reference, [here](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L63) is CockroachDB’s implementation of MVCCGet. The idea to use MVCCScanner is inspired by them. In their implementation, they implement mvcc_get a[s a scan with start_key = end_key](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L73).
 
 ### MVCC_PUT
+
+`fn mvcc_put<T: Serialize>(&self, key: Key, timestamp: Option<Timestamp>, txn: Option<TxnLink>, value: T) -> Result<MVCCKey, WriteIntentError>`
 
 [MVCC_PUT](https://github.com/brianshih1/little-key-value-db/blob/194d3f9e65bb69d674f0217f2a02b18ace12ee7e/src/storage/mvcc.rs#L122) takes a key, a timestamp, and an optional transaction and tries to insert a timestamped record into the MVCC database. If a transaction is provided, a write intent is placed in the database. Otherwise, the raw value is placed into the database.
 

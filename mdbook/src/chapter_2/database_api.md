@@ -69,6 +69,6 @@ tokio::try_join!(task_1, task_2).unwrap();
 
 In the example above, the serializability of the database guarantees that either all of `task1` is executed first or all of `task2` is executed first.
 
-### Time
+### Database Clock
 
-The database is powered by a Hybrid Logical Clock (which we will cover later). The developer must manually increment the physical time with the set_time function. But it can also be swapped out with an implementation that uses the system’s time instead.
+The database is powered by a Hybrid Logical Clock (which we will cover later). The developer can choose to create a database instance that uses the system's time or a manual clock. A manual clock requires the developer to manually increment the physical time with the `set_time` function. This is useful for writing unit tests.
