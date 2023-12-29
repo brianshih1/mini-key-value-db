@@ -6,7 +6,7 @@ use crate::db::db::{TxnLink, TxnMap};
 use crate::db::request_queue::TaskQueueRequest;
 use crate::execute::request::{Command, Request};
 use crate::latch_manager::latch_manager::{LatchGuard, LatchManager};
-use crate::lock_table::lock_table::{LockTable, LockTableGuardLink, UpdateLock};
+use crate::lock_table::lock_table::{LockTable, LockTableGuardLink, UpdateLock, WaitForGuardError};
 use crate::storage::mvcc::KVStore;
 use crate::storage::Key;
 
@@ -53,8 +53,8 @@ impl ConcurrencyManager {
                 let wait_res = self.lock_table.wait_for(lock_guard).await;
                 if let Err(err) = wait_res {
                     match err {
-                        TxnAborted => return Err(SequenceReqError::TxnAborted),
-                        TxnCommitted => return Err(SequenceReqError::TxnCommitted),
+                        WaitForGuardError::TxnAborted => return Err(SequenceReqError::TxnAborted),
+                        WaitForGuardError::TxnCommitted => return Err(SequenceReqError::TxnCommitted),
                     }
                 };
 
