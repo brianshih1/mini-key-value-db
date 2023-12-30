@@ -1,13 +1,10 @@
 use std::{
-    borrow::{Borrow, BorrowMut},
-    cell::RefCell,
-    rc::Rc,
+    borrow::{Borrow},
     sync::{Arc, Mutex, RwLock, Weak},
 };
 
 use tokio::{
-    sync::mpsc::{self, channel, Receiver, Sender},
-    time::{self, Duration},
+    sync::mpsc::{self, Receiver, Sender},
 };
 
 use crate::storage::{mvcc_key::MVCCKey, Key};
@@ -149,7 +146,7 @@ impl<K: NodeKey> Node<K> {
                 let mut keys = internal.keys.write().unwrap();
                 keys[idx] = new_key;
             }
-            Node::Leaf(leaf) => {
+            Node::Leaf(_leaf) => {
                 panic!("Currently don't support updating key for leaf node")
             }
         }
@@ -619,7 +616,7 @@ impl<K: NodeKey> LeafNode<K> {
      */
     pub fn steal_from_right_leaf_sibling(
         &self,
-        key_to_delete: &K,
+        _key_to_delete: &K,
         right_latch_node: LatchNode<K>,
         parent: &InternalNode<K>,
         edge_idx: usize,
@@ -647,7 +644,7 @@ impl<K: NodeKey> LeafNode<K> {
 
     pub fn steal_from_left_leaf_sibling(
         &self,
-        key_to_delete: &K,
+        _key_to_delete: &K,
         left_latch_node: LatchNode<K>,
         parent: &InternalNode<K>,
         edge_idx: usize,

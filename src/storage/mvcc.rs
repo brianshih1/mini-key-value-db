@@ -7,9 +7,8 @@ use super::{
     mvcc_iterator::{IterOptions, MVCCIterator},
     mvcc_key::{create_intent_key, decode_mvcc_key, MVCCKey},
     mvcc_scanner::MVCCScanner,
-    serialized_to_value,
     storage::Storage,
-    txn::{TransactionStatus, Txn, TxnIntent, TxnMetadata, TxnRecord, UncommittedValue},
+    txn::{TransactionStatus, TxnIntent, TxnMetadata, TxnRecord, UncommittedValue},
     Key, Value,
 };
 

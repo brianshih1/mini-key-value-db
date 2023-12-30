@@ -1,8 +1,6 @@
 mod Test {
     use std::{
         borrow::Borrow,
-        cell::RefCell,
-        process::Child,
         rc::Rc,
         sync::{Arc, RwLock},
     };
@@ -220,7 +218,7 @@ mod Test {
     fn print_tree_internal<K: NodeKey>(link: &NodeLink<K>, depth: usize) {
         let edge = link.read().unwrap().clone();
         if let Some(ref latch) = edge {
-            let node = latch.as_ref();
+            let _node = latch.as_ref();
             let guard = latch.read().unwrap();
             match &*guard {
                 Node::Internal(ref node) => {
@@ -252,7 +250,7 @@ mod Test {
         let test_leaves = get_all_test_leaves(test_node);
         let leaves = get_all_leaf_nodes(node.clone());
         assert_eq!(test_leaves.len(), leaves.len());
-        for (idx, current_test_node) in test_leaves.iter().enumerate() {
+        for (idx, _current_test_node) in test_leaves.iter().enumerate() {
             let curr_node = leaves[idx].clone();
             let guard = curr_node.read().unwrap();
             let leaf_node = guard.as_leaf_node();
@@ -298,7 +296,7 @@ mod Test {
                         }
                         None => {
                             if test_internal_node.edges[idx].is_some() {
-                                let foo = "";
+                                let _foo = "";
                             }
                             assert_eq!(test_internal_node.edges[idx].is_none(), true);
                         }
@@ -312,7 +310,7 @@ mod Test {
     }
 
     fn assert_tree<K: NodeKey>(tree: &BTree<K>, test_node: &TestNode<K>) {
-        let root = tree.root.borrow().clone().read().unwrap().clone().unwrap();
+        let root = tree.root.borrow().read().unwrap().clone().unwrap();
         assert_node(root, test_node);
     }
 
@@ -431,20 +429,11 @@ mod Test {
     }
 
     mod split {
-        use std::{borrow::Borrow, cell::RefCell, rc::Rc};
+        
 
-        use crate::latch_manager::{
-            latch_interval_btree::{BTree, LeafNode, Node},
-            latch_interval_btree_test::Test::{
-                assert_leaf_with_siblings, assert_node, find_node_and_parent_with_indices,
-                get_all_leaves, get_start_keys_from_weak_link,
-            },
-        };
+        
 
-        use super::{
-            create_test_node, create_test_tree, print_node_recursive, print_tree, TestInternalNode,
-            TestLeafNode, TestNode,
-        };
+        
 
         #[test]
         fn split_internal() {
@@ -545,11 +534,9 @@ mod Test {
     }
 
     mod insert {
-        use crate::latch_manager::latch_interval_btree::{BTree, LatchKeyGuard, Range};
+        
 
-        use super::{
-            assert_node, assert_tree, print_tree, TestInternalNode, TestLeafNode, TestNode,
-        };
+        
 
         #[test]
         fn insert_and_split() {
@@ -698,9 +685,9 @@ mod Test {
     }
 
     mod leaf_underflow {
-        use std::{cell::RefCell, sync::RwLock};
+        
 
-        use crate::latch_manager::latch_interval_btree::{LatchWaiters, LeafNode};
+        
 
         #[test]
         fn underflows() {
@@ -720,9 +707,7 @@ mod Test {
 
     mod delete {
         mod core_delete {
-            use crate::latch_manager::latch_interval_btree_test::Test::{
-                assert_tree, create_test_tree, print_tree, TestInternalNode, TestLeafNode, TestNode,
-            };
+            
 
             #[test]
             fn internal_node_stealing_from_left_sibling_3_layers() {
@@ -987,17 +972,12 @@ mod Test {
         }
 
         mod leaf_stealing {
-            use crate::latch_manager::latch_interval_btree::Node;
+            
 
             mod has_spare_keys {
-                use std::{cell::RefCell, sync::RwLock};
+                
 
-                use crate::latch_manager::{
-                    latch_interval_btree::{LatchWaiters, LeafNode},
-                    latch_interval_btree_test::Test::{
-                        assert_tree, create_test_tree, TestInternalNode, TestLeafNode, TestNode,
-                    },
-                };
+                
 
                 #[test]
                 fn internal_node() {}
@@ -1096,10 +1076,7 @@ mod Test {
             }
 
             mod stealing_core {
-                use crate::latch_manager::latch_interval_btree_test::Test::{
-                    assert_tree, create_test_tree, print_tree, TestInternalNode, TestLeafNode,
-                    TestNode,
-                };
+                
 
                 #[test]
                 fn leaf_steals_left_sibling() {
@@ -1227,10 +1204,7 @@ mod Test {
         }
 
         mod internal_node_stealing {
-            use crate::latch_manager::latch_interval_btree_test::Test::{
-                assert_tree, create_test_tree, find_node_and_parent_with_indices, TestInternalNode,
-                TestLeafNode, TestNode,
-            };
+            
 
             #[test]
             fn simple_steal_from_left_sibling() {
@@ -1393,10 +1367,7 @@ mod Test {
 
     mod merge {
         mod internal_node {
-            use crate::latch_manager::latch_interval_btree_test::Test::{
-                assert_tree, create_test_tree, find_node_and_parent_with_indices, TestInternalNode,
-                TestLeafNode, TestNode,
-            };
+            
 
             #[test]
             fn merge_with_left() {
@@ -1524,10 +1495,7 @@ mod Test {
         }
 
         mod leaf {
-            use crate::latch_manager::latch_interval_btree_test::Test::{
-                assert_tree, create_test_tree, find_node_and_parent_with_indices, print_tree,
-                TestInternalNode, TestLeafNode, TestNode,
-            };
+            
 
             #[test]
             fn merge_with_left_leaf() {

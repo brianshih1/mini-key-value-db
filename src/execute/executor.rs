@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use tokio::sync::mpsc::Sender;
-use uuid::Uuid;
+
 
 use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard, SequenceReqError},
@@ -118,7 +118,7 @@ impl Executor {
         // If the txn has aborted, remove the txn record
     }
 
-    pub async fn execute_write_request(&self, request: &Request, guard: &Guard) -> ResponseResult {
+    pub async fn execute_write_request(&self, request: &Request, _guard: &Guard) -> ResponseResult {
         // finds the max read timestamp from timestamp oracle for the spans
         // and bump the write timestamp if necessary
         let spans = request
@@ -154,7 +154,7 @@ impl Executor {
     pub async fn execute_read_only_request(
         &self,
         request: &Request,
-        guard: &Guard,
+        _guard: &Guard,
     ) -> ResponseResult {
         let result = request
             .request_union

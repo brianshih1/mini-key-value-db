@@ -1,9 +1,7 @@
 use std::{
     sync::{
-        mpsc::{self},
         Arc,
     },
-    thread,
 };
 
 use tokio::{
@@ -85,7 +83,7 @@ impl TaskQueue {
                                     metadata: request_metadata,
                                     request_union: txn_request,
                                 };
-                                let response = executor_cloned
+                                let _response = executor_cloned
                                     .execute_request_with_concurrency_retries(request)
                                     .await
                                     .unwrap();

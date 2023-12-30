@@ -10,8 +10,8 @@ mod storage;
 mod timestamp_oracle;
 mod txn_wait;
 
-use rocksdb::{Options, DB};
-use serde::de::Error;
+use rocksdb::{DB};
+
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StorageError {

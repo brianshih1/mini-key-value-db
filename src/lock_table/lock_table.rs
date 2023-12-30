@@ -116,7 +116,7 @@ impl LockTable {
         request_sender: Arc<Sender<TaskQueueRequest>>,
         store: Arc<KVStore>,
     ) -> Self {
-        let cloned_sender = request_sender.clone();
+        let _cloned_sender = request_sender.clone();
 
         LockTable {
             locks: RwLock::new(HashMap::new()),
@@ -254,7 +254,7 @@ impl LockTable {
         let mut rx = lg.wait_done_receiver.lock().await;
 
         // TODO: Random
-        let duration: u64 = rand::thread_rng().gen_range(500..1000);
+        let _duration: u64 = rand::thread_rng().gen_range(500..1000);
         let sleep = time::sleep(Duration::from_millis(1000));
         tokio::pin!(sleep);
 
@@ -583,7 +583,7 @@ impl LockState {
 
         let lg = guard.as_ref();
 
-        let (lg_txn_id, lg_read_timestamp, lg_write_timestamp) =
+        let (lg_txn_id, lg_read_timestamp, _lg_write_timestamp) =
             Txn::get_txn_properties(lg.txn.clone());
         let is_reserved = self.reservation.read().unwrap().is_some();
 

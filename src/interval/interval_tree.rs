@@ -1,7 +1,6 @@
-use std::ops::Deref;
+
 
 use crate::{
-    hlc::timestamp::Timestamp,
     llrb::llrb::{NodeKey, NodeValue, RbTree, NIL},
 };
 
@@ -106,14 +105,9 @@ impl<K: NodeKey, V: NodeValue> IntervalTree<K, V> {
 mod tests {
 
     mod get_overlap {
-        use std::{
-            borrow::{Borrow, BorrowMut},
-            cell::RefCell,
-            ops::Deref,
-            rc::{Rc, Weak},
-        };
+        
 
-        use crate::interval::interval_tree::{IntervalTree, RangeValue, Test};
+        
 
         #[test]
         fn test_overlap() {

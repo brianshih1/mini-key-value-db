@@ -1,4 +1,4 @@
-use std::{fmt, sync::RwLock};
+use std::{sync::RwLock};
 
 use uuid::Uuid;
 
@@ -8,7 +8,7 @@ use crate::{
     interval::interval_tree::IntervalTree,
     latch_manager::latch_interval_btree::Range,
     llrb::llrb::{NodeKey, NodeValue},
-    storage::{Key, Value},
+    storage::{Key},
 };
 
 #[derive(Clone)]
@@ -85,7 +85,7 @@ impl TimestampOracle {
         let mut max: Option<(Timestamp, Option<Uuid>)> = None;
         for range_value in overlaps.iter() {
             match max {
-                Some((curr_timestamp, txn_id)) => {
+                Some((curr_timestamp, _txn_id)) => {
                     let ord = curr_timestamp.cmp(&range_value.value.timestamp);
                     match ord {
                         std::cmp::Ordering::Less => {
@@ -107,10 +107,7 @@ impl TimestampOracle {
 mod Test {
 
     mod get_max_timestamp {
-        use crate::{
-            hlc::timestamp::Timestamp, storage::str_to_key,
-            timestamp_oracle::oracle::TimestampOracle,
-        };
+        
 
         #[test]
         fn test_overlap() {
