@@ -4,7 +4,7 @@ use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 
 use crate::{
-    concurrency::concurrency_manager::{ConcurrencyManager, Guard},
+    concurrency::concurrency_manager::{ConcurrencyManager, Guard, SequenceReqError},
     db::{
         db::{TxnLink, TxnMap},
         request_queue::TaskQueueRequest,
@@ -71,8 +71,8 @@ impl Executor {
 
             if let Err(err) = &guard {
                 match err {
-                    TxnAborted => return ExecuteResult::Err(ExecuteError::TxnAborted),
-                    TxnCommitted => return ExecuteResult::Err(ExecuteError::TxnCommitted),
+                    &SequenceReqError::TxnAborted => return ExecuteResult::Err(ExecuteError::TxnAborted),
+                    &SequenceReqError::TxnCommitted => return ExecuteResult::Err(ExecuteError::TxnCommitted),
                 }
             }
 
