@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 
 use super::{
     boxed_byte_to_byte_vec,
-    mvcc_key::{decode_mvcc_key, encode_mvcc_key, MVCCKey},
+    mvcc_key::{decode_mvcc_key, MVCCKey},
     storage::Storage,
     Value,
 };
@@ -16,7 +16,7 @@ pub struct IterOptions {
 
 pub type KVBytes = (Box<[u8]>, Box<[u8]>);
 
-pub fn new_mvcc_iterator<'a>(iter_options: IterOptions, db: rocksdb::DB) -> MVCCIterator<'a> {
+pub fn new_mvcc_iterator<'a>(_iter_options: IterOptions, _db: rocksdb::DB) -> MVCCIterator<'a> {
     // RocksDBIterator { db: db, it: () }
     todo!()
 }
@@ -151,19 +151,11 @@ impl<'a> MVCCIterator<'a> {
 }
 
 mod tests {
-    use rocksdb::{IteratorMode, DB};
+    
 
-    use crate::{
-        hlc::timestamp::{get_intent_timestamp, Timestamp},
-        storage::{
-            mvcc,
-            mvcc_key::{encode_mvcc_key, MVCCKey},
-            storage::Storage,
-            str_to_key,
-        },
-    };
+    
 
-    use super::{IterOptions, MVCCIterator};
+    
 
     #[test]
     fn test_current_key_and_current_value() {
@@ -254,15 +246,7 @@ mod tests {
     }
 
     mod test_seek_ge {
-        use crate::{
-            hlc::timestamp::Timestamp,
-            storage::{
-                mvcc_iterator::{IterOptions, MVCCIterator},
-                mvcc_key::MVCCKey,
-                storage::Storage,
-                str_to_key,
-            },
-        };
+        
 
         #[test]
         fn test_multiple_timestamps_with_same_prefix() {

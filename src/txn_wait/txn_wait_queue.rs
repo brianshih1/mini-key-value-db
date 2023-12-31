@@ -15,12 +15,10 @@ use uuid::Uuid;
 
 use crate::{
     db::{
-        db::InternalDB,
         request_queue::{
             AbortTxnQueueRequest, QueueResponseUnion, TaskQueueRequest, TaskQueueRequestUnion,
         },
     },
-    execute::executor::Executor,
     storage::{mvcc::KVStore, txn::TransactionStatus},
 };
 
@@ -177,7 +175,7 @@ impl TxnWaitQueue {
     /**
      * Removes the waitingPush from its pushee's waiting_pushes
      */
-    fn dequeue(&self, waiting_push: WaitingPush, pushee_txn_id: Uuid) {
+    fn dequeue(&self, _waiting_push: WaitingPush, _pushee_txn_id: Uuid) {
         todo!()
     }
 

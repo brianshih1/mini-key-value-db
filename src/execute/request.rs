@@ -1,6 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    default,
+    collections::{HashSet},
 };
 
 use async_trait::async_trait;
@@ -10,16 +9,14 @@ use uuid::Uuid;
 use crate::{
     db::db::TxnLink,
     hlc::timestamp::Timestamp,
-    latch_manager::latch_interval_btree::{NodeKey, Range},
+    latch_manager::latch_interval_btree::{Range},
     lock_table::lock_table::{AbortUpdateLock, CommitUpdateLock, UpdateLock},
     storage::{
-        mvcc::{KVStore, MVCCGetParams, WriteIntentError},
+        mvcc::{MVCCGetParams},
         mvcc_key::{create_intent_key, MVCCKey},
-        str_to_key,
-        txn::{TransactionStatus, Txn, TxnIntent, TxnMetadata},
+        txn::{TransactionStatus, TxnIntent},
         Key, Value,
     },
-    StorageResult,
 };
 
 use super::executor::Executor;
@@ -64,7 +61,7 @@ pub enum RequestUnion {
 }
 
 // TODO: Does this need a timestamp in there?
-pub type SpanSet<K: NodeKey> = Vec<Range<K>>;
+pub type SpanSet<K> = Vec<Range<K>>;
 
 pub fn dedupe_spanset(v: &mut SpanSet<Key>) {
     // note the Copy constraint

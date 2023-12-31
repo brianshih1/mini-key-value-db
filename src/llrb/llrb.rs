@@ -1,9 +1,6 @@
 use std::{
-    borrow::{Borrow, BorrowMut},
-    cell::{Ref, RefCell, RefMut},
     cmp::Ordering,
     fmt,
-    rc::Rc,
 };
 
 pub trait NodeKey: std::fmt::Debug + Clone + Eq + PartialOrd + Ord {}
@@ -222,7 +219,7 @@ impl<K: NodeKey, V: NodeValue> RbTree<K, V> {
                 value,
                 prev,
             ));
-            let mut parent_node = &mut self.nodes[prev];
+            let parent_node = &mut self.nodes[prev];
             let ord = parent_node.start_key.cmp(&start_key.clone());
             match ord {
                 Ordering::Less => {
@@ -268,7 +265,7 @@ impl<K: NodeKey, V: NodeValue> RbTree<K, V> {
     pub fn left_rotate(&mut self, k: usize) {
         let right = self.nodes[k].right_node;
         if right == NIL {
-            let foo = "";
+            let _foo = "";
         }
         let right_left = self.nodes[right].left_node;
         let parent = self.nodes[k].parent_node;
@@ -511,14 +508,14 @@ impl NodeKey for i32 {}
 impl NodeValue for i32 {}
 
 mod Test {
-    use std::{cell::RefCell, rc::Rc};
+    
 
-    use crate::llrb::llrb::{Node, TreeColor};
+    
 
-    use super::RbTree;
+    
 
     mod insert_node {
-        use crate::llrb::llrb::RbTree;
+        
 
         #[test]
         fn insert_into_empty_tree() {
@@ -582,7 +579,7 @@ mod Test {
     }
 
     mod left_rotate {
-        use crate::llrb::llrb::{Node, RbTree, TreeColor};
+        
 
         #[test]
         fn left_rotate_on_root() {
@@ -648,7 +645,7 @@ mod Test {
     }
 
     mod right_rotate {
-        use crate::llrb::llrb::{Node, RbTree, TreeColor};
+        
 
         #[test]
         fn simple_right_rotate_on_root() {

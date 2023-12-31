@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     future::Future,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use serde::{de::DeserializeOwned, Serialize};
@@ -277,8 +277,8 @@ impl InternalDB {
 
     pub async fn read_without_txn<T: DeserializeOwned>(
         &self,
-        key: &str,
-        timestamp: Timestamp,
+        _key: &str,
+        _timestamp: Timestamp,
     ) -> T {
         todo!()
     }
@@ -311,7 +311,7 @@ impl InternalDB {
             metadata: request_metadata,
             request_union: txn_request,
         };
-        let response = self
+        let _response = self
             .executor
             .execute_request_with_concurrency_retries(request)
             .await;

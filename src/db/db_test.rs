@@ -2,9 +2,9 @@ mod test {
 
     // simple tests that involve writes and reads
     mod single_txn_simple_test {
-        use std::sync::Arc;
+        
 
-        use crate::db::db::{Timestamp, DB};
+        
 
         #[tokio::test]
         async fn two_writes_with_different_keys() {
@@ -43,11 +43,11 @@ mod test {
         mod write_read {
             mod uncommitted_intent_has_lower_timestamp {
 
-                use std::sync::Arc;
+                
 
-                use tokio::time::{self, sleep, Duration};
+                
 
-                use crate::db::db::{Timestamp, DB};
+                
 
                 #[tokio::test]
                 async fn read_waits_for_uncommitted_write() {
@@ -76,9 +76,9 @@ mod test {
             // A read running into an uncommitted intent with a higher timestamp ignores the
             // intent and does not need to wait.
             mod uncommitted_intent_has_higher_timestamp {
-                use std::sync::Arc;
+                
 
-                use crate::db::db::{Timestamp, DB};
+                
 
                 #[tokio::test]
                 async fn ignores_intent_with_higher_timestamp() {
@@ -100,15 +100,9 @@ mod test {
         // A write running into a committed value with a higher tiestamp will bump its timestamp.
         mod write_write {
             mod run_into_uncommitted_intent {
-                use std::sync::Arc;
+                
 
-                use crate::{
-                    db::db::{CommitTxnResult, Timestamp, DB},
-                    hlc::{
-                        clock::{Clock, ManualClock},
-                        timestamp::Timestamp as HLCTimestamp,
-                    },
-                };
+                
 
                 #[tokio::test]
                 async fn write_waits_for_uncommitted_write() {
@@ -152,15 +146,9 @@ mod test {
             }
 
             mod run_into_committed_intent {
-                use std::sync::Arc;
+                
 
-                use crate::{
-                    db::db::{CommitTxnResult, Timestamp, DB},
-                    hlc::{
-                        clock::{Clock, ManualClock},
-                        timestamp::Timestamp as HLCTimestamp,
-                    },
-                };
+                
 
                 #[tokio::test]
                 async fn bump_write_timestamp_before_committing() {
@@ -209,9 +197,9 @@ mod test {
          * the writeTimestamp is bumped
          */
         mod read_write {
-            use std::sync::Arc;
+            
 
-            use crate::db::db::{CommitTxnResult, Timestamp, DB};
+            
 
             #[tokio::test]
             async fn bump_write_timestamp_before_committing() {
@@ -247,14 +235,14 @@ mod test {
     }
 
     mod read_refresh {
-        use std::sync::Arc;
+        
 
-        use tokio::time::{self, sleep, Duration};
+        
 
         mod read_refresh_success {
-            use std::sync::Arc;
+            
 
-            use crate::db::db::{CommitTxnResult, Timestamp, DB};
+            
 
             #[tokio::test]
             async fn read_refresh_from_write_write_conflict() {
@@ -290,9 +278,9 @@ mod test {
         // Advancing a transaction read timestamp from ta to tb is possible
         // if we can prove that none of the data
         mod read_refresh_failure {
-            use std::sync::Arc;
+            
 
-            use crate::db::db::{CommitTxnResult, Timestamp, DB};
+            
 
             #[tokio::test]
             async fn read_refresh_failure() {
@@ -334,7 +322,7 @@ mod test {
     }
 
     mod abort_txn {
-        use crate::db::db::{Timestamp, DB};
+        
 
         #[tokio::test]
         async fn read_write_after_abort_transaction() {
@@ -359,12 +347,9 @@ mod test {
     }
 
     mod deadlock {
-        use std::sync::Arc;
+        
 
-        use crate::{
-            db::db::{CommitTxnResult, Timestamp, DB},
-            storage::str_to_key,
-        };
+        
 
         #[tokio::test]
         async fn conflicting_writes() {
@@ -470,9 +455,9 @@ mod test {
     }
 
     mod run_txn {
-        use std::sync::Arc;
+        
 
-        use crate::db::db::{Timestamp, DB};
+        
 
         #[tokio::test]
         async fn reading_its_txn_own_write() {

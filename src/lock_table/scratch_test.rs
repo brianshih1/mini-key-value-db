@@ -1,5 +1,5 @@
 mod Test {
-    use tokio::time::{self, sleep, Duration};
+    use tokio::time::{sleep, Duration};
 
     // #[tokio::test]
     async fn try_join() {
