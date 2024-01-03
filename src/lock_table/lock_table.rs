@@ -129,7 +129,7 @@ impl LockTable {
     pub fn new_with_defaults() -> Self {
         use tokio::sync::mpsc;
 
-        let (sender, receiver) = mpsc::channel::<TaskQueueRequest>(1);
+        let (sender, _receiver) = mpsc::channel::<TaskQueueRequest>(1);
         LockTable {
             locks: RwLock::new(HashMap::new()),
             txn_map: Arc::new(RwLock::new(HashMap::new())),

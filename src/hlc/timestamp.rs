@@ -125,7 +125,6 @@ mod test {
         fn compare_intent_timestamp() {
             let first = Timestamp::intent_timestamp();
             let second = Timestamp::new(12, 12);
-            let is_first_bigger = first > second;
             assert!(first > second)
         }
 

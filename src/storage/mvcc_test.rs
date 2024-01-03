@@ -77,7 +77,7 @@ mod tests {
             let txn = Txn::new_link(txn1_id, timestamp);
 
             kv_store.create_pending_transaction_record(txn1_id, timestamp.to_owned());
-            let current_keys = kv_store.collect_all_mvcc_kvs();
+            let _current_keys = kv_store.collect_all_mvcc_kvs();
 
             kv_store
                 .mvcc_put(str_to_key(key), None, Some(txn.clone()), 12)

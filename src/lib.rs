@@ -10,8 +10,7 @@ mod storage;
 mod timestamp_oracle;
 mod txn_wait;
 
-use rocksdb::{DB};
-
+use rocksdb::DB;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StorageError {
@@ -66,18 +65,13 @@ mod tests {
 
     #[test]
     fn test() {
-        let mvcc = Test { foo: true };
-        let str = serde_json::to_string(&mvcc).unwrap();
-        let meta = serde_json::from_str::<Test>(&str).unwrap();
-        let huh = "";
-
         let test_bool = true;
         let bool_str = serde_json::to_string(&test_bool).unwrap();
-        let meta = serde_json::from_str::<bool>(&bool_str).unwrap();
+        let _meta = serde_json::from_str::<bool>(&bool_str).unwrap();
         // println!("value: {:?}", meta);
 
         let vec = serde_json::to_vec(&test_bool).unwrap();
-        let back = serde_json::from_slice::<bool>(&vec).unwrap();
+        let _back = serde_json::from_slice::<bool>(&vec).unwrap();
         // println!("value: {:?}", back);
 
         let str = "foo";

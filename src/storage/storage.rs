@@ -245,7 +245,7 @@ mod Test {
     }
 
     mod storage_order {
-        use rocksdb::IteratorMode;
+        
 
         use crate::{
             hlc::timestamp::Timestamp,
@@ -268,10 +268,10 @@ mod Test {
                 .unwrap();
 
             let mut it = storage.get_mvcc_iterator();
-            let (k, v) = it.next().unwrap().unwrap();
+            let (k, _v) = it.next().unwrap().unwrap();
             let key = MVCCIterator::convert_raw_key_to_mvcc_key(&k);
             assert_eq!(key, second_mvcc_key);
-            let (second_k, v) = it.next().unwrap().unwrap();
+            let (second_k, _v) = it.next().unwrap().unwrap();
             let second_key = MVCCIterator::convert_raw_key_to_mvcc_key(&second_k);
             assert_eq!(second_key, first_mvcc_key);
         }

@@ -472,7 +472,6 @@ mod test {
 
         #[tokio::test]
         async fn reading_its_txn_own_write() {
-            let foo = std::thread::available_parallelism().unwrap();
             let db = DB::new_cleaned("./tmp/data", Timestamp::new(10));
             db.run_txn(|txn_context| async move {
                 let key = "foo";

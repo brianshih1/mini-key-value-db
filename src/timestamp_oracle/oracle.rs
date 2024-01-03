@@ -116,7 +116,7 @@ mod test {
 
         #[test]
         fn test_overlap() {
-            let mut oracle = TimestampOracle::new();
+            let oracle = TimestampOracle::new();
             oracle.add(
                 Timestamp::new(3, 5),
                 str_to_key("apple"),
@@ -136,7 +136,7 @@ mod test {
 
         #[test]
         fn no_overlap() {
-            let mut oracle = TimestampOracle::new();
+            let oracle = TimestampOracle::new();
             oracle.add(
                 Timestamp::new(3, 5),
                 str_to_key("apple"),
