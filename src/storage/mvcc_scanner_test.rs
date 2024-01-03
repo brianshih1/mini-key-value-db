@@ -175,8 +175,6 @@ mod tests {
 
     #[cfg(test)]
     mod scan {
-        use core::time;
-
         use uuid::Uuid;
 
         use crate::{

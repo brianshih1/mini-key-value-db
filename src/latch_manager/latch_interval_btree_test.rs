@@ -428,12 +428,13 @@ mod Test {
         }
     }
 
+    #[cfg(test)]
     mod split {
-        
-
-        
-
-        
+        use crate::latch_manager::latch_interval_btree_test::Test::{
+            assert_leaf_with_siblings, assert_node, create_test_node, create_test_tree,
+            find_node_and_parent_with_indices, get_all_leaves, get_start_keys_from_weak_link,
+            TestInternalNode, TestLeafNode, TestNode,
+        };
 
         #[test]
         fn split_internal() {
@@ -533,10 +534,11 @@ mod Test {
         }
     }
 
+    #[cfg(test)]
     mod insert {
-        
+        use crate::latch_manager::latch_interval_btree::{BTree, LatchKeyGuard, Range};
 
-        
+        use super::{assert_tree, print_tree, TestInternalNode, TestLeafNode, TestNode};
 
         #[test]
         fn insert_and_split() {
@@ -684,10 +686,11 @@ mod Test {
         }
     }
 
+    #[cfg(test)]
     mod leaf_underflow {
-        
+        use std::sync::RwLock;
 
-        
+        use crate::latch_manager::latch_interval_btree::{LatchWaiters, LeafNode};
 
         #[test]
         fn underflows() {
@@ -705,9 +708,13 @@ mod Test {
         }
     }
 
+    #[cfg(test)]
     mod delete {
+        #[cfg(test)]
         mod core_delete {
-            
+            use crate::latch_manager::latch_interval_btree_test::Test::{
+                assert_tree, create_test_tree, print_tree, TestInternalNode, TestLeafNode, TestNode,
+            };
 
             #[test]
             fn internal_node_stealing_from_left_sibling_3_layers() {
@@ -972,12 +979,16 @@ mod Test {
         }
 
         mod leaf_stealing {
-            
 
             mod has_spare_keys {
-                
+                use std::sync::RwLock;
 
-                
+                use crate::latch_manager::{
+                    latch_interval_btree::{LatchWaiters, LeafNode},
+                    latch_interval_btree_test::Test::{
+                        assert_tree, create_test_tree, TestInternalNode, TestLeafNode, TestNode,
+                    },
+                };
 
                 #[test]
                 fn internal_node() {}
@@ -1076,7 +1087,10 @@ mod Test {
             }
 
             mod stealing_core {
-                
+                use crate::latch_manager::latch_interval_btree_test::Test::{
+                    assert_tree, create_test_tree, print_tree, TestInternalNode, TestLeafNode,
+                    TestNode,
+                };
 
                 #[test]
                 fn leaf_steals_left_sibling() {
@@ -1203,8 +1217,12 @@ mod Test {
             }
         }
 
+        #[cfg(test)]
         mod internal_node_stealing {
-            
+            use crate::latch_manager::latch_interval_btree_test::Test::{
+                assert_tree, create_test_tree, find_node_and_parent_with_indices, TestInternalNode,
+                TestLeafNode, TestNode,
+            };
 
             #[test]
             fn simple_steal_from_left_sibling() {
@@ -1365,9 +1383,15 @@ mod Test {
         }
     }
 
+    #[cfg(test)]
     mod merge {
+
+        #[cfg(test)]
         mod internal_node {
-            
+            use crate::latch_manager::latch_interval_btree_test::Test::{
+                assert_tree, create_test_tree, find_node_and_parent_with_indices, TestInternalNode,
+                TestLeafNode, TestNode,
+            };
 
             #[test]
             fn merge_with_left() {
@@ -1494,8 +1518,12 @@ mod Test {
             }
         }
 
+        #[cfg(test)]
         mod leaf {
-            
+            use crate::latch_manager::latch_interval_btree_test::Test::{
+                assert_tree, create_test_tree, find_node_and_parent_with_indices, print_tree,
+                TestInternalNode, TestLeafNode, TestNode,
+            };
 
             #[test]
             fn merge_with_left_leaf() {

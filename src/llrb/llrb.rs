@@ -1,7 +1,4 @@
-use std::{
-    cmp::Ordering,
-    fmt,
-};
+use std::{cmp::Ordering, fmt};
 
 pub trait NodeKey: std::fmt::Debug + Clone + Eq + PartialOrd + Ord {}
 
@@ -507,15 +504,12 @@ impl NodeKey for i32 {}
 
 impl NodeValue for i32 {}
 
-mod Test {
-    
-
-    
-
-    
+#[cfg(test)]
+mod test {
+    use std::{cell::RefCell, rc::Rc};
 
     mod insert_node {
-        
+        use crate::llrb::llrb::RbTree;
 
         #[test]
         fn insert_into_empty_tree() {
@@ -578,8 +572,9 @@ mod Test {
         }
     }
 
+    #[cfg(test)]
     mod left_rotate {
-        
+        use crate::llrb::llrb::{Node, RbTree, TreeColor};
 
         #[test]
         fn left_rotate_on_root() {
@@ -644,8 +639,9 @@ mod Test {
         }
     }
 
+    #[cfg(test)]
     mod right_rotate {
-        
+        use crate::llrb::llrb::{Node, RbTree, TreeColor};
 
         #[test]
         fn simple_right_rotate_on_root() {

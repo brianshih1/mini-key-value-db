@@ -1,13 +1,9 @@
-
-
 use rand::Rng;
 use tokio::time::{self, Duration};
 
 use crate::execute::request::SpanSet;
 
-use super::{
-    latch_interval_btree::{BTree, LatchKeyGuard, NodeKey, Range},
-};
+use super::latch_interval_btree::{BTree, LatchKeyGuard, NodeKey, Range};
 
 pub struct LatchManager<K: NodeKey> {
     tree: BTree<K>,
@@ -86,13 +82,14 @@ impl<K: NodeKey> LatchManager<K> {
     }
 }
 
-mod Test {
-    mod Acquire {
-        
+mod test {
+    #[cfg(test)]
+    mod acquire {
+        use std::{sync::Arc, time::Duration};
 
-        
+        use tokio::time::sleep;
 
-        
+        use crate::latch_manager::{latch_interval_btree::Range, latch_manager::LatchManager};
 
         #[tokio::test]
         async fn test_select() {

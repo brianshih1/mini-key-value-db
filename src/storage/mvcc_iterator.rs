@@ -150,12 +150,17 @@ impl<'a> MVCCIterator<'a> {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    
-
-    
-
-    
+    use crate::{
+        hlc::timestamp::{get_intent_timestamp, Timestamp},
+        storage::{
+            mvcc_iterator::{IterOptions, MVCCIterator},
+            mvcc_key::MVCCKey,
+            storage::Storage,
+            str_to_key,
+        },
+    };
 
     #[test]
     fn test_current_key_and_current_value() {
@@ -245,8 +250,17 @@ mod tests {
         assert_eq!(iterator.valid(), false);
     }
 
+    #[cfg(test)]
     mod test_seek_ge {
-        
+        use crate::{
+            hlc::timestamp::Timestamp,
+            storage::{
+                mvcc_iterator::{IterOptions, MVCCIterator},
+                mvcc_key::MVCCKey,
+                storage::Storage,
+                str_to_key,
+            },
+        };
 
         #[test]
         fn test_multiple_timestamps_with_same_prefix() {

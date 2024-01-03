@@ -1,8 +1,4 @@
-
-
-use crate::{
-    llrb::llrb::{NodeKey, NodeValue, RbTree, NIL},
-};
+use crate::llrb::llrb::{NodeKey, NodeValue, RbTree, NIL};
 
 // TODO: Eviction policy to make sure IntervalTree is bounded
 pub struct IntervalTree<K: NodeKey, V: NodeValue> {
@@ -102,12 +98,12 @@ impl<K: NodeKey, V: NodeValue> IntervalTree<K, V> {
     }
 }
 
+#[cfg(test)]
 mod tests {
 
+    #[cfg(test)]
     mod get_overlap {
-        
-
-        
+        use crate::interval::interval_tree::{IntervalTree, RangeValue};
 
         #[test]
         fn test_overlap() {

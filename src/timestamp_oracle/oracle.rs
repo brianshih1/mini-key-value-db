@@ -1,4 +1,4 @@
-use std::{sync::RwLock};
+use std::sync::RwLock;
 
 use uuid::Uuid;
 
@@ -8,7 +8,7 @@ use crate::{
     interval::interval_tree::IntervalTree,
     latch_manager::latch_interval_btree::Range,
     llrb::llrb::{NodeKey, NodeValue},
-    storage::{Key},
+    storage::Key,
 };
 
 #[derive(Clone)]
@@ -104,10 +104,15 @@ impl TimestampOracle {
     }
 }
 
-mod Test {
+#[cfg(test)]
+mod test {
 
+    #[cfg(test)]
     mod get_max_timestamp {
-        
+        use crate::{
+            hlc::timestamp::Timestamp, storage::str_to_key,
+            timestamp_oracle::oracle::TimestampOracle,
+        };
 
         #[test]
         fn test_overlap() {

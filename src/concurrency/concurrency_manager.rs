@@ -54,7 +54,9 @@ impl ConcurrencyManager {
                 if let Err(err) = wait_res {
                     match err {
                         WaitForGuardError::TxnAborted => return Err(SequenceReqError::TxnAborted),
-                        WaitForGuardError::TxnCommitted => return Err(SequenceReqError::TxnCommitted),
+                        WaitForGuardError::TxnCommitted => {
+                            return Err(SequenceReqError::TxnCommitted)
+                        }
                     }
                 };
 
@@ -96,10 +98,11 @@ impl ConcurrencyManager {
     }
 }
 
+#[cfg(test)]
 mod test {
-    
+    use std::time::Duration;
 
-    
+    use tokio::{sync::mpsc::channel, time};
 
     #[tokio::test]
     async fn test_select() {
