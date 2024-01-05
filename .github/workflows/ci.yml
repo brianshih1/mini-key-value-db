@@ -1,4 +1,4 @@
-name: CI
+name: test
 
 # This workflow run tests and build for each push
 
@@ -12,11 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2  
-      - name: Test
-        run: |
-          cargo check
-          cargo test --all          
-
       - name: Build
-        run: |
-          cargo build
+        run:  cargo build --verbose
+      - name: Test
+        run: cargo test --verbose          
