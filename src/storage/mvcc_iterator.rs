@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_current_key_and_current_value() {
-        let storage = Storage::new_cleaned("./tmp/testt");
+        let storage = Storage::new_random_path();
         let mvcc_key = MVCCKey::new(
             str_to_key("hello"),
             Timestamp {
@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_order_of_iteration_with_intent_timestamp() {
-        let storage = Storage::new_cleaned("./tmp/testt");
+        let storage = Storage::new_random_path();
         let key = "hello";
 
         let mvcc_key_2 = MVCCKey::new(
@@ -264,7 +264,7 @@ mod tests {
 
         #[test]
         fn test_multiple_timestamps_with_same_prefix() {
-            let storage = Storage::new_cleaned("./tmp/testt");
+            let storage = Storage::new_random_path();
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
                 str_to_key(key),
@@ -315,7 +315,7 @@ mod tests {
 
         #[test]
         fn empty_db() {
-            let storage = Storage::new_cleaned("./tmp/testt");
+            let storage = Storage::new_random_path();
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
                 str_to_key(key),

@@ -1,3 +1,4 @@
+use rand::distributions::{Alphanumeric, DistString};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -51,6 +52,12 @@ impl KVStore {
         KVStore {
             storage: Storage::new_cleaned(path),
         }
+    }
+
+    pub fn new_random_path() -> Self {
+        let string = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+
+        KVStore::new_cleaned(&format!("./tmp/{}", string))
     }
 
     pub fn new(path: &str) -> Self {

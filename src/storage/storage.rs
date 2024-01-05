@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, iter::Peekable, path::Path};
 
+use rand::distributions::{Alphanumeric, DistString};
 use rocksdb::{ColumnFamily, DBIterator, DB};
 use serde::{de::DeserializeOwned, Serialize};
 use uuid::Uuid;
@@ -34,6 +35,11 @@ impl Storage {
         db.create_cf(TRANSACTION_RECORD_COLUMN_FAMILY, &options)
             .unwrap();
         Storage { db }
+    }
+
+    pub fn new_random_path() -> Storage {
+        let string = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        Storage::new_cleaned(&format!("./tmp/{}", string))
     }
 
     // path example: "./tmp/data";
@@ -228,7 +234,7 @@ mod Test {
 
     #[test]
     fn put_mvcc() {
-        let storage = Storage::new_cleaned("./tmp/foo");
+        let storage = Storage::new_random_path();
         let mvcc_key = MVCCKey::new(
             str_to_key("hello"),
             Timestamp {
@@ -245,7 +251,6 @@ mod Test {
     }
 
     mod storage_order {
-        
 
         use crate::{
             hlc::timestamp::Timestamp,
@@ -256,7 +261,7 @@ mod Test {
 
         #[test]
         fn check_order_no_intent() {
-            let storage = Storage::new_cleaned("./tmp/foo");
+            let storage = Storage::new_random_path();
             let first_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(1, 0));
             let second_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(2, 0));
 
@@ -278,7 +283,7 @@ mod Test {
 
         #[test]
         fn check_order_intent() {
-            let storage = Storage::new_cleaned("./tmp/foobars");
+            let storage = Storage::new_random_path();
             let key = "a";
             let intent_key = MVCCKey::create_intent_key_with_str(key);
             let non_intent_key = MVCCKey::new(str_to_key(key), Timestamp::new(2, 0));

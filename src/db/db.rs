@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use rand::distributions::{Alphanumeric, DistString};
 use serde::{de::DeserializeOwned, Serialize};
 use std::panic;
 use tokio::sync::mpsc;
@@ -80,6 +81,17 @@ impl DB {
     pub fn new_cleaned(path: &str, initial_time: Timestamp) -> Self {
         DB {
             db: Arc::new(InternalDB::new_cleaned(path, initial_time)),
+        }
+    }
+
+    pub fn new_random_path(initial_time: Timestamp) -> Self {
+        let string = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+
+        DB {
+            db: Arc::new(InternalDB::new_cleaned(
+                &format!("./tmp/{}", string),
+                initial_time,
+            )),
         }
     }
 

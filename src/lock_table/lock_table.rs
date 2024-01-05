@@ -135,7 +135,7 @@ impl LockTable {
             txn_map: Arc::new(RwLock::new(HashMap::new())),
             txn_wait_queue: TxnWaitQueue::new(
                 Arc::new(sender),
-                Arc::new(KVStore::new_cleaned("/tmp/foo")),
+                Arc::new(KVStore::new_random_path()),
             ),
         }
     }
