@@ -19,3 +19,6 @@ async-trait = "0.1.68"
 [build-dependencies]
 protobuf = "3.2.0"
 protobuf-codegen = "3.2.0"
+
+[dev-dependencies]
+tempfile = "3.7.0"
