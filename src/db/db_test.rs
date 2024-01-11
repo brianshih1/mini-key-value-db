@@ -1,17 +1,30 @@
 #[cfg(test)]
 mod test {
 
+    use tempfile::tempdir;
+
+    // Helper function to create tempoary directory for new database creation.
+    // This returns the path for newly created directory.
+    fn create_temp_dir() -> String {
+        tempdir()
+            .map(|temp_dir| temp_dir.path().to_str().unwrap_or_default().to_string())
+            .unwrap_or_else(|err| {
+                eprintln!("Failed to create temporary directory: {}", err);
+                String::new()
+            })
+    }
+
     // simple tests that involve writes and reads
     #[cfg(test)]
     mod single_txn_simple_test {
+        use super::create_temp_dir;
         use std::sync::Arc;
 
         use crate::db::db::{Timestamp, DB};
 
         #[tokio::test]
         async fn two_writes_with_different_keys() {
-            let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
-
+            let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
             let key_a = "A";
             let key_b = "B";
 
@@ -33,6 +46,7 @@ mod test {
 
     #[cfg(test)]
     mod transaction_conflicts {
+        use super::create_temp_dir;
         // A read running into an uncommitted intent with a lower timestamp will wait for the
         // earlier transaction
 
@@ -47,11 +61,14 @@ mod test {
             mod uncommitted_intent_has_lower_timestamp {
                 use std::sync::Arc;
 
-                use crate::db::db::{Timestamp, DB};
+                use crate::db::{
+                    db::{Timestamp, DB},
+                    db_test::test::create_temp_dir,
+                };
 
                 #[tokio::test]
                 async fn read_waits_for_uncommitted_write() {
-                    let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
+                    let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
                     let write_txn = db.begin_txn().await;
                     let key = "foo";
                     db.write(key, 12, write_txn).await;
@@ -78,11 +95,14 @@ mod test {
             mod uncommitted_intent_has_higher_timestamp {
                 use std::sync::Arc;
 
-                use crate::db::db::{Timestamp, DB};
+                use crate::db::{
+                    db::{Timestamp, DB},
+                    db_test::test::create_temp_dir,
+                };
 
                 #[tokio::test]
                 async fn ignores_intent_with_higher_timestamp() {
-                    let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
+                    let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
                     let read_txn = db.begin_txn().await;
                     let key = "foo";
 
@@ -105,11 +125,12 @@ mod test {
 
                 use crate::db::db::{CommitTxnResult, Timestamp, DB};
 
+                use crate::db::db_test::test::create_temp_dir;
                 use crate::hlc::timestamp::Timestamp as HLCTimestamp;
 
                 #[tokio::test]
                 async fn write_waits_for_uncommitted_write() {
-                    let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
+                    let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
                     let txn_1 = db.begin_txn().await;
                     let txn_2 = db.begin_txn().await;
                     let key = "baz";
@@ -152,11 +173,14 @@ mod test {
             mod run_into_committed_intent {
                 use std::sync::Arc;
 
-                use crate::db::db::{CommitTxnResult, Timestamp, DB};
+                use crate::db::{
+                    db::{CommitTxnResult, Timestamp, DB},
+                    db_test::test::create_temp_dir,
+                };
 
                 #[tokio::test]
                 async fn bump_write_timestamp_before_committing() {
-                    let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
+                    let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
                     let key = "foo";
 
                     // begin txn1
@@ -204,11 +228,14 @@ mod test {
         mod read_write {
             use std::sync::Arc;
 
-            use crate::db::db::{CommitTxnResult, Timestamp, DB};
+            use crate::db::{
+                db::{CommitTxnResult, Timestamp, DB},
+                db_test::test::create_temp_dir,
+            };
 
             #[tokio::test]
             async fn bump_write_timestamp_before_committing() {
-                let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
+                let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
                 let key = "foo";
 
                 let write_txn = db.begin_txn().await;
@@ -245,12 +272,14 @@ mod test {
         mod read_refresh_success {
             use std::sync::Arc;
 
-            use crate::db::db::{CommitTxnResult, Timestamp, DB};
+            use crate::db::{
+                db::{CommitTxnResult, Timestamp, DB},
+                db_test::test::create_temp_dir,
+            };
 
             #[tokio::test]
             async fn read_refresh_from_write_write_conflict() {
-                let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
-
+                let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
                 let read_key = "foo";
                 let write_key = "bar";
 
@@ -285,11 +314,14 @@ mod test {
         mod read_refresh_failure {
             use std::sync::Arc;
 
-            use crate::db::db::{CommitTxnResult, Timestamp, DB};
+            use crate::db::{
+                db::{CommitTxnResult, Timestamp, DB},
+                db_test::test::create_temp_dir,
+            };
 
             #[tokio::test]
             async fn read_refresh_failure() {
-                let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
+                let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
 
                 let read_key = "foo";
                 let write_key = "bar";
@@ -328,11 +360,12 @@ mod test {
 
     #[cfg(test)]
     mod abort_txn {
+        use super::create_temp_dir;
         use crate::db::db::{Timestamp, DB};
 
         #[tokio::test]
         async fn read_write_after_abort_transaction() {
-            let db = DB::new_random_path(Timestamp::new(10));
+            let db = DB::new_cleaned(&create_temp_dir(), Timestamp::new(10));
             let key = "foo";
 
             let txn_to_abort = db.begin_txn().await;
@@ -354,6 +387,7 @@ mod test {
 
     #[cfg(test)]
     mod deadlock {
+        use super::create_temp_dir;
         use std::sync::Arc;
 
         use crate::{
@@ -363,7 +397,7 @@ mod test {
 
         #[tokio::test]
         async fn conflicting_writes() {
-            let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
+            let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
             let txn1 = db.begin_txn().await;
             let txn2 = db.begin_txn().await;
             println!("Txn1 is: {}", txn1);
@@ -466,13 +500,14 @@ mod test {
 
     #[cfg(test)]
     mod run_txn {
+        use super::create_temp_dir;
         use std::sync::Arc;
 
         use crate::db::db::{Timestamp, DB};
 
         #[tokio::test]
         async fn reading_its_txn_own_write() {
-            let db = DB::new_random_path(Timestamp::new(10));
+            let db = DB::new_cleaned(&create_temp_dir(), Timestamp::new(10));
             db.run_txn(|txn_context| async move {
                 let key = "foo";
                 txn_context.write(key, 12).await.unwrap();
@@ -484,7 +519,7 @@ mod test {
 
         #[tokio::test]
         async fn writing_its_own_write() {
-            let db = DB::new_random_path(Timestamp::new(10));
+            let db = DB::new_cleaned(&create_temp_dir(), Timestamp::new(10));
             db.run_txn(|txn_context| async move {
                 let key = "foo";
                 txn_context.write(key, 12).await;
@@ -497,7 +532,7 @@ mod test {
 
         #[tokio::test]
         async fn two_concurrent_writes_to_same_key() {
-            let db = Arc::new(DB::new_random_path(Timestamp::new(10)));
+            let db = Arc::new(DB::new_cleaned(&create_temp_dir(), Timestamp::new(10)));
 
             let db_1 = db.clone();
             let key = "foo";

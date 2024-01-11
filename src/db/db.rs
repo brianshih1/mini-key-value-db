@@ -84,17 +84,6 @@ impl DB {
         }
     }
 
-    pub fn new_random_path(initial_time: Timestamp) -> Self {
-        let string = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-
-        DB {
-            db: Arc::new(InternalDB::new_cleaned(
-                &format!("./tmp/{}", string),
-                initial_time,
-            )),
-        }
-    }
-
     pub fn new(path: &str, initial_time: Timestamp) -> Self {
         DB {
             db: Arc::new(InternalDB::new(path, initial_time)),
