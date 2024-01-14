@@ -37,11 +37,6 @@ impl Storage {
         Storage { db }
     }
 
-    pub fn new_random_path() -> Storage {
-        let string = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        Storage::new_cleaned(&format!("./tmp/{}", string))
-    }
-
     // path example: "./tmp/data";
     pub fn new_cleaned(path: &str) -> Storage {
         if Path::new(path).exists() {
@@ -221,6 +216,7 @@ mod Test {
     use serde::{Deserialize, Serialize};
 
     use crate::{
+        helpers::test_helpers::create_temp_dir,
         hlc::timestamp::Timestamp,
         storage::{mvcc_key::MVCCKey, str_to_key},
     };
@@ -234,7 +230,7 @@ mod Test {
 
     #[test]
     fn put_mvcc() {
-        let storage = Storage::new_random_path();
+        let storage = Storage::new_cleaned(&create_temp_dir());
         let mvcc_key = MVCCKey::new(
             str_to_key("hello"),
             Timestamp {
@@ -253,6 +249,7 @@ mod Test {
     mod storage_order {
 
         use crate::{
+            helpers::test_helpers::create_temp_dir,
             hlc::timestamp::Timestamp,
             storage::{
                 mvcc_iterator::MVCCIterator, mvcc_key::MVCCKey, storage::Storage, str_to_key,
@@ -261,7 +258,7 @@ mod Test {
 
         #[test]
         fn check_order_no_intent() {
-            let storage = Storage::new_random_path();
+            let storage = Storage::new_cleaned(&create_temp_dir());
             let first_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(1, 0));
             let second_mvcc_key = MVCCKey::new(str_to_key("a"), Timestamp::new(2, 0));
 
@@ -283,7 +280,7 @@ mod Test {
 
         #[test]
         fn check_order_intent() {
-            let storage = Storage::new_random_path();
+            let storage = Storage::new_cleaned(&create_temp_dir());
             let key = "a";
             let intent_key = MVCCKey::create_intent_key_with_str(key);
             let non_intent_key = MVCCKey::new(str_to_key(key), Timestamp::new(2, 0));

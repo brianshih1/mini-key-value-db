@@ -153,6 +153,7 @@ impl<'a> MVCCIterator<'a> {
 #[cfg(test)]
 mod tests {
     use crate::{
+        helpers::test_helpers::create_temp_dir,
         hlc::timestamp::{get_intent_timestamp, Timestamp},
         storage::{
             mvcc_iterator::{IterOptions, MVCCIterator},
@@ -164,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_current_key_and_current_value() {
-        let storage = Storage::new_random_path();
+        let storage = Storage::new_cleaned(&create_temp_dir());
         let mvcc_key = MVCCKey::new(
             str_to_key("hello"),
             Timestamp {
@@ -190,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_order_of_iteration_with_intent_timestamp() {
-        let storage = Storage::new_random_path();
+        let storage = Storage::new_cleaned(&create_temp_dir());
         let key = "hello";
 
         let mvcc_key_2 = MVCCKey::new(
@@ -253,6 +254,7 @@ mod tests {
     #[cfg(test)]
     mod test_seek_ge {
         use crate::{
+            helpers::test_helpers::create_temp_dir,
             hlc::timestamp::Timestamp,
             storage::{
                 mvcc_iterator::{IterOptions, MVCCIterator},
@@ -264,7 +266,7 @@ mod tests {
 
         #[test]
         fn test_multiple_timestamps_with_same_prefix() {
-            let storage = Storage::new_random_path();
+            let storage = Storage::new_cleaned(&create_temp_dir());
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
                 str_to_key(key),
@@ -315,7 +317,7 @@ mod tests {
 
         #[test]
         fn empty_db() {
-            let storage = Storage::new_random_path();
+            let storage = Storage::new_cleaned(&create_temp_dir());
             let key = "foo";
             let mvcc_key_1 = MVCCKey::new(
                 str_to_key(key),

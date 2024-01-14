@@ -15,10 +15,8 @@ protobuf-codegen = "3.2.0"
 tokio = { version = "1.26.0", features = ["full"] }
 rand = "0.8.5"
 async-trait = "0.1.68"
+tempfile = "3.7.0"
 
 [build-dependencies]
 protobuf = "3.2.0"
 protobuf-codegen = "3.2.0"
-
-[dev-dependencies]
-tempfile = "3.7.0"
