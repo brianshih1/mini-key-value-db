@@ -54,12 +54,6 @@ impl KVStore {
         }
     }
 
-    pub fn new_random_path() -> Self {
-        let string = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-
-        KVStore::new_cleaned(&format!("./tmp/{}", string))
-    }
-
     pub fn new(path: &str) -> Self {
         KVStore {
             storage: Storage::new(path),

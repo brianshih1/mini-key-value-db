@@ -129,13 +129,15 @@ impl LockTable {
     pub fn new_with_defaults() -> Self {
         use tokio::sync::mpsc;
 
+        use crate::helpers::test_helpers::create_temp_dir;
+
         let (sender, _receiver) = mpsc::channel::<TaskQueueRequest>(1);
         LockTable {
             locks: RwLock::new(HashMap::new()),
             txn_map: Arc::new(RwLock::new(HashMap::new())),
             txn_wait_queue: TxnWaitQueue::new(
                 Arc::new(sender),
-                Arc::new(KVStore::new_random_path()),
+                Arc::new(KVStore::new_cleaned(&create_temp_dir())),
             ),
         }
     }

@@ -1,6 +1,7 @@
 pub mod concurrency;
 pub mod db;
 pub mod execute;
+pub mod helpers;
 pub mod hlc;
 mod interval;
 mod latch_manager;

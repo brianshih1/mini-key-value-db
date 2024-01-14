@@ -3,6 +3,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
+        helpers::test_helpers::create_temp_dir,
         hlc::timestamp::Timestamp,
         storage::{
             mvcc::KVStore,
@@ -12,7 +13,7 @@ mod tests {
 
     #[test]
     fn create_pending_transaction_record() -> () {
-        let kv_store = KVStore::new_random_path();
+        let kv_store = KVStore::new_cleaned(&create_temp_dir());
         let transaction_id = Uuid::new_v4();
         let write_timestamp = Timestamp {
             wall_time: 0,
@@ -36,6 +37,7 @@ mod tests {
         use uuid::Uuid;
 
         use crate::{
+            helpers::test_helpers::create_temp_dir,
             hlc::timestamp::Timestamp,
             storage::{
                 mvcc::KVStore, mvcc_iterator::IterOptions, mvcc_key::MVCCKey, str_to_key, txn::Txn,
@@ -44,7 +46,7 @@ mod tests {
 
         #[test]
         fn put_with_transaction() {
-            let kv_store = KVStore::new_random_path();
+            let kv_store = KVStore::new_cleaned(&create_temp_dir());
             let key = "foo";
             let txn1_id = Uuid::new_v4();
 
@@ -66,7 +68,7 @@ mod tests {
 
         #[test]
         fn write_intent_error() {
-            let kv_store = KVStore::new_random_path();
+            let kv_store = KVStore::new_cleaned(&create_temp_dir());
             let key = "foo";
             let txn1_id = Uuid::new_v4();
 
@@ -102,6 +104,7 @@ mod tests {
         use uuid::Uuid;
 
         use crate::{
+            helpers::test_helpers::create_temp_dir,
             hlc::timestamp::Timestamp,
             storage::{
                 mvcc::{KVStore, MVCCGetParams},
@@ -113,7 +116,7 @@ mod tests {
 
         #[test]
         fn get_key_with_multiple_timestamps() {
-            let kv_store = KVStore::new_random_path();
+            let kv_store = KVStore::new_cleaned(&create_temp_dir());
             let read_timestamp = Timestamp::new(10, 10);
 
             let key1 = str_to_key("apple");
@@ -159,7 +162,7 @@ mod tests {
 
         #[test]
         fn get_intent() {
-            let kv_store = KVStore::new_random_path();
+            let kv_store = KVStore::new_cleaned(&create_temp_dir());
             let key = "foo";
             let txn1_id = Uuid::new_v4();
 
@@ -201,6 +204,7 @@ mod tests {
         use uuid::Uuid;
 
         use crate::{
+            helpers::test_helpers::create_temp_dir,
             hlc::timestamp::Timestamp,
             storage::{
                 mvcc::KVStore,
@@ -212,7 +216,7 @@ mod tests {
 
         #[test]
         fn resolve_intent_with_higher_timestamp() {
-            let kv_store = KVStore::new_random_path();
+            let kv_store = KVStore::new_cleaned(&create_temp_dir());
             let uncommitted_timestamp = Timestamp::new(10, 10);
 
             let key = str_to_key("apple");
@@ -259,7 +263,7 @@ mod tests {
 
         #[test]
         fn resolve_intent_owned_by_another_txn() {
-            let kv_store = KVStore::new_random_path();
+            let kv_store = KVStore::new_cleaned(&create_temp_dir());
             let uncommitted_timestamp = Timestamp::new(10, 10);
 
             let key = str_to_key("apple");
