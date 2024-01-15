@@ -16,7 +16,7 @@ Here is an example of using the database:
 ```rust
 let db = DB::new("./tmp/data", Timestamp::new(10))
 let txn1 = db.begin_txn().await;
-let value = db.read::<i32>("foo", txn1).await.unwrap();
+let value = db.read::<String>("foo", txn1).await.unwrap();
 if value == "bar" {
 	db.write("baz", 20, txn1).await.unwrap();
 }
