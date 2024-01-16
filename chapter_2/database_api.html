@@ -159,7 +159,7 @@
 </span><span class="boring">fn main() {
 </span>let db = DB::new(&quot;./tmp/data&quot;, Timestamp::new(10))
 let txn1 = db.begin_txn().await;
-let value = db.read::&lt;i32&gt;(&quot;foo&quot;, txn1).await.unwrap();
+let value = db.read::&lt;String&gt;(&quot;foo&quot;, txn1).await.unwrap();
 if value == &quot;bar&quot; {
 	db.write(&quot;baz&quot;, 20, txn1).await.unwrap();
 }
