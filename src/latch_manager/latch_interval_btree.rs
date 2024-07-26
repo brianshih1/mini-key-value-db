@@ -1,11 +1,9 @@
 use std::{
-    borrow::{Borrow},
+    borrow::Borrow,
     sync::{Arc, Mutex, RwLock, Weak},
 };
 
-use tokio::{
-    sync::mpsc::{self, Receiver, Sender},
-};
+use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::storage::{mvcc_key::MVCCKey, Key};
 

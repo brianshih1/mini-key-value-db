@@ -6,7 +6,11 @@ The transactional layer of the toy database is composed of many entities. This p
 
 This page is inspired by CRDB's [Life of a SQL Query](https://github.com/cockroachdb/cockroach/blob/530100fd39cc722bc324bfb3869a325622258fb3/docs/tech-notes/life_of_a_query.md) doc, which outlines the lifecycle of a single query through the different layers of CRDB. I found that doc extremely useful when learning how CRDB works.
 
-From a higher level, the transactional layer of my toy database is composed of these entities:
+Here is a diagram showing the higher level life cycle of a read/write request:
+
+<img src="../images/life_of_a_query.png" width="55%">
+
+The transactional layer of my toy database is composed of these entities:
 
 - **Concurrency Manager**: Provides isolation to concurrent and conflicting requests by sequencing them. Once a request is sequenced, it is free to execute as no conflicting requests are running at the same time. The concurrency manager is made up of the latch manager, lock table, and transaction wait queue.
 - **Latch Manager**: Serializes accesses for keys. Only one latch guard can be acquired for a key at any given time.

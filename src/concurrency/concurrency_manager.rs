@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Result;
 use tokio::sync::mpsc::Sender;
 
 use crate::db::db::{TxnLink, TxnMap};
@@ -9,6 +10,7 @@ use crate::latch_manager::latch_manager::{LatchGuard, LatchManager};
 use crate::lock_table::lock_table::{LockTable, LockTableGuardLink, UpdateLock, WaitForGuardError};
 use crate::storage::mvcc::KVStore;
 use crate::storage::Key;
+use tracing::error;
 
 pub struct ConcurrencyManager {
     latch_manager: LatchManager<Key>,
@@ -83,7 +85,6 @@ impl ConcurrencyManager {
         let txn = txn_link.read().unwrap();
         let keys = txn.lock_spans.read().unwrap();
         keys.clone()
-        // TODO: Remove clone
     }
 
     pub async fn update_txn_locks(&self, txn: TxnLink, update_lock: UpdateLock) {

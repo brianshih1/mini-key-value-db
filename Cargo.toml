@@ -16,6 +16,8 @@ tokio = { version = "1.26.0", features = ["full"] }
 rand = "0.8.5"
 async-trait = "0.1.68"
 tempfile = "3.7.0"
+anyhow = "1.0.86"
+tracing = "0.1.40"
 
 [build-dependencies]
 protobuf = "3.2.0"

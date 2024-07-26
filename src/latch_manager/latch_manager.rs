@@ -41,7 +41,7 @@ impl<K: NodeKey> LatchManager<K> {
                     if let LatchKeyGuard::NotAcquired(mut wait_guard) = lg {
                         tokio::select! {
                             Some(_) = wait_guard.receiver.recv() => {
-                                println!("retry acquire lock")
+                               // wait for conflicting latch to release the guard
                             }
                             _ = &mut sleep, if !sleep.is_elapsed() => {
                                 println!("operation timed out. Releasing and retrying");

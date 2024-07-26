@@ -64,7 +64,6 @@ impl Executor {
         &self,
         request: Request,
     ) -> ExecuteResult {
-        // TODO: This should return some form of Result<...>
         loop {
             let request_union = &request.request_union;
             let guard = self.concr_manager.sequence_req(&request).await;
@@ -92,7 +91,6 @@ impl Executor {
                 Err(err) => match err {
                     ResponseError::WriteIntentError(err) => {
                         self.handle_write_intent_error(err.intent.clone());
-                        println!("Handle write intent error");
                     }
                     ResponseError::ReadRefreshError => {
                         return Err(ExecuteError::ReadRefreshFailure);
@@ -112,10 +110,10 @@ impl Executor {
             .get_transaction_record(txn_intent.txn_meta.txn_id);
         if let Some(txn_record) = record {
             if let TransactionStatus::ABORTED = txn_record.status {
+                // If the txn has aborted, remove the txn record
                 self.store.mvcc_delete(create_intent_key(&txn_intent.key));
             }
         }
-        // If the txn has aborted, remove the txn record
     }
 
     pub async fn execute_write_request(&self, request: &Request, _guard: &Guard) -> ResponseResult {
