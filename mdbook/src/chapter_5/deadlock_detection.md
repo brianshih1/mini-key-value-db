@@ -79,8 +79,7 @@ txnA: [ waitingPush { txn: txnC, dependents: [] } ]
 txnB: [ waitingPush { txn: txnA, dependents: [] } ]
 txnC: [ waitingPush { txn: txnB, dependents: [] } ]
 ```
-
-TxnA queries for its dependents and adds it to its waitingPush
+After txnA's waitingPush is in `txnB`, TxnA queries for its dependents and adds it to the waitingPush
 
 ```
 txnA: [ waitingPush { txn: txnC, dependents: [] } ]

@@ -326,7 +326,6 @@ impl LockTable {
     }
 
     /**
-     *
      * Latches are held when this method is called.
      *
      * Informs the lockTable that that a new lock was acquired. This is called after a write
@@ -388,8 +387,8 @@ impl LockTable {
      *
      * Returns whether the lock can be garbage collected.
      */
-    pub async fn update_locks(&self, key: Key, update_lock: &UpdateLock) -> bool {
-        let lock_state_option = self.get_lock_state(&key);
+    pub async fn update_locks(&self, key: &Key, update_lock: &UpdateLock) -> bool {
+        let lock_state_option = self.get_lock_state(key);
 
         if lock_state_option.is_none() {
             return false;

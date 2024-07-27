@@ -92,9 +92,7 @@ impl ConcurrencyManager {
 
         for key in keys.iter() {
             debug!("Updating lock for key: {:?}", key);
-            self.lock_table
-                .update_locks(key.clone(), &update_lock)
-                .await;
+            self.lock_table.update_locks(key, &update_lock).await;
         }
     }
 }

@@ -427,7 +427,7 @@ pub mod test {
 
                     lock_table_3
                         .update_locks(
-                            str_to_key("foo"),
+                            &str_to_key("foo"),
                             &UpdateLock::Abort(AbortUpdateLock {
                                 txn_id: lock_holder_txn.txn_id,
                             }),
@@ -469,7 +469,7 @@ pub mod test {
                     .await;
                 lock_table
                     .update_locks(
-                        str_to_key(key_str),
+                        &str_to_key(key_str),
                         &UpdateLock::Abort(AbortUpdateLock {
                             txn_id: lock_holder_txn.txn_id,
                         }),
@@ -588,7 +588,7 @@ pub mod test {
                 let commit_timestamp = lock_holder_timestamp.advance_by(2);
                 let can_gc_lock = lock_table
                     .update_locks(
-                        str_to_key(key_str),
+                        &str_to_key(key_str),
                         &UpdateLock::Commit(CommitUpdateLock {
                             txn_id: lock_holder_txn.txn_id,
                             commit_timestamp,
@@ -644,7 +644,7 @@ pub mod test {
                 // update_locks called
                 let can_gc_lock = lock_table
                     .update_locks(
-                        str_to_key(key_str),
+                        &str_to_key(key_str),
                         &UpdateLock::Abort(AbortUpdateLock {
                             txn_id: lock_holder_txn.txn_id,
                         }),
@@ -691,7 +691,7 @@ pub mod test {
 
                 let can_gc_lock = lock_table
                     .update_locks(
-                        str_to_key(key_str),
+                        &str_to_key(key_str),
                         &UpdateLock::Abort(AbortUpdateLock {
                             txn_id: lock_holder_txn.txn_id,
                         }),

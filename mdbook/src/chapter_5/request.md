@@ -20,15 +20,7 @@ Each command needs to implement an [execute](https://github.com/brianshih1/littl
 
 - CommitTxn first [fetches the transaction record](https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L254).  If the transaction record is aborted, it [returns an error](https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L265).
 
-- Otherwise, it begins committing the transaction. Firstly, it needs to 
-
-  perform a read refresh
-
-   to advance the read timestamp to the write timestamp. If you need a “refresher” on read refresh, look at 
-
-  this page
-
-  .
+- Otherwise, it begins committing the transaction. Firstly, it needs to perform a read refresh to advance the read timestamp to the write timestamp. If you need a “refresher” on read refresh, look at [this page](https://brianshih1.github.io/mini-key-value-db/chapter_3/read_refresh.html).
 
   - If the read refresh is unsuccessful, it [returns a ReadRefreshError](https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L271), which would restart the transaction.
   - If read refresh is successful, it [updates the transaction record](https://github.com/brianshih1/little-key-value-db/blob/66f355d1a03c488c4f0aee5b8dc66796398bb4de/src/execute/request.rs#L275) to be committed.
