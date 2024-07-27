@@ -10,7 +10,7 @@ use crate::latch_manager::latch_manager::{LatchGuard, LatchManager};
 use crate::lock_table::lock_table::{LockTable, LockTableGuardLink, UpdateLock, WaitForGuardError};
 use crate::storage::mvcc::KVStore;
 use crate::storage::Key;
-use tracing::error;
+use tracing::{debug, error};
 
 pub struct ConcurrencyManager {
     latch_manager: LatchManager<Key>,
@@ -51,7 +51,7 @@ impl ConcurrencyManager {
             let latch_guard = self.latch_manager.acquire(spans_to_acquire.clone()).await;
             let (should_wait, lock_guard) = self.lock_table.scan_and_enqueue(request).await;
             if should_wait {
-                self.latch_manager.release(latch_guard);
+                self.latch_manager.release(&latch_guard);
                 let wait_res = self.lock_table.wait_for(lock_guard).await;
                 if let Err(err) = wait_res {
                     match err {
@@ -76,8 +76,8 @@ impl ConcurrencyManager {
     /**
      * Release latches and dequeues the request from any lock tables.
      */
-    pub async fn finish_req(&self, guard: Guard) -> () {
-        self.latch_manager.release(guard.latch_guard);
+    pub async fn finish_req(&self, guard: &Guard) -> () {
+        self.latch_manager.release(&guard.latch_guard);
         self.lock_table.dequeue(guard.lock_guard.clone()).await;
     }
 
@@ -91,7 +91,7 @@ impl ConcurrencyManager {
         let keys = ConcurrencyManager::get_txn_lock_spans(txn.clone());
 
         for key in keys.iter() {
-            println!("Updating lock for key: {:?}", key);
+            debug!("Updating lock for key: {:?}", key);
             self.lock_table
                 .update_locks(key.clone(), &update_lock)
                 .await;
@@ -104,6 +104,7 @@ mod test {
     use std::time::Duration;
 
     use tokio::{sync::mpsc::channel, time};
+    use tracing::debug;
 
     #[tokio::test]
     async fn test_select() {
@@ -113,16 +114,16 @@ mod test {
         tokio::pin!(sleep);
 
         tokio::spawn(async move {
-            println!("sending!");
+            debug!("sending!");
             tx.send(12).await.unwrap();
         });
 
         tokio::select! {
             Some(ctrl) = rx.recv() => {
-                println!("Control is: {}", ctrl);
+                debug!("Control is: {}", ctrl);
             }
             _ = &mut sleep, if !sleep.is_elapsed() => {
-                println!("operation timed out");
+                debug!("operation timed out");
             }
         };
     }
@@ -133,13 +134,13 @@ mod test {
 
         tokio::spawn(async move {
             loop {
-                println!("Loop");
+                debug!("Loop");
                 let sleep = time::sleep(Duration::from_millis(10));
                 tokio::pin!(sleep);
 
                 tokio::select! {
                     _ = &mut sleep, if !sleep.is_elapsed() => {
-                        println!("operation timed out");
+                        debug!("operation timed out");
                     }
                 };
             }

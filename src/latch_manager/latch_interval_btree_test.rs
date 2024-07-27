@@ -5,6 +5,8 @@ mod Test {
         sync::{Arc, RwLock},
     };
 
+    use tracing::debug;
+
     use crate::latch_manager::latch_interval_btree::{
         BTree, InternalNode, LatchNode, LatchWaiters, LeafNode, Node, NodeKey, NodeLink,
         WeakNodeLink,
@@ -159,10 +161,10 @@ mod Test {
     pub fn print_node<K: NodeKey>(node: Rc<Node<K>>) {
         match node.as_ref() {
             Node::Internal(node) => {
-                println!("Internal. Keys: {:?}", node.keys);
+                debug!("Internal. Keys: {:?}", node.keys);
             }
             Node::Leaf(ref node) => {
-                println!(
+                debug!(
                     "Leaf. Keys: {:?}. Left start: {:?} Right start: {:?}",
                     node.start_keys,
                     get_first_key_from_weak_link(&node.left_ptr),
@@ -222,7 +224,7 @@ mod Test {
             let guard = latch.read().unwrap();
             match &*guard {
                 Node::Internal(ref node) => {
-                    println!(
+                    debug!(
                         "{}Internal. Keys: {:?}",
                         get_indent(depth),
                         node.keys.borrow()
@@ -233,7 +235,7 @@ mod Test {
                     }
                 }
                 Node::Leaf(ref node) => {
-                    println!(
+                    debug!(
                         "{}Leaf. Keys: {:?}. Left start: {:?} Right start: {:?}",
                         get_indent(depth),
                         node.start_keys.borrow(),
@@ -1258,7 +1260,6 @@ mod Test {
                 let temp = guard.as_internal_node();
                 let parent_guard = parent_latch.write().unwrap();
                 let did_steal = temp.steal_from_sibling(parent_guard.as_internal_node(), edge_idx);
-                println!("Did steal {}", did_steal);
                 drop(guard);
                 drop(parent_guard);
                 let expected_node = TestNode::Internal(TestInternalNode {

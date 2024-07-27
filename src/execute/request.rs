@@ -1,18 +1,17 @@
-use std::{
-    collections::{HashSet},
-};
+use std::collections::HashSet;
 
 use async_trait::async_trait;
 use rand::prelude::Distribution;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
     db::db::TxnLink,
     hlc::timestamp::Timestamp,
-    latch_manager::latch_interval_btree::{Range},
+    latch_manager::latch_interval_btree::Range,
     lock_table::lock_table::{AbortUpdateLock, CommitUpdateLock, UpdateLock},
     storage::{
-        mvcc::{MVCCGetParams},
+        mvcc::MVCCGetParams,
         mvcc_key::{create_intent_key, MVCCKey},
         txn::{TransactionStatus, TxnIntent},
         Key, Value,
@@ -406,7 +405,7 @@ impl Command for PutRequest {
                     .read()
                     .unwrap()
                     .append_lock_span(self.key.clone());
-                println!(
+                debug!(
                     "finished executing write for txn {} with key {:?}",
                     header.txn.read().unwrap().txn_id,
                     self.key.clone()

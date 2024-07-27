@@ -11,6 +11,7 @@ use tokio::{
     },
     time::{self, Duration},
 };
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
@@ -209,7 +210,7 @@ impl LockTable {
 
         let lock_guard =
             LockTableGuard::new_lock_table_guard_link(txn.clone(), is_read_only, spans.clone());
-        println!(
+        debug!(
             "created lock guard {} for request type: {}",
             lock_guard.guard_id,
             request.request_union.get_type_string()
@@ -221,17 +222,16 @@ impl LockTable {
                     .try_active_wait(lock_guard.clone(), is_read_only)
                     .await;
                 if should_wait {
-                    println!(
+                    debug!(
                         "Waiting for lock guard: {}. Request type: {}. Txn id: {}",
                         lock_guard.guard_id,
                         request.request_union.get_type_string(),
                         txn_id
                     );
                     *lock_guard.as_ref().should_wait.write().unwrap() = true;
-                    write_lock_state.print();
                     return (true, lock_guard);
                 } else {
-                    println!(
+                    debug!(
                         "No need to wait for lock guard: {}, request type: {}. Txn id: {}",
                         lock_guard.guard_id,
                         request.request_union.get_type_string(),
@@ -240,7 +240,13 @@ impl LockTable {
                 }
             }
         }
-        *lock_guard.as_ref().should_wait.write().unwrap() = false;
+
+        match lock_guard.as_ref().should_wait.write() {
+            Ok(mut write_guard) => *write_guard = false,
+            Err(e) => panic!("failed to acquire lock guard: {:?}", e),
+            // this shouldn't be possible as we just created the lock guard
+        };
+
         (false, lock_guard)
     }
 
@@ -262,11 +268,11 @@ impl LockTable {
 
         tokio::select! {
             Some(_) = rx.recv() => {
-                println!("finished waiting for lock!");
+                debug!("finished waiting for lock!");
                 return Ok(());
             }
             _ = &mut sleep, if !sleep.is_elapsed() => {
-                println!("operation timed out");
+                debug!("operation timed out");
                 let keys = &guard.keys;
                 for key in keys.iter() {
                     let key = &key.start_key;
@@ -279,12 +285,12 @@ impl LockTable {
                             .await;
                         match wait_res {
                             Ok(_) => {
-                                println!("Wait for push succeeded for pusher: {} and pushee: {}", pusher_txn_id, pushee_txn_id);
+                                debug!("Wait for push succeeded for pusher: {} and pushee: {}", pusher_txn_id, pushee_txn_id);
                             },
                             Err(err) => {
                                 // TODO: We need to clean up other lock_state too.
                                 // We should probably have a vec of lock_state collected so far
-                                println!("wait for push failed");
+                                debug!("wait for push failed");
                                 lock_state.request_done(guard.clone()).await;
 
                                 match err {
@@ -400,21 +406,21 @@ impl LockTable {
         let txn_id = match &update_lock {
             UpdateLock::Commit(commit) => commit.txn_id,
             UpdateLock::Abort(abort) => {
-                println!("updating locks for aborting txn: {}.", abort.txn_id);
+                debug!("updating locks for aborting txn: {}.", abort.txn_id);
                 abort.txn_id
             }
         };
 
         if let Some(holder) = holder_option {
             if holder.txn_id != txn_id {
-                println!(
+                debug!(
                     "holder is not the txn. Aborting txn: {}. Holder txn: {}",
                     txn_id, holder.txn_id
                 );
                 return false;
             }
 
-            println!(
+            debug!(
                 "Holder to set to none's txn: {}. key: {:?}",
                 holder.txn_id, key
             );
@@ -425,7 +431,7 @@ impl LockTable {
         if let UpdateLock::Commit(ref commit) = update_lock {
             lock_state.update_last_commit_timestamp(commit.commit_timestamp);
         }
-        println!(
+        debug!(
             "Calling lock is free to update locks for txn: {}. Reason: {}",
             txn_id,
             match &update_lock {
@@ -475,7 +481,7 @@ impl LockState {
      */
     pub async fn lock_is_free(&self) -> bool {
         {
-            println!("lock is free called!");
+            debug!("lock is free called!");
             let holder = self.lock_holder.read().unwrap();
             if holder.is_some() {
                 panic!("called lock_is_free with holder");
@@ -524,7 +530,7 @@ impl LockState {
      * we will also try to bump the txn's writeTimestamp.
      */
     pub async fn claim_reservation(&self, guard: LockTableGuardLink) {
-        println!("claiming reservation for guard: {}", guard.guard_id);
+        debug!("claiming reservation for guard: {}", guard.guard_id);
         self.bump_txn_write_timestamp(guard.txn.clone());
         self.update_reservation(Some(guard.clone()));
         guard.done_waiting_at_lock().await;
@@ -533,12 +539,12 @@ impl LockState {
     pub fn bump_txn_write_timestamp(&self, txn: TxnLink) {
         let last_commit_timestamp_option = self.last_committed_timestamp.read().unwrap();
         if let Some(last_commit_timestamp) = *last_commit_timestamp_option {
-            println!("Last commit timestamp is: {:?}", last_commit_timestamp);
+            debug!("Last commit timestamp is: {:?}", last_commit_timestamp);
 
             let mut txn = txn.write().unwrap();
             txn.write_timestamp = last_commit_timestamp.next_logical_timestamp();
         } else {
-            println!("No last commit timestamp on lockState")
+            debug!("No last commit timestamp on lockState")
         }
     }
 

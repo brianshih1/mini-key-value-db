@@ -2,7 +2,6 @@ use std::sync::{Arc, RwLock};
 
 use tokio::sync::mpsc::Sender;
 
-
 use crate::{
     concurrency::concurrency_manager::{ConcurrencyManager, Guard, SequenceReqError},
     db::{
@@ -68,38 +67,53 @@ impl Executor {
             let request_union = &request.request_union;
             let guard = self.concr_manager.sequence_req(&request).await;
 
-            if let Err(err) = &guard {
-                match err {
-                    &SequenceReqError::TxnAborted => return ExecuteResult::Err(ExecuteError::TxnAborted),
-                    &SequenceReqError::TxnCommitted => return ExecuteResult::Err(ExecuteError::TxnCommitted),
-                }
-            }
+            match &guard {
+                Ok(guard) => {
+                    let result = if request_union.is_read_only() {
+                        self.execute_read_only_request(&request, &guard).await
+                    } else {
+                        self.execute_write_request(&request, &guard).await
+                    };
+                    self.concr_manager.finish_req(guard).await;
+                    match result {
+                        Ok(result) => {
+                            // release latches and dequeue request from lockTable
 
-            let guard = guard.unwrap();
-            let result = if request_union.is_read_only() {
-                self.execute_read_only_request(&request, &guard).await
-            } else {
-                self.execute_write_request(&request, &guard).await
-            };
-            self.concr_manager.finish_req(guard).await;
-            match result {
-                Ok(result) => {
-                    // release latches and dequeue request from lockTable
-
-                    return Ok(result);
+                            return Ok(result);
+                        }
+                        Err(err) => match err {
+                            ResponseError::WriteIntentError(err) => {
+                                self.handle_write_intent_error(err.intent.clone());
+                            }
+                            ResponseError::ReadRefreshError => {
+                                return Err(ExecuteError::ReadRefreshFailure);
+                            }
+                            ResponseError::TxnAbortedError => {
+                                return Err(ExecuteError::TxnAborted);
+                            }
+                        },
+                    };
                 }
                 Err(err) => match err {
-                    ResponseError::WriteIntentError(err) => {
-                        self.handle_write_intent_error(err.intent.clone());
+                    &SequenceReqError::TxnAborted => {
+                        return ExecuteResult::Err(ExecuteError::TxnAborted)
                     }
-                    ResponseError::ReadRefreshError => {
-                        return Err(ExecuteError::ReadRefreshFailure);
-                    }
-                    ResponseError::TxnAbortedError => {
-                        return Err(ExecuteError::TxnAborted);
+                    &SequenceReqError::TxnCommitted => {
+                        return ExecuteResult::Err(ExecuteError::TxnCommitted)
                     }
                 },
-            };
+            }
+
+            if let Err(err) = &guard {
+                match err {
+                    &SequenceReqError::TxnAborted => {
+                        return ExecuteResult::Err(ExecuteError::TxnAborted)
+                    }
+                    &SequenceReqError::TxnCommitted => {
+                        return ExecuteResult::Err(ExecuteError::TxnCommitted)
+                    }
+                }
+            }
         }
     }
 

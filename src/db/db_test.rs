@@ -111,6 +111,8 @@ mod test {
             mod run_into_uncommitted_intent {
                 use std::sync::Arc;
 
+                use tracing::debug;
+
                 use crate::db::db::{CommitTxnResult, Timestamp, DB};
 
                 use crate::{
@@ -152,7 +154,7 @@ mod test {
                             }
                             CommitTxnResult::Fail(_) => panic!("failed to commit"),
                         };
-                        println!("Finished committing txn_1");
+                        debug!("Finished committing txn_1");
                     });
 
                     tokio::try_join!(task_1, task_2).unwrap();
@@ -350,6 +352,8 @@ mod test {
 
     #[cfg(test)]
     mod abort_txn {
+        use tracing::debug;
+
         use crate::{
             db::db::{Timestamp, DB},
             helpers::test_helpers::create_temp_dir,
@@ -371,9 +375,7 @@ mod test {
 
             let write_txn = db.begin_txn().await;
             db.write(key, 100, write_txn).await;
-            println!("Foooo");
             db.commit_txn(write_txn).await;
-            println!("ENDDD");
         }
     }
 
