@@ -200,6 +200,7 @@ impl LockTable {
      * and call ScanAndEnqueue again to continue finding other conflicts.
      */
     pub async fn scan_and_enqueue<'a>(&'a self, request: &Request) -> (bool, LockTableGuardLink) {
+        // TODO: No need to collect spans again
         let spans = request
             .request_union
             .collect_spans(request.metadata.txn.clone());
@@ -581,7 +582,8 @@ impl LockState {
      * try_active_wait returns whether a request's span needs to wait for a lock.
      * If yes, queue the request to the lock's queued_writers (or read_waiters if it's a read).
      *
-     * Note that this method does not actually wait.
+     * Note that this method does not actually wait. It just returns whether the request needs
+     * to wait.
      */
     pub async fn try_active_wait<'b>(&self, guard: LockTableGuardLink, is_read_only: bool) -> bool {
         if is_read_only && self.lock_holder.read().unwrap().is_none() {

@@ -52,6 +52,7 @@ impl ConcurrencyManager {
             let (should_wait, lock_guard) = self.lock_table.scan_and_enqueue(request).await;
             if should_wait {
                 self.latch_manager.release(&latch_guard);
+                // This waits until it's this specific request's turn, instead of just when the lock is released.
                 let wait_res = self.lock_table.wait_for(lock_guard).await;
                 if let Err(err) = wait_res {
                     match err {

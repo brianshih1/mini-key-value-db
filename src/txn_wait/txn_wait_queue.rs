@@ -194,11 +194,11 @@ impl TxnWaitQueue {
         let waiting_push_link = self.enqueue_and_push(pusher_txn_id, pushee_txn_id);
         let (query_dependents_handle, mut dependents_rx) =
             self.start_query_pusher_txn_dependents(pusher_txn_id, waiting_push_link.clone());
-        let mut rx = waiting_push_link.pushee_finalized_receiver.lock().await;
+        let mut pushee_finalized_rx = waiting_push_link.pushee_finalized_receiver.lock().await;
         let mut loop_count = 0;
         loop {
             loop_count += 1;
-            if loop_count > 25 {
+            if loop_count > 100 {
                 panic!(
                     "Exceeded count waiting for push. Pusher: {}. Pushee: {}",
                     pusher_txn_id, pushee_txn_id
@@ -240,7 +240,7 @@ impl TxnWaitQueue {
                     }
                     debug!("Received dependents. No cycles detected yet! Dependents: {:?}", dependents);
                 }
-                Some(_) = rx.recv() => {
+                Some(_) = pushee_finalized_rx.recv() => {
                     // ends the loop to query for dependents
                     query_dependents_handle.abort();
                     debug!("Pushee has finalized");
