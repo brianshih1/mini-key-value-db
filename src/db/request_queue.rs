@@ -1,8 +1,4 @@
-use std::{
-    sync::{
-        Arc,
-    },
-};
+use std::sync::Arc;
 
 use tokio::{
     spawn,
@@ -11,6 +7,7 @@ use tokio::{
         Mutex,
     },
 };
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::execute::{
@@ -73,7 +70,7 @@ impl TaskQueue {
                         Some(request) => match request.request {
                             TaskQueueRequestUnion::AbortTxn(abort_request) => {
                                 let txn_id = abort_request.txn_id;
-                                println!("Received an abort request for txn: {}", txn_id);
+                                debug!("Received an abort request for txn: {}", txn_id);
 
                                 let txn_request = RequestUnion::AbortTxn(AbortTxnRequest {});
                                 let txn = TaskQueue::get_txn(txns_cloned.clone(), txn_id);

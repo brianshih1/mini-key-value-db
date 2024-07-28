@@ -11,13 +11,12 @@ use tokio::{
     task::JoinHandle,
     time::{self, Duration},
 };
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
-    db::{
-        request_queue::{
-            AbortTxnQueueRequest, QueueResponseUnion, TaskQueueRequest, TaskQueueRequestUnion,
-        },
+    db::request_queue::{
+        AbortTxnQueueRequest, QueueResponseUnion, TaskQueueRequest, TaskQueueRequestUnion,
     },
     storage::{mvcc::KVStore, txn::TransactionStatus},
 };
@@ -87,7 +86,7 @@ impl WaitingPush {
 
     pub fn get_dependents(&self) -> Vec<Uuid> {
         let set = self.dependents.read().unwrap();
-        println!("Dependents len is: {}", set.len());
+        debug!("Dependents len is: {}", set.len());
         set.iter().map(|a| a.clone()).collect()
     }
 
@@ -128,7 +127,7 @@ impl TxnWaitQueue {
                     .push(waiting_push.clone());
             }
             None => {
-                println!(
+                debug!(
                     "TxnWaitQ - No pending_txn found for pushee: {}. Creating one",
                     pushee_txn_id
                 );
@@ -188,18 +187,18 @@ impl TxnWaitQueue {
         pusher_txn_id: Uuid,
         pushee_txn_id: Uuid,
     ) -> Result<PushTxnResponse, WaitForPushError> {
-        println!(
+        debug!(
             "Wait_for_push called. Pusher: {}. Pushee: {}",
             pusher_txn_id, pushee_txn_id
         );
         let waiting_push_link = self.enqueue_and_push(pusher_txn_id, pushee_txn_id);
         let (query_dependents_handle, mut dependents_rx) =
             self.start_query_pusher_txn_dependents(pusher_txn_id, waiting_push_link.clone());
-        let mut rx = waiting_push_link.pushee_finalized_receiver.lock().await;
+        let mut pushee_finalized_rx = waiting_push_link.pushee_finalized_receiver.lock().await;
         let mut loop_count = 0;
         loop {
             loop_count += 1;
-            if loop_count > 25 {
+            if loop_count > 100 {
                 panic!(
                     "Exceeded count waiting for push. Pusher: {}. Pushee: {}",
                     pusher_txn_id, pushee_txn_id
@@ -234,17 +233,17 @@ impl TxnWaitQueue {
                         let response = push_txn_rx.recv().await.unwrap();
                         match response {
                             QueueResponseUnion::AbortTxn(_) => {
-                                println!("Ending waitForPush, finished aborting pushee: {}", pushee_txn_id);
+                                debug!("Ending waitForPush, finished aborting pushee: {}", pushee_txn_id);
                                 return Ok(PushTxnResponse{})
                             },
                         }
                     }
-                    println!("Received dependents. No cycles detected yet! Dependents: {:?}", dependents);
+                    debug!("Received dependents. No cycles detected yet! Dependents: {:?}", dependents);
                 }
-                Some(_) = rx.recv() => {
+                Some(_) = pushee_finalized_rx.recv() => {
                     // ends the loop to query for dependents
                     query_dependents_handle.abort();
-                    println!("Pushee has finalized");
+                    debug!("Pushee has finalized");
                     return Ok(PushTxnResponse{});
                 }
             }
@@ -269,7 +268,7 @@ impl TxnWaitQueue {
                     .concat()
             }
             None => {
-                println!("No pushee for {} found when get_dependents", txn_id);
+                debug!("No pushee for {} found when get_dependents", txn_id);
                 Vec::new()
             }
         }

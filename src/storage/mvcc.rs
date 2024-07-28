@@ -1,5 +1,6 @@
 use rand::distributions::{Alphanumeric, DistString};
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{db::db::TxnLink, hlc::timestamp::Timestamp};
@@ -299,7 +300,7 @@ impl KVStore {
 
         if let Some(uncommitted_value) = self.get_uncommitted_value(&intent_key) {
             if uncommitted_value.txn_metadata.txn_id != txn_id {
-                println!("MVCC intent owned by another transaction. Failed to resolve");
+                debug!("MVCC intent owned by another transaction. Failed to resolve");
                 return;
             }
             self.storage.delete_mvcc(&intent_key);

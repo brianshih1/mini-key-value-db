@@ -72,9 +72,12 @@ Even when the lock_holder is `None`, which means that the uncommitted intent has
 
 Pending requests take the form of a lock table guard. These requests need to wait for their turn. Read-only requests are placed inside the `waiting_readers` and write requests are placed inside `queued_writers`.
 
-When the uncommitted intent has been resolved, all `waiting_readers` may be released. The reason that all readers can be released is that readers only need to wait if the uncommitted write intent has a smaller timestamp to prevent read-write conflicts. If the read request is able to acquire the latches and perform the read, the next uncommitted write intent will have a greater timestamp since it will consult the timestamp oracle.
+When the uncommitted intent has been resolved, all `waiting_readers` may be released. This is because the readers only need to ensure that the there are no uncommitted write intent with a smaller timestamp in order to read-write conflicts.
+Once the current write intent is committed, the read request will be executed. If it succeeds, it will update the
+timestamp oracle with the read's keys. This way, the next write will be guaranteed to commit at a higher timestamp
+than the read request's timestamp, thus avoiding write-read conflicts.
 
-On the other hand, only one `queued_writers` is released. This is because there can only be one uncommitted write intent at a time, so releasing all the writers at once will likely result in conflicts again. When a queued writer is released, it is appointed to be the `reservation`. `Reservation` denotes that a write request is in progress and will create an uncommitted intent.
+On the other hand, when an uncommitted intent is resolved, only one `queued_writers` is released. This is because there can only be one uncommitted write intent at a time, so releasing all the writers at once will result in conflicts again. When a queued writer is released, it is appointed to be the `reservation`. `Reservation` denotes that a write request is in progress and will create an uncommitted intent.
 
 There are a few invariants for the lock state:
 

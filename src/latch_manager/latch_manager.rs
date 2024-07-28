@@ -75,7 +75,7 @@ impl<K: NodeKey> LatchManager<K> {
         }
     }
 
-    pub fn release(&self, guard: LatchGuard<K>) -> () {
+    pub fn release(&self, guard: &LatchGuard<K>) -> () {
         for span in guard.spans.iter() {
             self.tree.delete(span.start_key.clone())
         }
@@ -113,7 +113,7 @@ mod test {
                 println!("sleeping!");
                 sleep(Duration::from_millis(100)).await;
                 println!("releasing!");
-                lm2.release(guard)
+                lm2.release(&guard)
             });
 
             lm.acquire(Vec::from([
